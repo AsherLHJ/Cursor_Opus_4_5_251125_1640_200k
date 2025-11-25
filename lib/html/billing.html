@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="billing.title">检索账单</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📄</text></svg>">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: #1a1a1a;
+            color: #e5e5e5;
+            padding: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+        }
+
+        .header h1 {
+            color: #fff;
+            font-size: 22px;
+            font-weight: 600;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .user-info a {
+            color: #e5e5e5;
+            text-decoration: none;
+            background: #333;
+            border: 1px solid #555;
+            padding: 8px 12px;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .user-info a:hover {
+            background: #444;
+            border-color: #666;
+        }
+
+        .content {
+            padding: 24px;
+            background: #111;
+        }
+
+        .pricing-info {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 24px;
+            border-left: 4px solid #4a9eff;
+            box-shadow: 0 2px 8px rgba(74, 158, 255, 0.1);
+        }
+
+        .pricing-info h3 {
+            color: #fff;
+            font-size: 1.1em;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .pricing-info ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .pricing-info li {
+            padding: 8px 0;
+            color: #e5e5e5;
+            font-size: 0.95em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .pricing-info li:before {
+            content: "•";
+            color: #4a9eff;
+            font-weight: bold;
+            font-size: 1.2em;
+        }
+
+        .billing-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            background: #1a1a1a;
+            border: 1px solid #333;
+        }
+
+        .billing-table th,
+        .billing-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #333;
+        }
+
+        .billing-table th {
+            background: #222;
+            font-weight: 600;
+            color: #fff;
+            position: sticky;
+            top: 0;
+            border-bottom: 2px solid #4a9eff;
+        }
+
+        .billing-table tbody tr {
+            transition: all 0.3s ease;
+            background: #1a1a1a;
+        }
+
+        .billing-table tr:hover {
+            background: #2a2a2a;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(74, 158, 255, 0.1);
+        }
+
+        .type-badge {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .type-badge:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+        }
+
+        .type-normal {
+            background: linear-gradient(135deg, #4a9eff 0%, #0066cc 100%);
+            color: white;
+        }
+
+        .type-distill {
+            background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+            color: white;
+        }
+
+        .cost-amount {
+            font-weight: 600;
+            color: #ff6b6b;
+            font-size: 1.1em;
+            transition: all 0.3s ease;
+        }
+
+        .cost-amount:hover {
+            transform: scale(1.05);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #888;
+            font-style: italic;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 12px;
+            margin: 20px 0;
+            border: 2px dashed #444;
+        }
+
+        .empty-state h3 {
+            margin-bottom: 10px;
+            color: #fff;
+            font-weight: 600;
+            font-size: 1.2em;
+        }
+
+        .empty-state p {
+            color: #888;
+            font-size: 0.95em;
+        }
+
+        .error-message {
+            background: #2d1b1b;
+            color: #ff6b6b;
+            border: 1px solid #4a2626;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+            border-left: 4px solid #dc3545;
+            box-shadow: 0 2px 8px rgba(220, 53, 69, 0.1);
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 10px;
+            }
+
+            .header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 20px;
+            }
+
+            .user-info {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+
+            .content {
+                padding: 20px;
+            }
+
+            .billing-table {
+                font-size: 0.875rem;
+            }
+
+            .billing-table th,
+            .billing-table td {
+                padding: 8px 10px;
+            }
+
+            .type-badge {
+                padding: 4px 10px;
+                font-size: 0.75rem;
+            }
+
+            .pricing-info {
+                padding: 16px;
+                margin-bottom: 20px;
+            }
+
+            .pricing-info h3 {
+                font-size: 1em;
+            }
+
+            .pricing-info li {
+                font-size: 0.875em;
+                padding: 6px 0;
+            }
+        }
+
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1a1a1a;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+
+        /* 确保所有输入元素在暗色主题下的一致性 */
+        input, select, button {
+            color-scheme: dark;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 data-i18n="billing.title">📊 检索账单</h1>
+                        <div class="user-info">
+                                <span id="userWelcome">
+                                    <span id="welcomeName" data-i18n="common.welcome_guest">欢迎，游客</span>
+                                    <span class="sep"> | </span>
+                                    <span>
+                                        <strong data-i18n="common.balance">余额</strong>：
+                                        <span id="userBalance">--</span>
+                                        <span data-i18n="common.credit_unit">检索点</span>
+                                    </span>
+                                </span>
+                                <a href="index.html" data-i18n="common.back_home">返回首页</a>
+                                <a href="#" id="logoutBtn" data-i18n="common.logout">退出登录</a>
+                        </div>
+        </div>
+
+        <div class="content">
+            <div class="pricing-info">
+                <h3 data-i18n="billing.pricing_info.title">💰 计费说明</h3>
+                <ul>
+                    <li data-i18n="billing.pricing_info.chinese_papers">中文刊物：每篇消费 1 检索点</li>
+                    <li data-i18n="billing.pricing_info.english_papers">英文刊物：每篇消费 2 检索点</li>
+                    <li data-i18n="billing.pricing_info.distill_discount">蒸馏检索：标准检索价格的 0.1 倍（即中文 0.1 点/篇，英文 0.2 点/篇）</li>
+                </ul>
+            </div>
+
+            <div id="errorMessage" class="error-message"></div>
+            
+            <div id="loadingState" class="loading">
+                <div data-i18n="common.loading">加载中...</div>
+            </div>
+
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <h3 data-i18n="billing.empty">暂无账单记录</h3>
+                <p>您还没有产生任何检索点花费</p>
+            </div>
+
+            <div id="billingContent" style="display: none;">
+                <table class="billing-table">
+                    <thead>
+                        <tr>
+                            <th data-i18n="billing.columns.time">检索时间</th>
+                            <th data-i18n="billing.columns.type">检索类型</th>
+                            <th data-i18n="billing.columns.count">检索篇数</th>
+                            <th data-i18n="billing.columns.cost">检索点花费</th>
+                        </tr>
+                    </thead>
+                    <tbody id="billingTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/i18n.js"></script>
+    <script>
+                // 欢迎语与登录校验
+                function updateWelcome(){
+                    const username = localStorage.getItem('username');
+                    const nameEl = document.getElementById('welcomeName');
+                    if (!nameEl) return;
+                    if (username) {
+                        const lang = i18n.getLang();
+                        nameEl.textContent = (lang==='zh' ? '欢迎，' : 'Welcome, ') + username;
+                    } else {
+                        nameEl.textContent = (i18n.getLang()==='zh' ? '欢迎，游客' : 'Welcome, Guest');
+                    }
+                }
+
+                function checkLogin() {
+                        const userId = localStorage.getItem('userId');
+                        const username = localStorage.getItem('username');
+                        if (!userId || !username) {
+                                window.location.href = '/login.html';
+                                return false;
+                        }
+                        updateWelcome();
+                        return true;
+                }
+
+                // 余额获取（与 index 保持一致）
+                let userBalanceCache = null;
+                let lastBalanceFetchTs = 0;
+                async function fetchUserBalance(){
+                    const uid = parseInt(localStorage.getItem('userId') || '0', 10);
+                    const balanceEl = document.getElementById('userBalance');
+                    if (!balanceEl) return;
+                    if (!uid){
+                        balanceEl.textContent = i18n.getLang()==='zh' ? '请登录' : 'Login required';
+                        return;
+                    }
+                    const now = Date.now();
+                    if (userBalanceCache !== null && now - lastBalanceFetchTs < 60000){
+                        balanceEl.textContent = userBalanceCache;
+                        return;
+                    }
+                    try{
+                        balanceEl.textContent = i18n.getLang()==='zh' ? '加载中...' : 'Loading...';
+                        const res = await fetch('/api/user_info?uid=' + uid);
+                        if (!res.ok) throw new Error('HTTP ' + res.status);
+                        const data = await res.json();
+                        if (data.success && data.user_info && typeof data.user_info.balance !== 'undefined'){
+                            userBalanceCache = data.user_info.balance;
+                            lastBalanceFetchTs = now;
+                            balanceEl.textContent = userBalanceCache;
+                        } else {
+                            balanceEl.textContent = i18n.getLang()==='zh' ? '获取失败' : 'Failed';
+                        }
+                    } catch(e){
+                        console.error('获取余额失败:', e);
+                        balanceEl.textContent = '--';
+                    }
+                }
+
+        // 显示错误信息
+        function showError(message) {
+            const errorDiv = document.getElementById('errorMessage');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+            setTimeout(() => {
+                errorDiv.style.display = 'none';
+            }, 5000);
+        }
+
+        // 格式化时间
+        function formatTime(timeStr) {
+            if (!timeStr) return '';
+            try {
+                let s = String(timeStr);
+                if (s.startsWith('UTC-')) s = s.slice(4);
+                // 转为 ISO UTC 再解析
+                const iso = s.replace(' ', 'T') + 'Z';
+                const date = new Date(iso);
+                if (isNaN(date.getTime())) return timeStr;
+                return date.toLocaleString();
+            } catch (e) {
+                return String(timeStr);
+            }
+        }
+
+        // 加载账单数据
+        async function loadBilling() {
+            const userId = localStorage.getItem('userId');
+            if (!userId) return;
+
+            try {
+                const response = await fetch(`/api/billing?uid=${userId}`);
+                const data = await response.json();
+
+                document.getElementById('loadingState').style.display = 'none';
+
+                if (!data.success) {
+                    showError(i18n.t('billing.load_error') + ': ' + (data.message || data.error));
+                    return;
+                }
+
+                const records = data.records || [];
+                
+                if (records.length === 0) {
+                    document.getElementById('emptyState').style.display = 'block';
+                    return;
+                }
+
+                // 显示账单表格
+                document.getElementById('billingContent').style.display = 'block';
+                const tbody = document.getElementById('billingTableBody');
+                tbody.innerHTML = '';
+
+                records.forEach(record => {
+                    const row = document.createElement('tr');
+                    
+                    // 检索时间
+                    const timeCell = document.createElement('td');
+                    timeCell.textContent = formatTime(record.query_time);
+                    row.appendChild(timeCell);
+
+                    // 检索类型
+                    const typeCell = document.createElement('td');
+                    const typeBadge = document.createElement('span');
+                    typeBadge.className = 'type-badge';
+                    
+                    if (record.is_distillation) {
+                        typeBadge.className += ' type-distill';
+                        typeBadge.textContent = i18n.t('billing.type.distill');
+                    } else {
+                        typeBadge.className += ' type-normal';
+                        typeBadge.textContent = i18n.t('billing.type.normal');
+                    }
+                    
+                    typeCell.appendChild(typeBadge);
+                    row.appendChild(typeCell);
+
+                    // 检索篇数
+                    const countCell = document.createElement('td');
+                    countCell.textContent = (record.total_papers_count || 0).toLocaleString();
+                    row.appendChild(countCell);
+
+                    // 检索点花费
+                    const costCell = document.createElement('td');
+                    const costSpan = document.createElement('span');
+                    costSpan.className = 'cost-amount';
+                    costSpan.textContent = (record.actual_cost || 0).toLocaleString();
+                    costCell.appendChild(costSpan);
+                    row.appendChild(costCell);
+
+                    tbody.appendChild(row);
+                });
+
+            } catch (error) {
+                document.getElementById('loadingState').style.display = 'none';
+                showError(i18n.t('billing.load_error') + ': ' + error.message);
+            }
+        }
+
+        // 退出登录
+        document.getElementById('logoutBtn').addEventListener('click', (e) => {
+            e.preventDefault();
+            localStorage.removeItem('userId');
+            localStorage.removeItem('username');
+            window.location.href = '/login.html';
+        });
+
+        // 多语言切换时刷新欢迎语
+        window.apw_afterLangChange = function(){ updateWelcome(); };
+
+        // 页面初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            if (checkLogin()) {
+                fetchUserBalance();
+                loadBilling();
+            }
+        });
+    </script>
+</body>
+</html>

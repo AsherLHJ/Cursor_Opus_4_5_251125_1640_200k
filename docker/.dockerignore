@@ -1,0 +1,25 @@
+# Exclude VCS and build caches
+.git
+.gitignore
+.gitattributes
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+
+# Local envs and tools
+.venv/
+.env
+
+# Large or local-only data
+Data/
+Result/
+Log/
+APIKey/
+
+# IDE/editor
+.idea/
+.vscode/

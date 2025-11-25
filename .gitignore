@@ -1,0 +1,80 @@
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*.class
+
+# Native extensions
+*.so
+*.pyd
+
+# Build outputs
+build/
+dist/
+wheels/
+share/python-wheels/
+*.egg-info/
+.eggs/
+*.egg
+MANIFEST
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Tool caches & coverage artifacts
+.pytest_cache/
+.cache
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.tox/
+.nox/
+htmlcov/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+cover/
+
+# Logs & sqlite dbs
+*.log
+db.sqlite3
+db.sqlite3-journal
+
+# Notebooks
+.ipynb_checkpoints/
+
+# IDE / editor settings
+.idea/
+.vscode/
+.spyderproject
+.spyproject
+.ropeproject
+
+# Cursor generated files
+.cursorignore
+.cursorindexingignore
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local configuration & data
+Data/
+config.remote.json
+config.local.json
+
+# Project specific sensitive data
+BibPreProcess/
+DB_tools/APIKey/
+DB_tools/PaperAndTagInfo/

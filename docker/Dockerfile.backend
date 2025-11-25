@@ -1,0 +1,30 @@
+# Backend API container
+FROM python:3.10-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir openai mysql-connector-python bcrypt redis
+
+COPY . /app
+
+# Create runtime dirs
+RUN mkdir -p Data Result Log
+
+ENV PORT=8080 \
+    DB_HOST=db \
+    DB_PORT=3306 \
+    DB_USER=root \
+    DB_PASSWORD=changeme \
+    DB_NAME=PaperDB \
+    CORS_ALLOW_ORIGIN=*
+
+EXPOSE 8080
+CMD ["python", "main.py"]

@@ -1,0 +1,23 @@
+services:
+  backend1:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: apw-backend-1
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    # 后端将完全从 config.json 读取 DB/Redis 配置
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: apw-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend1
+    ports:
+      - "18080:80"
+
+

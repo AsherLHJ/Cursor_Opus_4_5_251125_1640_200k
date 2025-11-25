@@ -1,0 +1,220 @@
+classDiagram
+    direction TB
+
+    %% ==========================================
+    %% MySQL Database Structure (Persistent Store)
+    %% ==========================================
+    namespace MySQL {
+        class UserInfo {
+            +int uid (PK)
+            +varchar username
+            +varchar password
+            +decimal balance
+            +int permission
+            +datetime created_at
+        }
+        
+        class AdminInfo {
+            +int uid (PK)
+            +varchar username
+            +varchar password
+            +varchar role
+        }
+
+        class ApiList {
+            +int api_index (PK)
+            +varchar api_key
+            +varchar api_name
+            +int rpm_limit
+            +bigint tpm_limit
+            +tinyint is_active
+        }
+
+        class ContentList {
+            +varchar Name (PK)
+            +text FullName
+            +text DataRange
+            +int Price
+            +datetime UpdateDate
+        }
+        
+        class ContentListYearNumber {
+            +varchar Name (PK)
+            +text YearNumberJson
+        }
+
+        class PaperInfo {
+            +varchar DOI (PK)
+            +json Bib
+        }
+
+        class InfoTag {
+            +varchar tag (PK)
+            +varchar tagtype
+        }
+
+        class InfoPaperWithTag {
+            +int id (PK)
+            +varchar Name (FK)
+            +varchar Tag (FK)
+        }
+
+        class SearchResult {
+            +int id (PK)
+            +int uid
+            +varchar query_id
+            +varchar doi
+            +json ai_result
+            +datetime created_at
+        }
+        
+        class QueryLog {
+            +varchar query_id (PK)
+            +int uid
+            +text search_params
+            +datetime start_time
+            +datetime end_time
+            +varchar status
+        }
+    }
+
+    %% ==========================================
+    %% Redis Data Structure (Cache & Hot Data)
+    %% ==========================================
+    namespace Redis {
+        %% --- User Data ---
+        class UserInfoCache {
+            Key: user:<uid>:info
+            Type: Hash
+            Fields: username, permission
+            TTL: 8h
+        }
+        class UserBalance {
+            Key: user:<uid>:balance
+            Type: String/Hash
+            Value: decimal_amount
+            TTL: 8h
+        }
+        class UserHistory {
+            Key: user:<uid>:history
+            Type: ZSet
+            Member: query_id
+            Score: timestamp
+        }
+
+        %% --- Admin Data ---
+        class AdminSession {
+            Key: admin:session:<token>
+            Type: String
+            Value: uid
+            TTL: SessionTime
+        }
+        class AdminCache {
+            Key: admin:<uid>:info
+            Type: Hash
+            Fields: username, role
+            TTL: 8h
+        }
+
+        %% --- System Metadata (Preloaded) ---
+        class JournalInfo {
+            Key: sys:journals:info
+            Type: Hash
+            Field: Name
+            Value: JSON(FullName, DataRange)
+        }
+        class JournalPrice {
+            Key: sys:journals:price
+            Type: Hash
+            Field: Name
+            Value: Integer
+        }
+        class TagInfo {
+            Key: sys:tags:info
+            Type: Hash
+            Field: TagName
+            Value: Type
+        }
+        class TagIndex {
+            Key: sys:tag_journals:<Tag>
+            Type: Set
+            Members: JournalName[]
+        }
+        class PaperBlock {
+            Key: meta:<JournalName>:<Year>
+            Type: Hash
+            Field: DOI
+            Value: Compressed_Bib_String
+        }
+
+        %% --- Task & Queue ---
+        class TaskQueue {
+            Key: task:<uid>:<qid>:pending_blocks
+            Type: List
+            Value: BlockKey (meta:...)
+        }
+        class QueryStatus {
+            Key: query:<uid>:<qid>:status
+            Type: Hash
+            Fields: total_blocks, finished_blocks, state
+        }
+        class QueryResultCache {
+            Key: result:<uid>:<qid>
+            Type: Hash
+            Field: DOI
+            Value: JSON_Result
+        }
+        class PauseSignal {
+            Key: query:<uid>:<qid>:pause_signal
+            Type: String
+            Value: "1"
+        }
+
+        %% --- Billing & Monitoring ---
+        class BillingQueue {
+            Key: billing_queue:<uid>
+            Type: List
+            Value: (ts, qid, doi, cost)
+        }
+        class DownloadQueue {
+            Key: download_queue
+            Type: List
+            Value: (uid, qid, type)
+        }
+    }
+
+    %% ==========================================
+    %% Relationships & Data Flow
+    %% ==========================================
+
+    %% 1. Initialization / Static Data Sync
+    ContentList ..> JournalInfo : Preload Script\n(MySQL -> Redis)
+    ContentList ..> JournalPrice : Preload Script
+    InfoTag ..> TagInfo : Preload Script
+    InfoPaperWithTag ..> TagIndex : Preload Script
+    PaperInfo ..> PaperBlock : Preload Script\n(Full Load / Lazy Load)
+    ContentListYearNumber ..> JournalInfo : Preload Script
+
+    %% 2. User Authentication & Lazy Loading
+    UserInfo "1" -- "0..1" UserInfoCache : Lazy Load (Read Miss)\nWrite Behind (Update)
+    UserInfo "1" -- "0..1" UserBalance : Lazy Load (Read Miss)\nWrite Behind (Update)
+
+    %% 3. Admin Authentication
+    AdminInfo ..> AdminSession : Login Create
+    AdminInfo ..> AdminCache : Cache Hot Data
+
+    %% 4. Billing Flow (Async)
+    UserBalance ..> BillingQueue : Worker Decr Balance\nPush Log
+    BillingQueue ..> UserInfo : BillingSyncer Thread\n(Async Batch Update)
+
+    %% 5. Task Execution Flow
+    TaskQueue ..> PaperBlock : Worker Reads Data
+    PaperBlock ..> QueryResultCache : Worker Computes & Writes
+    QueryResultCache ..> SearchResult : Archiver Thread\n(Async Archive DONE)
+    QueryStatus ..> QueryLog : Archiver Thread\n(Update Status)
+
+    %% 6. Foreign Keys / Logical Links
+    InfoPaperWithTag --> ContentList : FK Name
+    InfoPaperWithTag --> InfoTag : FK Tag
+    SearchResult --> UserInfo : FK uid
+    QueryLog --> UserInfo : FK uid

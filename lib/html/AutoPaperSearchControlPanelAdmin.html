@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-i18n="admin.title">AutoPaper 管理员控制面板</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .user-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .user-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 500;
+        }
+        
+        .user-table td {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .user-table tr:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .edit-input {
+            width: 100px;
+            padding: 8px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .edit-input:focus {
+            outline: none;
+            border-color: #4facfe;
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            margin: 0 5px;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(79, 172, 254, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: #666;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        
+        .nav-links {
+            text-align: center;
+            margin-top: 30px;
+        }
+        
+        .nav-links a {
+            color: #4facfe;
+            text-decoration: none;
+            margin: 0 15px;
+            font-weight: 500;
+        }
+        
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+        
+        .control-section {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .control-section h3 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 2px solid #4facfe;
+            padding-bottom: 10px;
+        }
+        
+        .setting-item {
+            display: flex;
+            align-items: center;
+            margin: 15px 0;
+        }
+        
+        .setting-item label {
+            font-weight: 500;
+            margin-right: 15px;
+            min-width: 100px;
+        }
+        
+        .toggle-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            min-width: 120px;
+        }
+        
+        .toggle-btn.enabled {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+        }
+        
+        .toggle-btn.disabled {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            color: white;
+        }
+        
+        .toggle-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 data-i18n="admin.title">管理员控制面板</h1>
+            <p data-i18n="admin.subtitle">用户权限和余额管理</p>
+        </div>
+        
+        <div class="content">
+            <div id="message"></div>
+            
+            <!-- 注册功能控制区域 -->
+            <div class="control-section">
+                <h3>系统设置</h3>
+                <div class="setting-item">
+                    <label for="registrationToggle">注册功能：</label>
+                    <button id="registrationToggle" class="toggle-btn" onclick="toggleRegistration()">
+                        <span id="registrationStatus">检查中...</span>
+                    </button>
+                </div>
+                
+                <div class="setting-item">
+                    <label for="bcryptRounds">bcrypt rounds：</label>
+                    <input type="number" id="bcryptRounds" class="edit-input" min="4" max="16" step="1" value="12">
+                    <button class="btn btn-primary" onclick="updateBcryptRounds()">保存</button>
+                    <span id="bcryptRoundsHint" style="margin-left:10px;color:#666;">范围 4-16，默认 12。修改仅影响后续新密码。</span>
+                </div>
+                <div class="setting-item">
+                    <label for="workerReqPerMin">工作线程速率(篇/分钟)：</label>
+                    <input type="number" id="workerReqPerMin" class="edit-input" min="10" max="1000" step="10" value="120">
+                    <button class="btn btn-primary" onclick="saveWorkerReqPerMin()">保存</button>
+                    <span style="margin-left:10px;color:#666;">默认 120。用于限制每个工作线程速率上限。</span>
+                </div>
+                <div class="setting-item">
+                    <label data-i18n="admin.worker_seconds_per_item_label" for="workerSecondsPerItem">单线程每篇耗时(秒)：</label>
+                    <input type="number" id="workerSecondsPerItem" class="edit-input" min="0.1" max="120" step="0.1" value="0.5">
+                    <button class="btn btn-primary" onclick="saveWorkerSecondsPerItem()" data-i18n="admin.save">保存</button>
+                    <span id="workerSecondsHint" style="margin-left:10px;color:#666;" data-i18n="admin.worker_seconds_per_item_hint">等价于每线程速率 60/X 篇/分钟（保存时自动换算）</span>
+                </div>
+                <div class="setting-item">
+                    <label data-i18n="admin.auto_refresh_ms_label" for="autoRefreshMs">页面刷新间隔(ms)：</label>
+                    <input type="number" id="autoRefreshMs" class="edit-input" min="1000" max="60000" step="500" value="5000">
+                    <button class="btn btn-primary" onclick="saveAutoRefreshMs()" data-i18n="admin.save">保存</button>
+                    <span id="autoRefreshHint" style="margin-left:10px;color:#666;">范围 1000-60000，默认 5000</span>
+                </div>
+            </div>
+
+            <!-- 新增：容量与队列状态 -->
+            <div class="control-section" id="capacitySection">
+                <h3 data-i18n="admin.capacity_queue">容量与队列状态</h3>
+                <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:10px; font-size:12px; color:#666;">
+                    <span><span data-i18n="admin.backend_label">后端：</span><span id="capBackendVal">…</span></span>
+                    <span><span data-i18n="admin.effective_capacity_label">系统最大容量：</span><span id="capEffVal">--</span><span>&nbsp;<span data-i18n="admin.papers_per_min_unit">篇/分钟</span></span></span>
+                    <span><span data-i18n="admin.occupied_capacity_label">已占用容量：</span><span id="capOccVal">--</span><span>&nbsp;<span data-i18n="admin.papers_per_min_unit">篇/分钟</span></span></span>
+                    <span><span data-i18n="admin.remaining_capacity_label">剩余容量：</span><span id="capRemVal">--</span><span>&nbsp><span data-i18n="admin.papers_per_min_unit">篇/分钟</span></span></span>
+                    <span><span data-i18n="admin.running_perm_sum_label">运行中任务权限和：</span><span id="capRunPermSum">--</span></span>
+                    <span><span data-i18n="admin.global_backlog_label">全局排队：</span><span id="capBacklogVal">--</span></span>
+                    <span><span data-i18n="admin.rds_label">RDS：</span><span id="capDbVal">…</span></span>
+                </div>
+                <div class="setting-item" style="margin: 10px 0 20px 0;">
+                    <label data-i18n="admin.tokens_per_req_label">单篇文献 token 总消耗：</label>
+                    <input type="number" id="tokensPerReq" class="edit-input" min="50" max="5000" step="10" value="--">
+                    <span style="margin-left:8px;color:#666;" data-i18n="admin.tokens_per_req_hint">用于计算最大容量：Σ(TPM_active) / tokens_per_req</span>
+                    <button class="btn btn-primary" style="margin-left:12px;" onclick="saveTokensPerReq()" data-i18n="admin.save">保存</button>
+                </div>
+                <table class="user-table">
+                    <thead>
+                        <tr>
+                            <th data-i18n="admin.api_index">API索引</th>
+                            <th data-i18n="admin.account_name">账户名</th>
+                            <th data-i18n="admin.is_active">启用</th>
+                            <th data-i18n="admin.rpm_limit">RPM限额</th>
+                            <th data-i18n="admin.used_rpm">本分钟已用(RPM)</th>
+                            <th data-i18n="admin.tpm_limit">TPM限额</th>
+                            <th data-i18n="admin.used_tpm">本分钟已用(TPM)</th>
+                            <th data-i18n="admin.actions">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="capacityTableBody"></tbody>
+                </table>
+            </div>
+            
+            <div id="loading" class="loading" data-i18n="admin.loading_users">
+                正在加载用户数据...
+            </div>
+            
+            <div id="userTableContainer" style="display: none;">
+                <table class="user-table">
+                    <thead>
+                        <tr>
+                            <th data-i18n="admin.user_id">用户ID</th>
+                            <th data-i18n="admin.username">用户名</th>
+                            <th data-i18n="admin.balance">余额</th>
+                            <th data-i18n="admin.permission_rate">每分钟可查询篇数（默认60-120）</th>
+                            <th data-i18n="admin.actions">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="userTableBody">
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="nav-links">
+                <a href="/index.html" data-i18n="admin.back_home">返回首页</a>
+                <a href="/login.html" data-i18n="admin.login">登录</a>
+                <a href="/register.html" data-i18n="admin.register">注册</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/i18n.js"></script>
+    <script>
+        let users = [];
+        
+        // 页面加载时获取用户数据和注册状态
+        let _autoRefreshTimer = null;
+        window.onload = function() {
+            loadUsers();
+            loadRegistrationStatus();
+            loadBcryptRounds();
+            loadCapacity();
+            loadTokensPerReq();
+            loadWorkerReqPerMin();
+            // 根据每线程速率计算秒/篇显示
+            setTimeout(syncSecondsFromReqRate, 200);
+            loadAutoRefreshMs().then(() => startAutoRefresh());
+        };
+        
+        // 加载注册功能状态
+        function loadRegistrationStatus() {
+            fetch('/api/registration_status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        updateRegistrationToggle(data.registration_enabled);
+                    } else {
+                        showMessage(i18n.t('admin.msg_fetch_registration_status_fail'), 'error');
+                    }
+                })
+                .catch(error => {
+                    showMessage(i18n.t('admin.msg_fetch_registration_status_error', { msg: error.message }), 'error');
+                });
+        }
+        
+        // 更新注册开关显示
+        function updateRegistrationToggle(enabled) {
+            const toggleBtn = document.getElementById('registrationToggle');
+            const statusSpan = document.getElementById('registrationStatus');
+            
+            if (enabled) {
+                toggleBtn.className = 'toggle-btn enabled';
+                statusSpan.textContent = i18n.t('admin.status_enabled');
+            } else {
+                toggleBtn.className = 'toggle-btn disabled';
+                statusSpan.textContent = i18n.t('admin.status_disabled');
+            }
+        }
+        
+        // 切换注册功能
+        function toggleRegistration() {
+            const toggleBtn = document.getElementById('registrationToggle');
+            const currentEnabled = toggleBtn.classList.contains('enabled');
+            const newEnabled = !currentEnabled;
+            
+            // 发送切换请求
+            fetch('/api/admin/toggle_registration', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: newEnabled })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateRegistrationToggle(data.registration_enabled);
+                    showMessage(data.message, 'success');
+                } else {
+                    showMessage(i18n.t('admin.msg_toggle_failed', { msg: (data.message || data.error || 'unknown') }), 'error');
+                }
+            })
+            .catch(error => {
+                showMessage(i18n.t('admin.msg_toggle_failed', { msg: error.message }), 'error');
+            });
+        }
+
+        // 加载 bcrypt rounds 设置
+        function loadBcryptRounds() {
+            fetch('/api/admin/bcrypt_rounds')
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        const v = parseInt(data.rounds);
+                        if (!isNaN(v)) {
+                            const input = document.getElementById('bcryptRounds');
+                            input.value = v;
+                        }
+                    } else {
+                        showMessage(i18n.t('admin.msg_bcrypt_get_fail', { msg: (data.message || data.error || 'unknown') }), 'error');
+                    }
+                })
+                .catch(err => {
+                    showMessage(i18n.t('admin.msg_bcrypt_get_fail', { msg: err.message }), 'error');
+                });
+        }
+
+        // 更新 bcrypt rounds 设置
+        function updateBcryptRounds() {
+            const input = document.getElementById('bcryptRounds');
+            let v = parseInt(input.value);
+            if (isNaN(v)) {
+                showMessage(i18n.t('admin.msg_invalid_rounds'), 'error');
+                return;
+            }
+            if (v < 4) v = 4;
+            if (v > 16) v = 16;
+            fetch('/api/admin/set_bcrypt_rounds', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ rounds: v })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    input.value = data.rounds;
+                    showMessage(i18n.t('admin.msg_bcrypt_updated', { rounds: data.rounds }), 'success');
+                } else {
+                    showMessage(i18n.t('admin.update_failed', { msg: (data.message || data.error || 'unknown') }), 'error');
+                }
+            })
+            .catch(err => showMessage(i18n.t('admin.update_failed', { msg: err.message }), 'error'));
+        }
+
+        
+
+        // ======= 新增：工作线程速率 =======
+        function loadWorkerReqPerMin() {
+            fetch('/admin/settings/worker_req_per_min')
+                .then(r => r.json())
+                .then(data => {
+                    if (data && data.success) {
+                        const el = document.getElementById('workerReqPerMin');
+                        if (el) el.value = parseInt(data.worker_req_per_min) || 120;
+                        // 同步秒/篇
+                        syncSecondsFromReqRate();
+                    }
+                })
+                .catch(() => {});
+        }
+        function saveWorkerReqPerMin() {
+            const el = document.getElementById('workerReqPerMin');
+            let v = parseInt(el.value);
+            if (isNaN(v) || v <= 0) { showMessage('请输入有效的速率数值', 'error'); return; }
+            fetch('/admin/settings/worker_req_per_min', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ worker_req_per_min: v })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.success) {
+                    el.value = parseInt(data.worker_req_per_min) || v;
+                    showMessage('工作线程速率已保存', 'success');
+                    syncSecondsFromReqRate();
+                } else {
+                    showMessage('保存失败：' + (data.error || data.message || 'unknown'), 'error');
+                }
+            })
+            .catch(err => showMessage('网络错误：' + err.message, 'error'));
+        }
+
+        // 由每线程速率同步“秒/篇”显示
+        function syncSecondsFromReqRate(){
+            try{
+                const rateEl = document.getElementById('workerReqPerMin');
+                const secEl = document.getElementById('workerSecondsPerItem');
+                if (!rateEl || !secEl) return;
+                const wrpm = parseFloat(rateEl.value);
+                if (!isNaN(wrpm) && wrpm > 0){
+                    const seconds = 60.0 / wrpm;
+                    // 限定两位小数，避免抖动
+                    secEl.value = Math.max(0.1, Math.min(120, seconds)).toFixed(2);
+                }
+            }catch(_){ }
+        }
+
+        // 保存“秒/篇” —— 转换为 worker_req_per_min 写入
+        function saveWorkerSecondsPerItem(){
+            const secEl = document.getElementById('workerSecondsPerItem');
+            let x = parseFloat(secEl.value);
+            if (isNaN(x) || x <= 0){
+                showMessage(i18n.t('admin.msg_worker_seconds_invalid'), 'error');
+                return;
+            }
+            // 速率=60/X，向下取整至少为1
+            let wrpm = Math.floor(60.0 / x);
+            if (wrpm < 1) wrpm = 1;
+            fetch('/admin/settings/worker_req_per_min', {
+                method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ worker_req_per_min: wrpm })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.success){
+                    const rateEl = document.getElementById('workerReqPerMin');
+                    if (rateEl) rateEl.value = parseInt(data.worker_req_per_min) || wrpm;
+                    syncSecondsFromReqRate();
+                    showMessage(i18n.t('admin.msg_worker_seconds_saved', { val: secEl.value }), 'success');
+                } else {
+                    throw new Error(data && (data.error || data.message) || 'failed');
+                }
+            })
+            .catch(e => showMessage(i18n.t('admin.msg_save_failed', { msg: e.message }), 'error'));
+        }
+
+        // ======= 自动刷新间隔（毫秒） =======
+        async function loadAutoRefreshMs(){
+            try {
+                const r = await fetch('/admin/settings/auto_refresh_interval');
+                if (!r.ok) return;
+                const data = await r.json();
+                if (data && data.success) {
+                    const el = document.getElementById('autoRefreshMs');
+                    if (el) el.value = parseInt(data.auto_refresh_ms) || 5000;
+                }
+            } catch(_){}
+        }
+        async function saveAutoRefreshMs(){
+            const el = document.getElementById('autoRefreshMs');
+            let v = parseInt(el.value);
+            if (isNaN(v) || v < 1000 || v > 60000) { showMessage(i18n.t('admin.msg_auto_refresh_invalid'), 'error'); return; }
+            try{
+                const res = await fetch('/admin/settings/auto_refresh_interval', {
+                    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ auto_refresh_ms: v })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'failed');
+                showMessage(i18n.t('admin.msg_auto_refresh_saved', { val: data.auto_refresh_ms }), 'success');
+                restartAutoRefresh();
+            }catch(e){
+                showMessage(i18n.t('admin.msg_save_failed', { msg: e.message }), 'error');
+            }
+        }
+        
+        // 加载所有用户
+        function loadUsers() {
+            fetch('/api/admin/users')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        users = data.users;
+                        displayUsers();
+                    } else {
+                        showMessage(i18n.t('admin.load_failed', {msg: (data.error || 'unknown')}), 'error');
+                    }
+                })
+                .catch(error => {
+                    showMessage(i18n.t('admin.net_error', {msg: error.message}), 'error');
+                })
+                .finally(() => {
+                    document.getElementById('loading').style.display = 'none';
+                });
+        }
+        
+        // 显示用户列表
+        function displayUsers() {
+            const tbody = document.getElementById('userTableBody');
+            tbody.innerHTML = '';
+            
+            users.forEach(user => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${user.uid}</td>
+                    <td>${user.username}</td>
+                    <td>
+                        <input type="number" class="edit-input" id="balance_${user.uid}" 
+                               value="${user.balance}" step="0.01" min="0">
+                    </td>
+                    <td>
+                        <input type="number" class="edit-input" id="permission_${user.uid}" 
+                               value="${user.permission}" min="0">
+                    </td>
+                    <td>
+                        <button class="btn btn-primary" onclick="updateUser(${user.uid})" data-i18n="admin.update">更新</button>
+                        <button class="btn btn-secondary" onclick="resetUser(${user.uid})" data-i18n="admin.reset">重置</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            document.getElementById('userTableContainer').style.display = 'block';
+            if (window.i18n && typeof i18n.applyI18n === 'function') {
+                i18n.applyI18n();
+            }
+        }
+        
+        // 更新用户信息
+        function updateUser(uid) {
+            const balanceInput = document.getElementById(`balance_${uid}`);
+            const permissionInput = document.getElementById(`permission_${uid}`);
+            
+            const newBalance = parseFloat(balanceInput.value);
+            const newPermission = parseInt(permissionInput.value);
+            
+            if (isNaN(newBalance) || newBalance < 0) {
+                showMessage(i18n.t('admin.balance_invalid'), 'error');
+                return;
+            }
+            
+            if (isNaN(newPermission) || newPermission < 0) {
+                showMessage(i18n.t('admin.permission_invalid'), 'error');
+                return;
+            }
+            
+            // 更新余额
+            fetch('/api/admin/update_balance', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    uid: uid,
+                    balance: newBalance
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 更新权限
+                    return fetch('/api/admin/update_permission', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            uid: uid,
+                            permission: newPermission
+                        })
+                    });
+                } else {
+                    throw new Error(data.error || 'update balance failed');
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage(i18n.t('admin.update_success', {uid: uid}), 'success');
+                    // 更新本地数据
+                    const user = users.find(u => u.uid === uid);
+                    if (user) {
+                        user.balance = newBalance;
+                        user.permission = newPermission;
+                    }
+                } else {
+                    throw new Error(data.error || 'update permission failed');
+                }
+            })
+            .catch(error => {
+                showMessage(i18n.t('admin.update_failed', {msg: error.message}), 'error');
+            });
+        }
+        
+        // 重置用户输入
+        function resetUser(uid) {
+            const user = users.find(u => u.uid === uid);
+            if (user) {
+                document.getElementById(`balance_${uid}`).value = user.balance;
+                document.getElementById(`permission_${uid}`).value = user.permission;
+            }
+        }
+        
+        // 显示消息
+        function showMessage(message, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.className = type;
+            messageDiv.textContent = message;
+            messageDiv.style.display = 'block';
+            
+            // 3秒后自动隐藏
+            setTimeout(() => {
+                messageDiv.style.display = 'none';
+            }, 3000);
+        }
+
+        // =================== 新增：容量与账户开关 ===================
+        async function loadCapacity() {
+            try {
+                // 顶部全局状态来自 /api/queue/stats（有效容量与全局 backlog）
+                try {
+                    const sres = await fetch('/api/queue/stats');
+                    if (sres.ok) {
+                        const sd = await sres.json();
+                        // 兼容：优先使用 max_capacity_per_min；无则回退 effective_capacity_per_min
+                        const eff = Number((sd.max_capacity_per_min != null ? sd.max_capacity_per_min : sd.effective_capacity_per_min) || 0);
+                        // 新增：已占用与剩余容量（如无则估算）
+                        const occ = Number(sd.occupied_capacity_per_min || 0);
+                        const rem = Number(sd.remaining_capacity_per_min != null ? sd.remaining_capacity_per_min : (eff - occ));
+                        const runPermSum = Number(sd.running_perm_sum || 0);
+                        const backlog = Number(sd.backlog || 0);
+                        const redis = sd.redis || {};
+                        const db = sd.db || {};
+                        const backend = (redis.queue_enabled || redis.ratelimiter_enabled) ?
+                            ('Redis' + ((redis.queue_ping && redis.ratelimiter_ping) ? ' ✅' : ' ⚠')) : 'MySQL';
+                        const capBackendVal = document.getElementById('capBackendVal');
+                        const capEffVal = document.getElementById('capEffVal');
+                        const capBacklogVal = document.getElementById('capBacklogVal');
+                        const capDbVal = document.getElementById('capDbVal');
+                        const capOccEl = document.getElementById('capOccVal');
+                        const capRemEl = document.getElementById('capRemVal');
+                        const capRunPermSum = document.getElementById('capRunPermSum');
+                        if (capBackendVal) {
+                            capBackendVal.textContent = backend;
+                            capBackendVal.style.color = backend.startsWith('Redis') ? (backend.includes('✅') ? '#4facfe' : '#ff9800') : '#666';
+                        }
+                        if (capEffVal) capEffVal.textContent = (eff || 0).toLocaleString();
+                        if (capOccEl) capOccEl.textContent = (occ || 0).toLocaleString();
+                        if (capRemEl) capRemEl.textContent = (Math.max(0, rem) || 0).toLocaleString();
+                        if (capBacklogVal) capBacklogVal.textContent = (backlog || 0).toLocaleString();
+                        if (capDbVal) {
+                            const dbOk = !!db.ping;
+                            capDbVal.textContent = (dbOk ? '✅' : '⚠');
+                            capDbVal.title = db.version ? ('MySQL ' + db.version) : '';
+                            capDbVal.style.color = dbOk ? '#4caf50' : '#ff9800';
+                        }
+                        if (capRunPermSum) capRunPermSum.textContent = (runPermSum || 0).toLocaleString();
+                    }
+                } catch (e) { /* ignore */ }
+
+                const res = await fetch('/api/admin/capacity');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
+                if (!data.success) throw new Error(data.error || '获取容量失败');
+
+                const tbody = document.getElementById('capacityTableBody');
+                tbody.innerHTML = '';
+                const items = Array.isArray(data.accounts) ? data.accounts : [];
+                                items.forEach(acc => {
+                    const tr = document.createElement('tr');
+                    const enabled = !!acc.is_active;
+                    tr.innerHTML = `
+                        <td>${acc.api_index}</td>
+                        <td>${acc.api_name}</td>
+                        <td>${enabled ? '✅' : '❌'}</td>
+                        <td>
+                          <input type="number" class="edit-input" id="rpm_${acc.api_index}" value="${acc.rpm_limit||0}" min="0">
+                        </td>
+                        <td>${(acc.used_req||0).toLocaleString()}</td>
+                        <td>
+                          <input type="number" class="edit-input" id="tpm_${acc.api_index}" value="${acc.tpm_limit||0}" min="0">
+                        </td>
+                        <td>${(acc.used_tokens||0).toLocaleString()}</td>
+                        <td style="white-space:nowrap;">
+                                                        <button class="btn btn-primary" onclick="saveApiLimits(${acc.api_index})">${i18n.t('admin.save_limits')}</button>
+                                                        <button class="btn btn-secondary" onclick="toggleApiAccount(${acc.api_index}, ${!enabled})">${i18n.t(enabled ? 'admin.disable' : 'admin.enable')}</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (err) {
+                showMessage(i18n.t('admin.msg_capacity_fetch_fail', { msg: err.message }), 'error');
+            }
+        }
+
+        async function toggleApiAccount(apiIndex, enabled) {
+            try {
+                const res = await fetch('/api/admin/account-toggle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ api_index: apiIndex, enabled: !!enabled })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'failed');
+                showMessage(i18n.t('admin.msg_account_toggled'), 'success');
+                // 刷新容量
+                loadCapacity();
+            } catch (e) {
+                showMessage(i18n.t('admin.msg_toggle_account_fail', { msg: e.message }), 'error');
+            }
+        }
+
+        async function loadTokensPerReq() {
+            try {
+                const res = await fetch('/api/admin/tokens_per_req');
+                if (!res.ok) return;
+                const data = await res.json();
+                if (data && data.success) {
+                    const input = document.getElementById('tokensPerReq');
+                    if (input) input.value = parseInt(data.tokens_per_req) || '--';
+                }
+            } catch (_) { /* ignore */ }
+        }
+
+        async function saveTokensPerReq() {
+            const input = document.getElementById('tokensPerReq');
+            let v = parseInt(input.value);
+            if (isNaN(v) || v <= 0) { showMessage(i18n.t('admin.msg_tokens_per_req_invalid'), 'error'); return; }
+            try {
+                const res = await fetch('/api/admin/set_tokens_per_req', {
+                    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tokens_per_req: v })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'failed');
+                showMessage(i18n.t('admin.msg_tokens_per_req_saved', { val: data.tokens_per_req }), 'success');
+                loadCapacity();
+                loadTokensPerReq();
+            } catch (e) {
+                showMessage(i18n.t('admin.msg_save_failed', { msg: e.message }), 'error');
+            }
+        }
+
+        // 自动刷新（容量与 tokens_per_req）
+        function startAutoRefresh() {
+            const el = document.getElementById('autoRefreshMs');
+            const ms = Math.min(60000, Math.max(1000, parseInt(el && el.value || '5000')));
+            if (_autoRefreshTimer) clearInterval(_autoRefreshTimer);
+            _autoRefreshTimer = setInterval(() => {
+                loadCapacity();
+                loadTokensPerReq();
+            }, ms);
+        }
+        function restartAutoRefresh(){
+            if (_autoRefreshTimer) clearInterval(_autoRefreshTimer);
+            startAutoRefresh();
+        }
+
+        async function saveApiLimits(apiIndex) {
+            const rpm = parseInt(document.getElementById('rpm_'+apiIndex).value);
+            const tpm = parseInt(document.getElementById('tpm_'+apiIndex).value);
+            if (isNaN(rpm) || rpm < 0 || isNaN(tpm) || tpm < 0) { showMessage(i18n.t('admin.msg_limits_invalid'), 'error'); return; }
+            try {
+                const res = await fetch('/api/admin/update_api_limits', {
+                    method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ api_index: apiIndex, rpm_limit: rpm, tpm_limit: tpm })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'failed');
+                showMessage(i18n.t('admin.msg_limits_saved'), 'success');
+                loadCapacity();
+            } catch (e) {
+                showMessage(i18n.t('admin.msg_save_failed', { msg: e.message }), 'error');
+            }
+        }
+    </script>
+</body>
+</html>
+    </script>
+</body>
+</html>

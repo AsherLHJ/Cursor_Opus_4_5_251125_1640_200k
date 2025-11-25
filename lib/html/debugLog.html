@@ -1,0 +1,150 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Debug Log Console</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: #141414;
+      color: #f5f5f5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      padding: 16px;
+      background: #1f1f1f;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      flex: 1;
+    }
+
+    button {
+      background: #3b82f6;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    button:hover {
+      background: #2563eb;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    main {
+      flex: 1;
+      padding: 0 16px 16px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #status {
+      font-size: 13px;
+      color: #94a3b8;
+      margin: 12px 0;
+    }
+
+    pre {
+      flex: 1;
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 16px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, SFMono, Menlo, Consolas, 'Liberation Mono', 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.4;
+      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.15);
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Debug Console</h1>
+    <button id="refreshBtn">Refresh now</button>
+    <button id="autoToggleBtn">Pause auto refresh</button>
+  </header>
+  <main>
+    <div id="status">Loading log...</div>
+    <pre id="logContent">Waiting for log output...</pre>
+  </main>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('logContent');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const autoToggleBtn = document.getElementById('autoToggleBtn');
+
+    let autoRefresh = true;
+    let timer = null;
+
+    async function fetchLog() {
+      try {
+        statusEl.textContent = 'Refreshing...';
+        refreshBtn.disabled = true;
+        const res = await fetch('/api/debug-log?_=' + Date.now());
+        if (!res.ok) {
+          if (res.status === 403) {
+            statusEl.textContent = 'Debug console is disabled or access was denied.';
+            logEl.textContent = 'Set enable_debug_website_console to true in config.json and restart the service.';
+          } else {
+            statusEl.textContent = 'Failed to load log: HTTP ' + res.status;
+          }
+          return;
+        }
+        const data = await res.json();
+        if (data && data.success) {
+          const truncatedLabel = data.truncated ? ' (showing most recent portion)' : '';
+          statusEl.textContent = 'Last update: ' + new Date().toLocaleTimeString() +
+            ' | bytes=' + data.bytes + ' | lines=' + data.lines + truncatedLabel;
+          logEl.textContent = data.content || 'Waiting for log output...';
+        } else {
+          statusEl.textContent = 'Log is empty or response was malformed.';
+        }
+      } catch (err) {
+        statusEl.textContent = 'Failed to load log: ' + err.message;
+      } finally {
+        refreshBtn.disabled = false;
+      }
+    }
+
+    function schedule() {
+      clearInterval(timer);
+      if (autoRefresh) {
+        timer = setInterval(fetchLog, 5000);
+      }
+    }
+
+    refreshBtn.addEventListener('click', fetchLog);
+    autoToggleBtn.addEventListener('click', () => {
+      autoRefresh = !autoRefresh;
+      autoToggleBtn.textContent = autoRefresh ? 'Pause auto refresh' : 'Resume auto refresh';
+      schedule();
+    });
+
+    fetchLog();
+    schedule();
+  </script>
+</body>
+</html>

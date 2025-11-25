@@ -1,0 +1,116 @@
+sequenceDiagram
+    participant user as User
+    participant server as Server
+    participant redis as Redis
+    participant mysql as MySQL
+
+    user->>server: GET /（index.html + 静态资源）
+    server-->>user: index.html、JS、CSS（加载前端页面与资源）
+    user->>server: loadHistory() -> GET /api/query_history?uid
+    server->>mysql: list_query_logs_by_uid（查询用户历史记录）
+    server-->>user: 历史列表或空集（返回左栏历史数据）
+
+    alt 未登录
+        user->>server: checkLogin() -> 跳转 login.html
+        server-->>user: login.html（未登录重定向至登录页）
+        opt 注册新用户
+            user->>server: POST /api/register
+            server->>mysql: INSERT user_info（bcrypt 加密存储用户信息）
+            mysql-->>server: 注册成功
+            server-->>user: 注册结果（注册成功提示）
+        end
+        user->>server: POST /api/login
+        server->>mysql: SELECT user_info（校验 uid/密码/permission/balance）
+        mysql-->>server: 登录凭据
+        server-->>user: token + uid + permission（返回登录态信息）
+        user->>user: localStorage 保存 token/uid/username
+    end
+
+    %% 登录态首页初始化
+    user->>server: GET /api/query_history?uid（loadHistory/刷新左栏）
+    server->>mysql: list_query_logs_by_uid
+    server-->>user: 历史/蒸馏条目（渲染左侧历史面板）
+    user->>server: GET /api/user_info?uid（initUserBalance/显示余额）
+    server->>mysql: SELECT balance/permission
+    server-->>user: balance（更新顶部余额显示）
+    user->>server: GET /api/random_sentences?count=n
+    server->>mysql: SELECT sentence
+    server-->>user: 随机提示语（用于加载动画或鼓励文案）
+    loop 标签/筛选交互
+        user->>server: GET /api/tags?type=...(&selected=...)
+        server->>mysql: get_tags_by_type[_filtered]
+        server-->>user: 标签列表（渲染筛选下拉框）
+    end
+    user->>server: POST /api/journals（loadJournals 加载期刊目录）
+    server->>mysql: get_journals_by_filters（ContentList + info_paper_with_tag）
+    server-->>user: 期刊列表/数据范围/更新时间（渲染主页期刊表格）
+    user->>server: startQueueStatsPolling -> GET /api/queue/stats
+    server->>redis: get max/occupied/remaining capacity（获取 Redis 容量状态）
+    server->>mysql: backlog_stats（Redis 不可用时降级查询）
+    server-->>user: ETA/backlog/Redis 健康（显示系统负载与预计时间）
+
+    %% 检索前估算
+    user->>server: POST /api/update（updateStats 估算篇数/预算）
+    server->>mysql: count_papers_by_filters + PriceCalculator 读 ContentList/PaperInfo
+    server-->>user: selected_count 与 estimated_cost（显示预估耗时与费用）
+
+    %% 发起检索
+    user->>server: POST /api/start_search（提交研究问题、期刊与年份）
+    server->>mysql: create_search_table + insert_searching_log（建表并登记查询任务）
+    server->>redis: add_or_update_active_uid（记录活跃 UID 到 Redis）
+    server->>redis: enqueue_tasks_for_query（将初始/占位 DOI 入队）
+    server-->>user: query_index/article_count/estimated_cost（返回任务 ID 与初始状态，开始轮询）
+
+    %% 任务生产
+    note over server: paper_processor.process_papers()
+    server->>mysql: fetch_papers_iter + insert_search_doi_bulk（流式读取论文元数据并写入 search 表）
+    server->>redis: enqueue_tasks_for_query（批量将 DOI 推入任务队列）
+    server->>mysql: 若 0 行则 mark_searching_log_completed（无结果直接结束）
+
+    %% 调度与 worker
+    note over server,redis: scheduler.start_background_scheduler()
+    server->>mysql: count_pending_tasks_across_active + get_active_queries_info（统计积压任务）
+    server->>redis: compute_and_set_max/remaining capacity（计算系统当前剩余容量）
+    loop 每个活跃 UID
+        server->>redis: gate_permits（permission < remaining_capacity 方可放行）
+        server->>mysql: queue_facade.peek_head_for_user / conditional_pop（原子获取队首任务）
+        server->>redis: rate_limiter.try_acquire_for_any_account（全局速率限制检查）
+        server->>mysql: process_queue_task（get_query_log + PaperInfo 读取详情）
+        server->>mysql: update_search_result（写回 search_*、扣费、累计 actual_cost）
+        server->>redis: incr/decr_running_for_uid（维护并发计数 running_perm_sum）
+        server->>mysql: finalize_query_if_done（任务完成后写 end_time）
+    end
+
+    %% 前端进度/暂停/历史
+    loop startProgressPolling
+        user->>server: GET /api/query_progress?query_index
+        server->>mysql: compute_query_cost_progress
+        server-->>user: actual_cost/total_cost/progress/completed（更新前端进度条与消费）
+    end
+    user->>server: POST /api/update_pause_status（暂停/恢复查询）
+    server->>mysql: update_query_pause_status（更新数据库暂停标志）
+    user->>server: GET /api/get_query_info?uid&query_index（历史详情）
+    server->>mysql: get_query_log_by_index
+    server-->>user: 查询信息（弹窗显示历史任务详情）
+    user->>server: POST /api/delete_history
+    server->>mysql: hide_query_log 或 delete_query_log（软删除或物理删除记录）
+
+    %% 蒸馏流程
+    user->>server: GET /api/estimate_distillation_cost?uid&original_query_index
+    server->>mysql: get_relevant_dois_from_query + get_prices_by_dois
+    server-->>user: 蒸馏成本（返回 0.1×基价的预估费用）
+    user->>server: POST /api/start_distillation
+    server->>mysql: insert_searching_log(is_distillation) + insert_search_doi（创建蒸馏任务与 search 表）
+    server->>redis: add_or_update_active_uid + enqueue_tasks_for_query（入队蒸馏任务）
+    note over server,redis: 调度/worker/进度与常规查询一致，直至蒸馏 search_* 完成
+
+    %% 下载与复用
+    user->>server: GET /api/download_csv?query_index
+    server->>mysql: fetch_search_results_with_paperinfo
+    server-->>user: Overall_{query}.csv（下载完整 CSV 报告）
+    user->>server: GET /api/download_bib?query_index
+    server->>mysql: fetch_search_results_with_paperinfo（仅筛选相关结果）
+    server-->>user: Result_{query}.bib（下载 BibTeX 引用文件）
+    user->>server: loadHistory()/loadHistoryQuietly()
+    server->>mysql: list_query_logs_by_uid
+    server-->>user: 更新后的历史列表（操作后刷新界面列表）

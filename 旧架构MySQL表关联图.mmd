@@ -1,0 +1,138 @@
+erDiagram
+    user_info ||--o{ query_log : "uid发起多个查询"
+    user_info ||--o{ search_YYYYMMDD : "uid关联多条搜索记录"
+    user_info ||--o{ task_queue : "uid关联多个队列任务"
+    
+    query_log ||--o{ search_YYYYMMDD : "query_index包含多条搜索结果"
+    query_log ||--o{ task_queue : "query_index对应多个任务"
+    
+    contentlist ||--o{ paperinfo : "Name包含多篇论文"
+    contentlist ||--o{ info_paper_with_tag : "Name具有多个标签"
+    
+    info_tag ||--o{ info_paper_with_tag : "Tag被多个刊物使用"
+    
+    paperinfo ||--o{ search_YYYYMMDD : "DOI对应多条搜索记录"
+    paperinfo ||--o{ task_queue : "DOI对应多个任务"
+    
+    api_list ||--o{ api_usage_minute : "account_name统计用量"
+    
+    user_info {
+        int uid PK "用户id (AUTO_INCREMENT)"
+        varchar username "用户名 (UNI)"
+        varchar password "密码 (bcrypt hash)"
+        decimal balance "账户余额"
+        int permission "可使用的线程数量"
+    }
+
+    contentlist {
+        varchar Name PK "刊物缩写"
+        text FullName "刊物全名"
+        text DataRange "包含年份范围"
+        text UpdateDate "最新更新日期"
+        int Price "单篇检索价格"
+    }
+
+    paperinfo {
+        varchar DOI PK "论文DOI"
+        text Name "刊物缩写 (FK)"
+        int Year "发布年份"
+        text Title "文献标题 (UNI_Title)"
+        text Author "作者"
+        text URL "网页链接"
+        text Abstract "摘要"
+        text Bib "完整的引用"
+    }
+
+    info_tag {
+        varchar tag PK "学科分类"
+        varchar tagtype "例如, 二级分类"
+    }
+    
+    info_paper_with_tag {
+        int id PK "自增ID"
+        varchar Name FK "刊物缩写"
+        varchar Tag FK "学科分类"
+    }
+
+    sentence {
+        int sentence_index PK "句子ID"
+        text sentence "句子内容 (UNI 255)"
+    }
+
+    query_log {
+        int query_index PK "任务唯一id"
+        int uid FK "用户id"
+        datetime query_time "发起任务时间"
+        text selected_folders "查找的刊物缩写"
+        varchar year_range "查找到年份范围"
+        text research_question "查找的研究问题"
+        text requirements "查找的要求"
+        varchar query_table "关联的搜索表名"
+        datetime start_time "实际开始时间"
+        datetime end_time "任务完成时间"
+        int total_papers_count "文献总数量"
+        boolean is_distillation "是否为蒸馏任务"
+        boolean is_visible "前端是否显示"
+        boolean should_pause "是否暂停"
+        decimal actual_cost "实时实际花费"
+        decimal total_cost "预计总花费"
+    }
+
+    search_YYYYMMDD {
+        int search_id PK "结果记录唯一id"
+        int uid FK "用户id"
+        int query_index FK "任务id"
+        varchar doi FK "论文DOI"
+        datetime insert_time "记录创建时间"
+        datetime search_time "开始执行时间"
+        datetime result_time "完成写入时间"
+        decimal run_time "模型调用耗时"
+        int prompt_tokens "输入Token数"
+        int completion_tokens "输出Token数"
+        int total_tokens "总Token数"
+        int cache_hit_tokens "缓存命中Token"
+        int cache_miss_tokens "缓存未命中Token"
+        tinyint search_result "模型判定结果"
+        text reason "判定理由"
+        decimal price "单篇处理价格"
+    }
+
+    task_queue {
+        int id PK "任务ID (AUTO_INCREMENT)"
+        int uid FK "用户ID"
+        int query_index FK "查询索引"
+        varchar doi FK "论文DOI"
+        varchar state "ready/running/done/failed"
+        datetime eta_start_at "预计开始时间"
+        int attempt_count "重试次数"
+        datetime running_since "开始运行时间"
+        text last_error "最后错误信息"
+    }
+
+    app_settings {
+        varchar k PK "配置键"
+        varchar v "配置值"
+        timestamp updated_at "更新时间"
+    }
+
+    api_list {
+        int api_index PK "索引ID"
+        varchar api_key "密钥 (UNI)"
+        varchar api_name "来源文件名"
+        varchar query_table "绑定表(旧)"
+        int search_id "绑定搜索ID(旧)"
+        tinyint up "启用状态(旧)"
+        varchar account_name "账户标识"
+        int rpm_limit "RPM限制"
+        bigint tpm_limit "TPM限制"
+        int tokens_per_req "单次Token消耗(旧)"
+        tinyint is_active "启用状态"
+    }
+
+    api_usage_minute {
+        int id PK "自增ID"
+        varchar account_name "账户标识"
+        datetime minute_ts "统计分钟"
+        int used_req "请求数"
+        int used_tokens "Token数"
+    }

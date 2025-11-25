@@ -1,0 +1,47 @@
+{
+    "save_full_log": true,
+    "include_requirements_in_prompt": true,
+    "DATA_FOLDER": "LocalDeveloper\\Data",
+    "APIKEY_FOLDER": "LocalDeveloper\\APIKey",
+    "RESULT_FOLDER": "LocalDeveloper\\Result",
+    "LOG_FOLDER": "LocalDeveloper\\Log",
+    "LANGUAGE": "zh_CN",
+    "DARK_MODE": false,
+    "YEAR_RANGE_START": 2024,
+    "YEAR_RANGE_END": 2025,
+    "INCLUDE_ALL_YEARS": false,
+    "ResearchQuestion": "测试",
+    "Requirements": "",
+    "system_prompt": "你是一个学术论文相关性判断专家。你需要判断论文是否与用户的研究问题要找的答案相关。\n\n判断标准（按照数字顺序依次判断）：\n1. 如果你判断摘要的内容与用户的研究问题的相关性很高，则相关。不进入下一步判断。否则进入下一步判断。\n2. 如果用户给出的#要求#为空，则跳过该步骤。如果你判断摘要的内容符合用户的要求，则相关。不进入下一步判断。否则不相关。\n\n你必须以JSON格式输出判断结果。\n\n输出格式示例（相关）：\n{\n    \"relevant\": \"Y\",\n    \"reason\": \"论文探讨了VST技术在混合现实应用中的使用\"\n}\n\n输出格式示例（不相关）：\n{\n    \"relevant\": \"N\", \n    \"reason\": \"论文仅涉及OST技术，未提及VST或视频透视技术\"\n}\n\n注意：relevant字段只能是\"Y\"或\"N\"，reason字段必须是一句简短精炼的理由，reason的语言必须是{language}。\n",
+    "model_name": "ep-20251105185121-w8d2z",
+    "api_base_url": "https://ark.cn-beijing.volces.com/api/v3",
+    "api_timeout": 60,
+
+    "unit_test_mode": false,
+    "enable_debug_website_console": false,
+    "local_develop_mode": true,
+
+    "TOKENS_PER_REQ": 400,
+    "database": {
+        "local": {
+            "host": "127.0.0.1",
+            "port": 3306,
+            "user": "root",
+            "password": "123456",
+            "name": "paperdb"
+        },
+        "cloud": {
+            "host": "rm-7xv09hqbxb55odlr3.mysql.rds.aliyuncs.com",
+            "port": 3306,
+            "user": "user_20251028",
+            "password": "PaperUser2025",
+            "name": "paperdb_20251105"
+        }
+    },
+    "redis": {
+        "use_queue": true,
+        "use_rate_limiter": true,
+        "local_url": "redis://redis:6379/0",
+        "cloud_url": "redis://user_20251028:PaperUser2025@r-7xvuz53fhs94ar5668.redis.rds.aliyuncs.com:6379/0"
+    }
+}

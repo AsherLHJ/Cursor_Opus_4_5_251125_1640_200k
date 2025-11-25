@@ -1,0 +1,78 @@
+# 当前架构（2025-11-18）
+
+## 1. 代码架构
+1. **运行入口与配置**：`main.py` 先通过 `lib/config/config_loader.py` 解析 `config.json`（支持 local/cloud MySQL、Redis URL、`TOKENS_PER_REQ` 等），初始化调试日志、注册/密码策略与价格系统，再决定监听地址（容器内强制 `0.0.0.0`）。`config_loader` 也负责在 `/api/update` 时写回配置并打印加载状态。
+2. **日志与调试**：`lib/log/debug_console.py`/`lib/log/utils.py` 维护本地调试日志、控制是否暴露 `debugLog.html`，并提供进度桶、`progress_monitor` 线程、事件日志等工具。
+3. **Web 接口层**：`lib/webserver/server.py` 使用 `ThreadingHTTPServer` + `RequestHandler` 统一处理静态页面、CORS、用户 API（查询、历史、导出、账单等）与管理端 API（队列/容量观测、开关、健康检查）。`lib/webserver/auth.py` 给出注册/登录/余额/权限等鉴权接口，统一调用 DAO。
+4. **业务处理层**：`lib/process/paper_processor.py` 负责一次查询的生命周期（建表、写 `query_log`、批量写 search 表与 `task_queue`、初始化进度、启动 `scheduler`）。`lib/process/worker.py` 实现基于队列的 Worker 循环，结合 `search_paper` 调用模型、`queue_facade` 管理任务状态、`rate_limiter_facade` 申请速率额度、`redis_aggregates` 做门控统计。`lib/process/export.py`、`lib/process/data.py` 负责结果导出、进度上下文与指标。
+5. **调度与限流**：`lib/process/scheduler.py` 常驻线程周期统计 backlog，计算 Redis 中 max/occupied/remaining 容量，刷新权限缓存并按用户 permission 派发 worker；`lib/process/queue_facade.py` 透明切换 Redis/MySQL 队列实现；`lib/process/rate_limiter_facade.py` 根据配置路由到 Redis（`redis_rate_limiter`）或 MySQL（`rate_limiter.py`）限流；`lib/process/redis_aggregates.py` 维护 `apw:*` 聚合键（active_uids、perm_sum_active、running_perm_sum 等）。
+6. **数据访问层**：`lib/load_data/` 目录按功能拆分 DAO——`db_base` 管理连接与 `_table_exists`，`paper_dao`/`journal_dao` 负责期刊与论文数据，`search_dao`/`query_dao`/`task_dao`/`queue_dao` 管理 search_* 与 `query_log`、`task_queue`、`api_list`、`api_usage_minute`，`user_dao`/`app_settings_dao`/`price_calculate` 负责用户与配置。`db_reader.py` 汇总上述函数并在查询创建/完成时增删 Redis 中的活跃 UID。
+7. **价格与计费**：`lib/price_calculate/price_calculator.py` 确保 `ContentList`/`query_log`/`search_*` 拥有 price/total_cost/actual_cost 列，提供期刊计价、余额校验、扣费与列修复逻辑；`lib/price_calculate/init_db.py` 在启动时补齐必要列。
+8. **前端与国际化**：`lib/html/` 存放前端页面（含 admin、history、distill、billing 等），`lib/html/static/js/i18n.js` 与 `language/zh_CN.json` 驱动多语言。`docs/` 提供本地开发、部署、Nginx、管理员指引。
+9. **部署脚本与容器**：`docker-compose.yml` 构建 backend + frontend 容器，`docker-compose.local.yml` 额外拉起无持久化的 Redis；`docker/Dockerfile.*` 定义镜像。`deploy_autopaperweb.sh` 一键更新服务器上的 Docker 服务。
+10. **数据构建与脚本**：`DB_tools/` 及根目录 `tools_refresh_db_*.py` 提供期刊/论文/标签/API Key/句子导入脚本；`scripts/redis_cleanup_active_uids.py`、`scripts/self_check_capacity.py` 等负责 Redis 清理与 API 自检；`ali_redis_sample.py` 示例如何在 RDS + Tair 场景下写入 MySQL 并缓存到 Redis。
+11. **首页数据加载路径**：`index.html` 通过 `loadJournals()` 向 `/api/journals` POST 筛选条件，`server.py` 调用 `db_reader.get_journals_by_filters()` 读取 `ContentList` + `info_paper_with_tag` 并返回期刊列表；`updateStats()` 调用 `/api/update` 触发 `db_reader.count_papers_by_filters()` 估算篇数与预算；`loadHistory()`/`loadHistoryQuietly()` 轮询 `/api/query_history`，由 `db_reader.list_query_logs_by_uid()` 从 `query_log` 拉取最新查询及下载链接，为首页文献列表和历史面板提供实时数据。
+
+## 2. 业务流程
+1. **访问首页与登录校验**：用户访问 `www.autopapersearch.com` 时先由 Nginx 返回 `index.html`。页面加载后立刻尝试 `loadHistory()`（`/api/query_history`）显示历史列表，随后 `checkLogin()` 从 `localStorage` 读取 `userToken/username`；若缺失则跳转 `login.html`。在登录页，用户可 `POST /api/register` 创建账号（`user_info` 写入 bcrypt 密码），或 `POST /api/login` 获取 `token/uid/balance/permission` 并存入浏览器。
+2. **登录后的首页初始化**：重新返回 `index.html` 时，`loadHistory()`/`loadHistoryQuietly()` 使用 `/api/query_history` 获取 `query_log` 列表并渲染左侧历史、蒸馏标识与下载入口；`restoreCurrentSession()` 恢复上次查询；`updateTitleGreeting()`、`initUserBalance()` 通过 `/api/user_info` 常驻显示余额；`fetchRandomSentences()` 调用 `/api/random_sentences` 缓存提示语；`startQueueStatsPolling()` 周期访问 `/api/queue/stats` 计算 ETA、容量与 Redis 健康。
+3. **标签与期刊加载**：`loadTags()` 先调用 `/api/tags?type=...`（内部使用 `db_reader.get_tags_by_type[_filtered]`，依赖 `info_tag` 与 `info_paper_with_tag`）填充筛选面板；用户切换标签后通过 `reloadPanelsFiltered()`、`reloadMinorTagsFiltered()` 再次请求 `/api/tags`。随后 `loadJournals()` 向 `/api/journals` 发送所选标签与年份，`server.py` 调用 `get_journals_by_filters()` 读取 `ContentList`/`info_paper_with_tag`，并返回最新的期刊目录、更新日期与数据范围。
+4. **检索前估算与表单配置**：用户输入研究问题/要求后点击“估算”触发 `updateStats()`（`/api/update`）。后端调用 `count_papers_by_filters()` + `PriceCalculator.calculate_total_cost()` 统计篇数、价格并写入 `config.json` 作为下一次默认值。表单同时支持年份切换、标签过滤、随机句刷新等操作，所有这些都发生在真正提交查询之前。
+5. **发起检索**：`startSearch()` 将研究问题、期刊、年份与 `uid` 一并 `POST /api/start_search`。服务器确保 search 表存在、验证余额、调用 `insert_searching_log()` 写 `query_log`（含 total_cost/uid/is_distillation=false），并立即在 Redis 中通过 `add_or_update_active_uid()` 登记活跃用户、`enqueue_tasks_for_query()` 将 DOI 入队，然后将 `query_index/article_count/estimated_cost` 返回前端。
+6. **任务生产**：`paper_processor.process_papers()`（在 server 端后台线程）调用 `produce_tasks()` 流式遍历 `PaperInfo`：缺 DOI 的论文会生成 surrogate key，计算 price，批量 `insert_search_doi_bulk()` 写入 `search_YYYYMMDD`，并再次调用 `queue_facade.enqueue_tasks_for_query()` 将 DOI 注入 `task_queue` ready 状态；若生产结果为空则 `mark_searching_log_completed()` 结束查询。
+7. **调度、门控与 Worker**：`scheduler.start_background_scheduler()` 在每个实例常驻运行：`count_pending_tasks_across_active()` 统计 backlog，`agg.compute_and_set_max_capacity_per_min()`/`compute_and_set_remaining_capacity_per_min()` 维护 Redis 容量三元组，`manage_worker_threads()` 根据用户 permission 及 `TOKENS_PER_REQ` 启动 `worker_queue_loop_for_user()`。Worker 每次循环执行 `queue_facade.peek_head_for_user()` → `gate_permits()` 判断 `permission < remaining_capacity` → `rate_limiter.try_acquire_for_any_account()` → `queue_facade.conditional_pop()` → `process_queue_task()`：读取 `query_log`、`PaperInfo`、调用 `search_paper.search_relevant_papers()`、`update_search_result()` 写回 search 表 + 扣费 + 累计 actual_cost，再调用 `queue_manager.mark_done()`、`check_and_finalize_query()`，并通过 `agg.incr/decr_running_for_uid()` 更新 Redis 中的 `running_perm_sum/running_tasks_count`。
+8. **进度、暂停/恢复与监控**：前端 `startProgressPolling()` 轮询 `/api/query_progress`（`db_reader.compute_query_cost_progress()` 基于成本输出进度）；点击暂停/恢复时 `updatePauseStatus()` 发送 `/api/update_pause_status` 更新 `query_log.should_pause`；`loadHistoryDetails()` 通过 `/api/get_query_info` 展示某次任务的提问、时间与是否完成；`delete_history`、`hide_query_log` 等对应 `/api/delete_history`；`startQueueStatsPolling()` 每 5 秒调用 `/api/queue/stats` 显示最大容量、backlog、Redis 健康，方便用户观察系统状态。
+9. **蒸馏流程**：用户对已完成的查询调用 `/api/estimate_distillation_cost`（后端读取 `get_relevant_dois_from_query()`+`get_prices_by_dois()` 估算 0.1×基价成本）后点击开始蒸馏，触发 `/api/start_distillation`：服务端再次 `insert_searching_log()`（`is_distillation=true`）、写 distill 任务到 search 表与 `task_queue`，其余调度/worker/进度流程与常规查询相同。
+10. **下载、维护与重用**：前端调用 `/api/download_csv`/`/api/download_bib` 获取全部结果或相符 BIB（`db_reader.fetch_search_results_with_paperinfo()`）；`history` 面板支持 `download_result`、`start_distillation`、`delete_history` 等操作；`loadHistory()` 在任何操作后都会刷新 `/api/query_history` 以保持 UI 同步。
+11. **后台管理与可视化**：`/api/queue/stats`、`/api/admin/capacity`、`/api/admin/settings/*`、`/api/update_pause_status`、`/api/random_sentences` 等接口为管理面板与运营脚本提供观测/配置能力；`startQueueStatsPolling()`、`startProgressPolling()`、`fetchRandomSentences()` 等长轮询/缓存操作确保前端在查询运行期间持续展示 ETA、容量、剩余时间与提示语。
+
+## 3. 数据库结构
+- **总体**：全部表位于 `paperdb`（utf8mb4 / utf8mb4_0900_ai_ci）。数据分期刊/论文基础数据、任务/用户/队列数据以及运维配置三大类，`DB_tools/*.py` 脚本可全量构建。
+- **ContentList**：记录期刊/会议（`Name` 主键，含 `FullName/DataRange/UpdateDate/Price`），用于数据源列表及计价；`tools_refresh_db_paper.py` 依据 `InfoList.Paper.csv` 同步。
+- **PaperInfo**：论文主表（`DOI` PK，含 `Name/Year/Title/Author/Abstract/Bib/price`），source->paper 一对多；`Search_*` 表通过 `query_index` 引用 `PaperInfo` 中的题录。
+- **info_tag / info_paper_with_tag**：标签词典与刊物-标签映射，供 `/api/tags` 与期刊筛选；`tools_refresh_db_tag.py`、`tools_refresh_db_paper_with_tag.py` 确保主键、唯一键、索引齐全。
+- **sentence**：存储示例句子，被 `/api/random_sentences` 拉取，`tools_refresh_db_sentence.py` 负责增量。
+- **user_info**：用户账户（余额、permission、bcrypt 密码），被 `auth.py`、`update_search_result()`、`PriceCalculator` 使用。
+- **query_log**：查询生命周期记录，含 `query_index/uid/query_time/selected_folders/year_range/research_question/requirements/query_table/start_time/end_time/total_papers_count/should_pause/is_distillation/is_visible/total_cost/actual_cost` 等；调度器与进度接口直接依赖该表。
+- **search_YYYYMMDD**：按日创建的任务表，字段包含 `search_id/uid/query_index/doi/insert_time/search_time/result_time/run_time/prompt_tokens/.../price/search_result/reason`；`update_search_result()` 在此更新结果与耗时。
+- **task_queue**：统一 FIFO 队列，字段 `id/uid/query_index/doi/state/running_since/attempt_count/last_error/eta_start_at`，默认直接以 ready 状态入队，`queue_manager`/`queue_dao` 控制状态流转。
+- **api_list / api_usage_minute**：API Key 池及分钟级用量统计（`used_req/used_tokens`），被限流器与 admin 面板使用；`tools_refresh_db_api.py` 初始化/补齐列。
+- **app_settings**：键值表存储 `tokens_per_req/worker_req_per_min/bcrypt_rounds/registration_enabled` 等开关，`server.py` 与 `auth.py` 通过 DAO 读写。
+- **辅助视角**：Redis 聚合键（`apw:*`）描述活跃 UID、容量、运行中 permission；虽然不在 MySQL，但与上述表（尤其 `query_log`）联动。
+
+## 4. MySQL读写操作位置列表
+### 4.1 运行期核心模块
+- `lib/load_data/db_base.py`：`_get_connection/_get_thread_connection` 统一创建 MySQL 连接并设置 `READ COMMITTED`，`_table_exists` 查询 `information_schema.tables` 判断建表状态。
+- `lib/load_data/paper_dao.py`：`get_subfolders`、`count_papers*`、`fetch_papers*`、`get_paper_title_abstract_by_doi`、`fetch_papers_by_dois`、`count_papers_by_dois`、`get_random_sentences` 均针对 `ContentList`、`PaperInfo`、`sentence` 执行 SELECT。
+- `lib/load_data/journal_dao.py`：`get_tags_by_type[_filtered]`、`get_journals_by_filters`、`count_papers_by_filters`、`get_journal_prices`、`count_papers_by_journals`、`get_prices_by_dois` 读取 `info_tag`、`info_paper_with_tag`、`ContentList`、`PaperInfo`。
+- `lib/load_data/search_dao.py`：`insert_searching_log`、`mark_searching_log_completed`、`create_search_table`、`check_search_table_exists`、`insert_search_doi[_bulk]`、`get_search_id_by_doi`、`update_search_result`（含扣费/累加 actual_cost）、`fetch_search_results_with_paperinfo`、`get_relevant_dois_from_query`、`reset_task_to_unprocessed` 等直接对 `query_log`、`search_*`、`user_info` 执行 INSERT/UPDATE/SELECT。
+- `lib/load_data/query_dao.py`：涵盖查询历史、进度、隐藏/删除、`finalize_query_if_done` 等所有对 `query_log` 与 `search_*` 的 SELECT/UPDATE；`compute_query_progress`、`get_active_queries_info` 提供调度器所需的数据。
+- `lib/load_data/task_dao.py`/`queue_dao.py`：统计 backlog、按 UID 计数、列出活跃 UID、更新 `api_list` 限额、读写 `task_queue`（enqueue、push_back、mark_done/failed）、维护 `api_usage_minute`。
+- `lib/load_data/app_settings_dao.py`：`ensure_app_settings_table`、`set/get_app_setting` 及 `get_tokens_per_req`、`get_worker_req_per_min`、`set_registration_enabled_db` 等对 `app_settings` 的 CRUD。
+- `lib/load_data/user_dao.py`：`get_all_users`、`update_user_balance/permission`、`get_user_by_uid`、`get_billing_records_by_uid` 等操作 `user_info`。
+- `lib/load_data/db_reader.py`：`compute_query_cost_progress` 直接 `SELECT total_cost, actual_cost FROM query_log`；包装的 `insert_searching_log`/`finalize_query_if_done` 调用 DAO 后还会基于 `query_log` 再次读取确认 UID。
+
+### 4.2 Web/API 层直接 SQL
+- `lib/webserver/server.py`：
+  - `/api/queue/stats` 建立一次连接执行 `SELECT 1` 与 `SELECT VERSION()` 检查 MySQL；`/api/admin/capacity` 直接查询 `api_list` 并在非 Redis 模式下通过 `db_reader.get_api_usage_minute()` 计算用量；`/admin/settings/*` 通过 DAO 读写 `app_settings`。
+  - `/api/query_history`、`/api/get_query_info`、`/api/download_csv`、`/api/download_bib`、`/api/billing`、`/api/random_sentences`、`/api/tags` 等依赖 DAO，但在 `download_*` 路径中还会额外判断 `search_*` 是否存在并从结果集中构造导出文件。
+  - 管理端 `POST /admin/settings/api/enable`（`server.py` 1279 行附近）对 `api_list` 执行 `UPDATE ... SET is_active`/`SET up`。
+- `lib/webserver/auth.py`：`register_user`（`SELECT/INSERT user_info`）、`login_user`（`SELECT uid,password,balance,permission`）、`get_user_info`、`update_balance/add_balance/deduct_balance/update_permission/check_thread_permission`（多条 UPDATE/SELECT）。
+
+### 4.3 业务线程/调度
+- `lib/process/paper_processor.py`：`start_processing()` 为可见性直接执行 `SELECT COUNT(*) FROM search_* WHERE query_index=%s`，`produce_tasks()` 结束后再查同一表验证写入数量；这些片段在定位 search 表异常时会访问 MySQL。
+- `lib/process/queue_manager.py`：`peek_head_for_user()`、`conditional_pop()` 对 `task_queue` 执行 `SELECT ... FOR UPDATE` / `UPDATE state='running'`，保障 FIFO + 原子领取。
+- `lib/process/scheduler.py`：`_cold_start_init()` 查询 `query_log` + `user_info`（`SELECT DISTINCT u.uid, permission ... WHERE end_time IS NULL`）以重建 Redis `active_uids`；`refresh_user_permissions()` 批量 SELECT `user_info.permission`。
+- `lib/price_calculate/price_calculator.py`：`get_journal_price`、`get_user_balance`、`deduct_balance` 查询/更新 `ContentList` 与 `user_info`；`add_price_column_to_*`/`add_cost_column_to_query_log`/`add_actual_cost_column_to_query_log`/`add_price_column_to_search_table` 针对 `information_schema.columns`、`ALTER TABLE`、`UPDATE`。
+- `scripts/redis_cleanup_active_uids.py`：函数 `has_active_queries()` 直接 `SELECT COUNT(*) FROM query_log WHERE uid=%s AND end_time IS NULL` 以决定是否清理 Redis 中的活跃 UID。
+
+### 4.4 工具与脚本
+- `DB_tools/tools_refresh_db_paper.py` 以及根目录同名脚本：`CREATE/ALTER ContentList`、同步 CSV 到 `ContentList`、解析 `.bib` 批量 `INSERT INTO PaperInfo`，并附带行数校验。
+- `DB_tools/tools_refresh_db_tag.py`：创建/重建 `info_tag`，全量对比 CSV 与表内容（删除/插入/更新），维护主键与索引。
+- `DB_tools/tools_refresh_db_paper_with_tag.py`：校验 `PaperInfo.Name`、`info_tag.Tag` 后写入 `info_paper_with_tag`，并确保 `UNIQUE(Name, Tag)`、`INDEX idx_name/idx_tag` 存在。
+- `DB_tools/tools_refresh_db_sentence.py`：建表 `sentence`、转换编码、批量插入句子并输出统计。
+- `DB_tools/tools_refresh_db_api.py` 以及根目录 `tools_refresh_db_api.py`：建/改 `api_list`（`api_name/is_active/rpm_limit/tpm_limit` 列），批量写入 API key，维护唯一键和计数。
+- `tools_refresh_db_paper_with_tag.py`、`tools_refresh_db_tag.py`、`tools_refresh_db_sentence.py`（根目录版本）与 DB_tools 同步逻辑，便于在不同工作目录下直接调用。
+- `tools_refresh_db_paper.py`（根目录副本）同样对 `ContentList/PaperInfo` 进行 CREATE/ALTER/INSERT、行数统计与示例输出。
+- `ali_redis_sample.py`：示例脚本里执行 `CREATE DATABASE/CREATE TABLE/INSERT/SELECT` 等操作，用于演示 ECS + RDS + Tair 的联动。
+

@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title data-i18n="register.title">用户注册 - AutoPaperWeb</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📄</text></svg>">
+  <style>
+    body { 
+      font-family: Arial, sans-serif; 
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .register-container {
+      background: white;
+      padding: 40px;
+      border-radius: 10px;
+      box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 400px;
+    }
+    h1 { 
+      text-align: center; 
+      color: #333; 
+      margin-bottom: 30px;
+      font-size: 28px;
+    }
+    .form-group { 
+      margin-bottom: 20px; 
+    }
+    label { 
+      display: block; 
+      margin-bottom: 5px; 
+      color: #555;
+      font-weight: bold;
+    }
+    input[type="text"], input[type="password"] { 
+      width: 100%; 
+      padding: 12px; 
+      border: 2px solid #ddd;
+      border-radius: 5px;
+      font-size: 16px;
+      box-sizing: border-box;
+      transition: border-color 0.3s;
+    }
+    input[type="text"]:focus, input[type="password"]:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    button { 
+      width: 100%;
+      padding: 12px; 
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+    button:hover {
+      transform: translateY(-2px);
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .message { 
+      margin-top: 15px; 
+      padding: 10px;
+      border-radius: 5px;
+      text-align: center;
+    }
+    .success { 
+      background-color: #d4edda; 
+      color: #155724; 
+      border: 1px solid #c3e6cb;
+    }
+    .error { 
+      background-color: #f8d7da; 
+      color: #721c24; 
+      border: 1px solid #f5c6cb;
+    }
+    .links {
+      text-align: center;
+      margin-top: 20px;
+    }
+    .links a {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: bold;
+    }
+    .links a:hover {
+      text-decoration: underline;
+    }
+    .password-hint {
+      font-size: 12px;
+      color: #666;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="register-container">
+    <h1 data-i18n="register.title">用户注册</h1>
+    <form id="registerForm">
+      <div class="form-group">
+  <label for="username" data-i18n="register.username">用户名：</label>
+        <input type="text" id="username" name="username" required maxlength="16" />
+  <div class="password-hint" data-i18n="register.username_len">最多16个字符</div>
+      </div>
+      <div class="form-group">
+  <label for="password" data-i18n="register.password">密码：</label>
+        <input type="password" id="password" name="password" required minlength="6" />
+  <div class="password-hint" data-i18n="register.password_hint">至少6个字符</div>
+      </div>
+      <div class="form-group">
+  <label for="confirmPassword" data-i18n="register.confirm">确认密码：</label>
+        <input type="password" id="confirmPassword" name="confirmPassword" required />
+      </div>
+  <button type="submit" id="registerBtn" data-i18n="register.submit">注册</button>
+    </form>
+    <div id="message"></div>
+    <div class="links">
+  <a href="/login.html" data-i18n="register.to_login">已有账号？点击登录</a>
+    </div>
+  </div>
+
+  <script src="/static/js/i18n.js"></script>
+  <script>
+    // 记录注册是否被关闭，以便语言切换时更新提示
+    let registrationDisabled = false;
+
+    // 检查注册功能状态
+    async function checkRegistrationStatus() {
+      try {
+        const response = await fetch('/api/registration_status');
+        const result = await response.json();
+        
+        if (result.success && !result.registration_enabled) {
+          // 注册功能已关闭，显示提示信息并禁用表单
+          registrationDisabled = true;
+          showMessage(i18n.t('register.disabled'), 'error');
+          document.getElementById('registerForm').style.display = 'none';
+          return false;
+        }
+        registrationDisabled = false;
+        return true;
+      } catch (error) {
+        showMessage(i18n.t('register.status_fetch_fail'), 'error');
+        return false;
+      }
+    }
+    
+    // 页面加载时检查注册状态
+    checkRegistrationStatus();
+    
+    document.getElementById('registerForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      // 再次检查注册状态
+      const canRegister = await checkRegistrationStatus();
+      if (!canRegister) {
+        return;
+      }
+      
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+      const messageDiv = document.getElementById('message');
+      const registerBtn = document.getElementById('registerBtn');
+      
+      if (!username || !password || !confirmPassword) {
+        showMessage(i18n.t('register.fill_all'), 'error');
+        return;
+      }
+      
+      if (password !== confirmPassword) {
+        showMessage(i18n.t('register.pwd_mismatch'), 'error');
+        return;
+      }
+      
+      if (username.length > 16) {
+        showMessage(i18n.t('register.username_toolong'), 'error');
+        return;
+      }
+      
+      if (password.length < 6) {
+        showMessage(i18n.t('register.password_tooshort'), 'error');
+        return;
+      }
+      
+    registerBtn.disabled = true;
+    registerBtn.textContent = i18n.t('register.submitting');
+      
+      try {
+        const response = await fetch('/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          showMessage(i18n.t('register.success_redirect'), 'success');
+          // 延迟跳转到登录页面
+          setTimeout(() => {
+            window.location.href = '/login.html';
+          }, 2000);
+        } else {
+          // 检查是否是注册功能关闭的错误
+          if (result.error === 'registration_disabled') {
+            registrationDisabled = true;
+            showMessage(i18n.t('register.disabled'), 'error');
+            document.getElementById('registerForm').style.display = 'none';
+          } else {
+            showMessage(result.message || i18n.t('register.net_fail'), 'error');
+          }
+        }
+      } catch (error) {
+        showMessage(i18n.t('register.net_fail'), 'error');
+      } finally {
+        registerBtn.disabled = false;
+        registerBtn.textContent = i18n.t('register.submit');
+      }
+    });
+    
+    function showMessage(text, type) {
+      const messageDiv = document.getElementById('message');
+      messageDiv.textContent = text;
+      messageDiv.className = 'message ' + type;
+    }
+
+    // 语言切换时，如果注册关闭，更新提示语言
+    window.apw_afterLangChange = function() {
+      if (registrationDisabled) {
+        showMessage(i18n.t('register.disabled'), 'error');
+      }
+    };
+  </script>
+</body>
+</html>
