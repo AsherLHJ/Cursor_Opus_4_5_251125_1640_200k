@@ -41,7 +41,7 @@
     "redis": {
         "use_queue": true,
         "use_rate_limiter": true,
-        "local_url": "redis://redis:6379/0",
+        "local_url": "redis://apw-redis:6379/0",
         "cloud_url": "redis://user_20251028:PaperUser2025@r-7xvuz53fhs94ar5668.redis.rds.aliyuncs.com:6379/0"
     }
 }

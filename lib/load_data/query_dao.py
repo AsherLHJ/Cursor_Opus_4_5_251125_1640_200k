@@ -350,3 +350,23 @@ def resume_query(uid: int, query_id: str) -> bool:
         TaskQueue.clear_pause_signal(uid, query_id)
         TaskQueue.set_state(uid, query_id, 'RUNNING')
     return update_query_status(query_id, 'RUNNING')
+
+
+def cancel_query(uid: int, query_id: str) -> bool:
+    """
+    取消查询任务
+    
+    Args:
+        uid: 用户ID
+        query_id: 查询ID
+    
+    Returns:
+        True 如果取消成功
+    """
+    if redis_ping():
+        # 设置暂停信号（Worker会检测并退出）
+        TaskQueue.set_pause_signal(uid, query_id)
+        TaskQueue.set_state(uid, query_id, 'CANCELLED')
+        # 清理待处理队列
+        TaskQueue.clear_pending(uid, query_id)
+    return update_query_status(query_id, 'CANCELLED')

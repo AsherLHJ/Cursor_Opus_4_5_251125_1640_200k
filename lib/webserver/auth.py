@@ -9,17 +9,8 @@ from ..load_data import db_reader
 def hash_password(password: str) -> str:
     """使用 bcrypt 哈希密码（替代旧的 SHA-256）。"""
     pw_bytes = password.encode("utf-8")
-    # 从 app_settings 读取 rounds，默认 12，并做安全范围夹取
-    try:
-        rounds_str = db_reader.get_app_setting("bcrypt_rounds") or "12"
-        rounds = int(str(rounds_str).strip())
-    except Exception:
-        rounds = 12
-    # 合理范围：4-16（越大越慢）；可按机器性能调整
-    if rounds < 4:
-        rounds = 4
-    if rounds > 16:
-        rounds = 16
+    # 使用默认 rounds = 12（合理范围：4-16，越大越慢）
+    rounds = 12
     salt = bcrypt.gensalt(rounds=rounds)
     return bcrypt.hashpw(pw_bytes, salt).decode("utf-8")
 

@@ -26,15 +26,19 @@ def _get_redis_url() -> str:
     try:
         from ..config import config_loader as config
         
-        local_mode = getattr(config, 'local_develop_mode', True)
-        redis_cfg = getattr(config, '_raw_config', {}).get('redis', {})
+        # 直接使用 config_loader 中已解析的 REDIS_URL
+        redis_url = getattr(config, 'REDIS_URL', '')
+        if redis_url:
+            return redis_url
         
+        # 回退到默认值
+        local_mode = getattr(config, 'local_develop_mode', True)
         if local_mode:
-            return redis_cfg.get('local_url', 'redis://redis:6379/0')
+            return 'redis://localhost:6379/0'
         else:
-            return redis_cfg.get('cloud_url', '')
+            return ''
     except Exception:
-        return 'redis://redis:6379/0'
+        return 'redis://localhost:6379/0'
 
 
 def get_redis_client() -> Optional[object]:

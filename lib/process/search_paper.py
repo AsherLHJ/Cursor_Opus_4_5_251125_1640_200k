@@ -62,6 +62,20 @@ def search_relevant_papers(doi: str, title: str, abstract: str,
             _tokens: 消耗的Token数
         }
     """
+    # 单元测试模式：返回模拟的AI响应，不实际调用API
+    if getattr(config, 'unit_test_mode', False):
+        import random
+        # 模拟真实AI的响应格式，确保与正式响应结构一致
+        is_relevant = random.random() > 0.5  # 50%概率判定为相关
+        mock_tokens = random.randint(80, 150)  # 模拟token消耗
+        return {
+            'relevant': 'Y' if is_relevant else 'N',
+            'reason': f'Unit test mock response for uid={uid}, qid={qid}',
+            '_tokens': mock_tokens,
+            'uid': uid,
+            'query_index': qid
+        }
+    
     if not abstract:
         return {
             'relevant': 'N',

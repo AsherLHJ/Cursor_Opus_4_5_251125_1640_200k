@@ -1,29 +1,47 @@
 """
-结果导出模块
+结果导出模块 (新架构)
 负责将查询结果导出为BIB和CSV格式
+
+新架构变更:
+- 使用 query_id 代替 query_index
+- 使用 search_dao 的 fetch_results_with_paperinfo
 """
 
 import re
 from typing import Optional
 from ..load_data import db_reader
+from ..load_data.query_dao import get_query_log
+from ..load_data.search_dao import fetch_results_with_paperinfo
 
 
-def export_results_from_db(search_table_name: str, query_index: int, 
+def export_results_from_db(query_id: str, 
                           bib_out_path: str, csv_out_path: str):
     """
     从数据库导出查询结果
     生成BIB和CSV文件
+    
+    Args:
+        query_id: 查询ID
+        bib_out_path: BIB输出文件路径
+        csv_out_path: CSV输出文件路径
     """
     # 读取查询信息
-    header = db_reader.get_query_log_by_index(query_index) if query_index else {}
-    query_time = header.get('query_time', '')
-    selected_folders = header.get('selected_folders', '')
-    year_range = header.get('year_range', '')
-    research_question = header.get('research_question', '')
-    requirements = header.get('requirements', '')
+    query_info = get_query_log(query_id) if query_id else {}
+    
+    # 构建header
+    header = {}
+    if query_info:
+        search_params = query_info.get('search_params', {})
+        header = {
+            'query_time': str(query_info.get('start_time', '')),
+            'selected_folders': ', '.join(search_params.get('selected_journals', [])),
+            'year_range': search_params.get('year_range', 'All years'),
+            'research_question': search_params.get('research_question', ''),
+            'requirements': search_params.get('requirements', ''),
+        }
 
     # 读取结果数据
-    rows = db_reader.fetch_search_results_with_paperinfo(search_table_name, query_index)
+    rows = fetch_results_with_paperinfo(query_id) if query_id else []
 
     # 导出BIB文件
     export_bib(bib_out_path, header, rows)
@@ -50,7 +68,7 @@ def export_bib(filepath: str, header: dict, rows: list):
         
         # 只输出相关条目
         for r in rows:
-            if r.get('search_result') in (1, True, '1'):
+            if r.get('search_result') in (1, True, '1', 'Y', 'y'):
                 bib_text = r.get('bib', '')
                 if bib_text.strip():
                     f.write(bib_text)
@@ -65,14 +83,14 @@ def export_csv(filepath: str, rows: list):
         
         # 先输出相关条目，再输出不相关条目
         rows_sorted = (
-            [r for r in rows if r.get('search_result') in (1, True, '1')] +
-            [r for r in rows if r.get('search_result') not in (1, True, '1')]
+            [r for r in rows if r.get('search_result') in (1, True, '1', 'Y', 'y')] +
+            [r for r in rows if r.get('search_result') not in (1, True, '1', 'Y', 'y')]
         )
         
         for r in rows_sorted:
             title = (r.get('title', '') or '').replace('"', '""')
             source = r.get('source', 'Unknown')
-            relevance = 'Y' if r.get('search_result') in (1, True, '1') else 'N'
+            relevance = 'Y' if r.get('search_result') in (1, True, '1', 'Y', 'y') else 'N'
             reason = (r.get('reason', '') or '').replace('"', '""')
             
             # 提取URL

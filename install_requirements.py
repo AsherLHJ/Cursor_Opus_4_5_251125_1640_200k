@@ -11,7 +11,8 @@ def install_requirements():
         'openai',                 # OpenAI 兼容 SDK（用于调用火山引擎 Ark 接口）
         'mysql-connector-python', # 从数据库读取 API 密钥、论文信息
         'bcrypt',                 # 安全密码哈希
-        'redis'                   # Stage3：Redis 用于限流与队列
+        'redis',                   # Stage3：Redis 用于限流与队列
+        'bibtexparser'             # 用于DB_tools目录下的脚本解析BibTeX格式文献信息
     ]
     print("正在升级pip...")
     try:

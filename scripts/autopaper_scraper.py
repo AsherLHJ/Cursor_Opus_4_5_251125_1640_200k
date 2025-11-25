@@ -38,11 +38,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 
-BASE_URL = "https://autopapersearch.com"
-LOGIN_URL = f"{BASE_URL}/login.html"
-REGISTER_URL = f"{BASE_URL}/register.html"
-INDEX_URL = f"{BASE_URL}/index.html"
-HISTORY_URL = f"{BASE_URL}/history.html"
+# 默认生产环境URL，可通过 --base-url 参数覆盖
+DEFAULT_BASE_URL = "https://autopapersearch.com"
 
 DEFAULT_PASSWORD = "123456"
 SEARCH_QUESTION = "VR眩晕检测"
@@ -91,10 +88,10 @@ def configure_driver(download_dir: Path, headless: bool) -> webdriver.Chrome:
     return webdriver.Chrome(options=chrome_options)
 
 
-def open_login_page(driver: webdriver.Chrome) -> datetime:
+def open_login_page(driver: webdriver.Chrome, base_url: str) -> datetime:
     """Navigate to the login page and return the timestamp of the first visit."""
     visit_time = datetime.now()
-    driver.get(LOGIN_URL)
+    driver.get(f"{base_url}/login.html")
     WebDriverWait(driver, LOGIN_WAIT).until(
         EC.presence_of_element_located((By.ID, "loginForm"))
     )
@@ -124,9 +121,9 @@ def submit_login(driver: webdriver.Chrome, username: str, password: str) -> bool
     return True
 
 
-def register_account(driver: webdriver.Chrome, username: str, password: str) -> None:
+def register_account(driver: webdriver.Chrome, username: str, password: str, base_url: str) -> None:
     """Register a new account."""
-    driver.get(REGISTER_URL)
+    driver.get(f"{base_url}/register.html")
     wait = WebDriverWait(driver, REGISTER_WAIT)
     wait.until(EC.presence_of_element_located((By.ID, "registerForm")))
 
@@ -196,6 +193,7 @@ def wait_for_csv_and_download(
     username: str,
     download_dir: Path,
     query_index: str,
+    base_url: str,
     timeout: int = HISTORY_TIMEOUT,
 ) -> Tuple[datetime, datetime, Path]:
     """Refresh the history page until the CSV button is available, then download."""
@@ -203,7 +201,7 @@ def wait_for_csv_and_download(
     csv_ready_time: Optional[datetime] = None
 
     while time.time() < deadline:
-        history_url = HISTORY_URL
+        history_url = f"{base_url}/history.html"
         if query_index:
             history_url = f"{history_url}?focus_query={query_index}"
 
@@ -329,27 +327,27 @@ def append_performance_row(account_result: AccountResult) -> None:
         )
 
 
-def process_account(user_id: int, headless: bool) -> AccountResult:
+def process_account(user_id: int, headless: bool, base_url: str) -> AccountResult:
     """Run the automation for a single account."""
     username = f"autoTest{user_id}"
     ensure_results_directory(RESULTS_DIR)
 
     driver = configure_driver(RESULTS_DIR, headless=headless)
     try:
-        login_time = open_login_page(driver)
+        login_time = open_login_page(driver, base_url)
 
         if not submit_login(driver, username, DEFAULT_PASSWORD):
-            register_account(driver, username, DEFAULT_PASSWORD)
+            register_account(driver, username, DEFAULT_PASSWORD, base_url)
             # After registration we should already be back at login.html.
             if not submit_login(driver, username, DEFAULT_PASSWORD):
                 raise RuntimeError(f"Login failed for {username} after registration.")
 
-        driver.get(INDEX_URL)
+        driver.get(f"{base_url}/index.html")
         populate_search_form(driver)
         query_index = start_search(driver)
 
         csv_ready_time, download_ready_time, downloaded_file = wait_for_csv_and_download(
-            driver, username, RESULTS_DIR, query_index
+            driver, username, RESULTS_DIR, query_index, base_url
         )
 
         return AccountResult(
@@ -384,6 +382,12 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Run Chrome in headless mode.",
     )
+    parser.add_argument(
+        "--base-url",
+        type=str,
+        default=DEFAULT_BASE_URL,
+        help=f"Base URL for the site (default: {DEFAULT_BASE_URL}). Use http://localhost:18080 for local testing.",
+    )
     return parser.parse_args(argv)
 
 
@@ -395,12 +399,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 1
 
     ensure_results_directory(RESULTS_DIR)
+    print(f"[*] Using base URL: {args.base_url}")
 
     for idx in range(args.start_id, args.end_id + 1):
         username = f"autoTest{idx}"
         print(f"[+] Processing {username}...")
         try:
-            result = process_account(idx, headless=args.headless)
+            result = process_account(idx, headless=args.headless, base_url=args.base_url)
         except Exception as exc:
             print(f"[!] Failed for {username}: {exc}", file=sys.stderr)
             continue

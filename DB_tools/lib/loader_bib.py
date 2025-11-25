@@ -55,6 +55,45 @@ def _normalize_year(year_val: Any) -> Optional[int]:
     return None
 
 
+def _sanitize_for_json(text: str) -> str:
+    """
+    清理字符串中的LaTeX特殊字符，使其可安全序列化为JSON
+    
+    LaTeX中的转义符（如 \\% \\& 等）在JSON中会被解释为无效转义序列，
+    需要将它们转换为普通字符。
+    """
+    if not text:
+        return text
+    
+    # 替换LaTeX转义符为普通字符
+    replacements = [
+        ('\\%', '%'),
+        ('\\&', '&'),
+        ('\\_', '_'),
+        ('\\#', '#'),
+        ('\\$', '$'),
+        ('\\{', '{'),
+        ('\\}', '}'),
+        ('\\~', '~'),
+        ('\\^', '^'),
+        ('\\textasciitilde', '~'),
+        ('\\textasciicircum', '^'),
+    ]
+    
+    for old, new in replacements:
+        text = text.replace(old, new)
+    
+    # 移除其他可能导致问题的控制字符 (ASCII 0-31, 除了换行和制表符)
+    cleaned = []
+    for char in text:
+        code = ord(char)
+        if code < 32 and code not in (9, 10, 13):  # 保留 tab, newline, carriage return
+            continue
+        cleaned.append(char)
+    
+    return ''.join(cleaned)
+
+
 def _entry_to_bib_string(entry: Dict[str, Any]) -> str:
     """将单个条目转换为BibTeX字符串"""
     if not BIBTEXPARSER_AVAILABLE:
@@ -113,18 +152,19 @@ def build_paperinfo_record(entry: Dict[str, Any], journal_name: str,
     if not doi:
         return None
     
-    # 提取元数据
-    title = entry.get('title', '').strip()
-    abstract = entry.get('abstract', '').strip()
-    author = entry.get('author', '').strip()
+    # 提取元数据并清理LaTeX特殊字符
+    title = _sanitize_for_json(entry.get('title', '').strip())
+    abstract = _sanitize_for_json(entry.get('abstract', '').strip())
+    author = _sanitize_for_json(entry.get('author', '').strip())
     url = entry.get('url', '').strip()
     entry_year = _normalize_year(entry.get('year'))
     year = file_year or entry_year
     
-    # 生成BibTeX字符串
+    # 生成BibTeX字符串并清理
     bib_string = _entry_to_bib_string(entry)
     if not bib_string:
         return None
+    bib_string = _sanitize_for_json(bib_string)
     
     # 构建JSON对象
     bib_json = {
@@ -141,7 +181,7 @@ def build_paperinfo_record(entry: Dict[str, Any], journal_name: str,
     return (doi, bib_json)
 
 
-def load_bib_data(conn, data_dir: str, journal_info: Dict[str, Dict]) -> Dict[str, int]:
+def load_bib_data(conn, data_dir: str, journal_info: Dict[str, Dict]) -> Tuple[Dict[str, int], List[Dict]]:
     """
     加载所有bib数据到paperinfo表
     
@@ -151,13 +191,16 @@ def load_bib_data(conn, data_dir: str, journal_info: Dict[str, Dict]) -> Dict[st
         journal_info: 期刊信息字典 {Name: {Full Name, Data Range, ...}}
         
     Returns:
-        统计信息 {journal_name: paper_count}
+        元组 (stats, failed_records)
+        - stats: 统计信息 {journal_name: paper_count}
+        - failed_records: 失败记录列表 [{'doi': ..., 'file': ..., 'error': ...}, ...]
     """
     if not os.path.isdir(data_dir):
         print(f"[ERROR] Data目录不存在: {data_dir}")
-        return {}
+        return {}, []
     
     stats = {}
+    failed_records = []
     year_counts: Dict[str, Dict[int, int]] = defaultdict(lambda: defaultdict(int))
     
     for folder_name in os.listdir(data_dir):
@@ -190,11 +233,18 @@ def load_bib_data(conn, data_dir: str, journal_info: Dict[str, Dict]) -> Dict[st
                 year = bib_json.get('year')
                 
                 # 插入数据库
-                success = _insert_paperinfo(conn, doi, bib_json)
+                success, error_msg = _insert_paperinfo(conn, doi, bib_json)
                 if success:
                     inserted += 1
                     if year:
                         year_counts[folder_name][year] += 1
+                else:
+                    # 记录失败
+                    failed_records.append({
+                        'doi': doi,
+                        'file': os.path.join(folder_name, filename),
+                        'error': error_msg or 'Unknown error'
+                    })
         
         stats[folder_name] = inserted
         print(f"[OK] {folder_name}: 插入 {inserted} 条记录")
@@ -202,11 +252,16 @@ def load_bib_data(conn, data_dir: str, journal_info: Dict[str, Dict]) -> Dict[st
     # 更新contentlist_year_number
     _update_year_number_table(conn, year_counts)
     
-    return stats
+    return stats, failed_records
 
 
-def _insert_paperinfo(conn, doi: str, bib_json: Dict) -> bool:
-    """插入单条paperinfo记录"""
+def _insert_paperinfo(conn, doi: str, bib_json: Dict) -> Tuple[bool, Optional[str]]:
+    """
+    插入单条paperinfo记录
+    
+    Returns:
+        (success, error_message) 元组
+    """
     cursor = None
     try:
         cursor = conn.cursor()
@@ -215,12 +270,14 @@ def _insert_paperinfo(conn, doi: str, bib_json: Dict) -> bool:
             VALUES (%s, %s)
             ON DUPLICATE KEY UPDATE Bib = VALUES(Bib)
         """
-        cursor.execute(sql, (doi, json.dumps(bib_json, ensure_ascii=False)))
+        json_str = json.dumps(bib_json, ensure_ascii=False)
+        cursor.execute(sql, (doi, json_str))
         conn.commit()
-        return True
+        return True, None
     except Exception as e:
-        print(f"[ERROR] 插入DOI {doi[:50]} 失败: {e}")
-        return False
+        error_msg = str(e)
+        print(f"[ERROR] 插入DOI {doi} 失败: {error_msg}")
+        return False, error_msg
     finally:
         if cursor:
             cursor.close()
@@ -357,4 +414,3 @@ def load_contentlist(conn, csv_path: str) -> Dict[str, Dict]:
             cursor.close()
     
     return journal_info
-

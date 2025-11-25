@@ -285,4 +285,126 @@ class SystemCache:
             return True
         except Exception:
             return False
-
+    
+    # ==================== 系统配置 ====================
+    # 配置键常量
+    CONFIG_TOKENS_PER_REQ = "config:tokens_per_req"
+    CONFIG_WORKER_REQ_PER_MIN = "config:worker_req_per_min"
+    CONFIG_REGISTRATION_ENABLED = "config:registration_enabled"
+    CONFIG_BCRYPT_ROUNDS = "config:bcrypt_rounds"
+    
+    @classmethod
+    def get_config(cls, key: str, default: Any = None) -> Any:
+        """
+        从 Redis 读取配置项
+        
+        Args:
+            key: 配置键名
+            default: 默认值
+            
+        Returns:
+            配置值，不存在则返回 default
+        """
+        client = get_redis_client()
+        if not client:
+            return default
+        
+        try:
+            val = client.get(key)
+            if val is None:
+                return default
+            # 尝试解析 JSON
+            try:
+                return json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                return val
+        except Exception:
+            return default
+    
+    @classmethod
+    def set_config(cls, key: str, value: Any) -> bool:
+        """
+        写入 Redis 配置项
+        
+        Args:
+            key: 配置键名
+            value: 配置值（支持 int/float/str/bool/dict/list）
+            
+        Returns:
+            是否成功
+        """
+        client = get_redis_client()
+        if not client:
+            return False
+        
+        try:
+            # 非字符串类型序列化为 JSON
+            if isinstance(value, (dict, list)):
+                val_str = json.dumps(value, ensure_ascii=False)
+            elif isinstance(value, bool):
+                val_str = json.dumps(value)
+            else:
+                val_str = str(value)
+            client.set(key, val_str)
+            return True
+        except Exception:
+            return False
+    
+    # ==================== 便捷方法 ====================
+    
+    @classmethod
+    def get_tokens_per_req(cls, default: int = 400) -> int:
+        """获取单篇文献 token 消耗量"""
+        val = cls.get_config(cls.CONFIG_TOKENS_PER_REQ, default)
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return default
+    
+    @classmethod
+    def set_tokens_per_req(cls, value: int) -> bool:
+        """设置单篇文献 token 消耗量"""
+        return cls.set_config(cls.CONFIG_TOKENS_PER_REQ, int(value))
+    
+    @classmethod
+    def get_worker_req_per_min(cls, default: int = 120) -> int:
+        """获取 Worker 每分钟请求数限制"""
+        val = cls.get_config(cls.CONFIG_WORKER_REQ_PER_MIN, default)
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return default
+    
+    @classmethod
+    def set_worker_req_per_min(cls, value: int) -> bool:
+        """设置 Worker 每分钟请求数限制"""
+        return cls.set_config(cls.CONFIG_WORKER_REQ_PER_MIN, int(value))
+    
+    @classmethod
+    def get_registration_enabled(cls, default: bool = True) -> bool:
+        """获取是否允许用户注册"""
+        val = cls.get_config(cls.CONFIG_REGISTRATION_ENABLED, default)
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, str):
+            return val.lower() in ('true', '1', 'yes')
+        return bool(val)
+    
+    @classmethod
+    def set_registration_enabled(cls, value: bool) -> bool:
+        """设置是否允许用户注册"""
+        return cls.set_config(cls.CONFIG_REGISTRATION_ENABLED, bool(value))
+    
+    @classmethod
+    def get_bcrypt_rounds(cls, default: int = 12) -> int:
+        """获取 bcrypt 加密轮数"""
+        val = cls.get_config(cls.CONFIG_BCRYPT_ROUNDS, default)
+        try:
+            return int(val)
+        except (ValueError, TypeError):
+            return default
+    
+    @classmethod
+    def set_bcrypt_rounds(cls, value: int) -> bool:
+        """设置 bcrypt 加密轮数"""
+        return cls.set_config(cls.CONFIG_BCRYPT_ROUNDS, int(value))

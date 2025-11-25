@@ -187,13 +187,27 @@ def main():
             
             # 导入文献数据
             print("[Step 7] 导入文献数据...")
+            failed_records = []
             if os.path.isdir(data_dir) and journal_info:
-                stats = load_bib_data(conn, data_dir, journal_info)
+                stats, failed_records = load_bib_data(conn, data_dir, journal_info)
                 total = sum(stats.values())
                 print(f"[OK] 导入 {total} 篇文献 (来自 {len(stats)} 个期刊)")
             else:
                 print(f"[SKIP] Data目录不存在或期刊列表为空")
             print()
+            
+            # 打印导入失败的文献
+            if failed_records:
+                print("[Step 7.1] 导入失败的文献汇总:")
+                print(f"  共 {len(failed_records)} 条记录导入失败")
+                print("-" * 60)
+                for idx, rec in enumerate(failed_records, 1):
+                    print(f"  [{idx}] DOI: {rec['doi']}")
+                    print(f"      文件: {rec['file']}")
+                    print(f"      原因: {rec['error']}")
+                    print()
+                print("-" * 60)
+                print()
         
         # 统计
         print("[Step 8] 统计表数据...")
