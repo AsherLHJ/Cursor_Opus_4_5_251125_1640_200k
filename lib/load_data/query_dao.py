@@ -1,320 +1,352 @@
 """
-查询和任务管理数据访问对象
-处理query_log和任务调度相关操作
+查询任务数据访问对象 (新架构)
+管理 query_log 表的操作
+
+新架构 query_log 表结构:
+- query_id (VARCHAR 64, PK) - 查询唯一标识
+- uid (INT) - 用户ID
+- search_params (JSON) - 搜索参数
+- start_time (DATETIME) - 开始时间
+- end_time (DATETIME) - 结束时间
+- status (VARCHAR 50) - 状态
+- total_cost (DECIMAL) - 总费用
 """
 
-from typing import Optional, List, Dict, Any
+import json
+import time
+import uuid
 from datetime import datetime
-from .db_base import _get_connection, _get_thread_connection, utc_now_str, _parse_utc_prefixed
+from typing import List, Dict, Optional, Any
+from .db_base import _get_connection
+from ..redis.task_queue import TaskQueue
+from ..redis.user_cache import UserCache
+from ..redis.connection import redis_ping
 
 
-def get_query_log_by_index(query_index: int):
-    """根据索引获取查询日志"""
+def generate_query_id() -> str:
+    """生成唯一的查询ID"""
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    unique = uuid.uuid4().hex[:8]
+    return f"Q{timestamp}_{unique}"
+
+
+def create_query_log(uid: int, search_params: Dict, 
+                     estimated_cost: float = 0) -> Optional[str]:
+    """
+    创建新的查询任务记录
+    
+    Args:
+        uid: 用户ID
+        search_params: 搜索参数 (期刊、年份、研究问题等)
+        estimated_cost: 预估费用
+        
+    Returns:
+        查询ID (query_id)
+    """
+    if not uid or uid <= 0:
+        return None
+    
+    query_id = generate_query_id()
+    
     conn = _get_connection()
     try:
-        with conn.cursor(dictionary=True) as cursor:
-            cursor.execute(
-                """
-                SELECT uid, query_time, selected_folders, year_range, 
-                       research_question, requirements, query_table,
-                       total_papers_count, is_distillation, is_visible, 
-                       should_pause, start_time, end_time
-                FROM query_log
-                WHERE query_index=%s
-                """,
-                (query_index,)
-            )
-            row = cursor.fetchone()
-            return row or {}
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO query_log (query_id, uid, search_params, start_time, status, total_cost)
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, (
+            query_id,
+            uid,
+            json.dumps(search_params, ensure_ascii=False),
+            datetime.now(),
+            'PENDING',
+            estimated_cost
+        ))
+        conn.commit()
+        cursor.close()
+        
+        # 添加到用户历史记录 (Redis)
+        if redis_ping():
+            UserCache.add_history(uid, query_id)
+        
+        return query_id
+    except Exception as e:
+        print(f"[QueryDAO] 创建查询记录失败: {e}")
+        return None
     finally:
         conn.close()
 
 
-def list_query_logs_by_uid(uid: int, limit: int = 100):
-    """按用户列出查询历史"""
+def get_query_log(query_id: str) -> Optional[Dict[str, Any]]:
+    """获取单个查询任务信息"""
+    if not query_id:
+        return None
+    
+    conn = _get_connection()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT query_id, uid, search_params, start_time, end_time, 
+                   status, total_cost
+            FROM query_log WHERE query_id = %s
+        """, (query_id,))
+        result = cursor.fetchone()
+        cursor.close()
+        
+        if result and result.get('search_params'):
+            try:
+                if isinstance(result['search_params'], str):
+                    result['search_params'] = json.loads(result['search_params'])
+            except Exception:
+                pass
+        
+        return result
+    finally:
+        conn.close()
+
+
+def get_query_logs_by_uid(uid: int, limit: int = 50) -> List[Dict]:
+    """
+    获取用户的查询历史
+    
+    优先从 Redis 历史记录获取 query_id 列表
+    """
     if not uid or uid <= 0:
         return []
-    conn = _get_connection()
-    try:
-        with conn.cursor(dictionary=True) as cursor:
-            cursor.execute(
-                """
-                SELECT 
-                    query_index, uid, query_time, selected_folders, year_range,
-                    research_question, requirements, query_table, start_time, end_time,
-                    total_papers_count, is_distillation, is_visible, should_pause
-                FROM query_log
-                WHERE uid=%s AND is_visible=TRUE
-                ORDER BY start_time DESC
-                LIMIT %s
-                """,
-                (uid, int(limit or 100))
-            )
-            rows = cursor.fetchall() or []
-            return rows
-    finally:
-        conn.close()
-
-
-def get_query_start_time(query_index: int) -> Optional[datetime]:
-    """读取查询开始时间"""
-    if not query_index or query_index <= 0:
-        return None
-    conn = _get_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "SELECT start_time FROM query_log WHERE query_index=%s", 
-                (query_index,)
-            )
-            row = cursor.fetchone()
-            if not row:
-                return None
-            return _parse_utc_prefixed(row[0])
-    finally:
-        conn.close()
-
-
-def set_query_start_time_if_absent(query_index: int) -> bool:
-    """设置查询开始时间（如果为空）"""
-    if not query_index or query_index <= 0:
-        return False
-    conn = _get_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                """
-                UPDATE query_log 
-                SET start_time = %s
-                WHERE query_index = %s AND (start_time IS NULL OR start_time = '')
-                """,
-                (utc_now_str(), query_index)
-            )
-            conn.commit()
-            return cursor.rowcount > 0
-    except Exception:
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        return False
-    finally:
-        conn.close()
-
-
-def hide_query_log(query_index: int, uid: int) -> bool:
-    """隐藏查询日志"""
-    if not query_index or query_index <= 0 or not uid or uid <= 0:
-        return False
     
-    conn = _get_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "UPDATE query_log SET is_visible=FALSE WHERE query_index=%s AND uid=%s AND is_visible=TRUE",
-                (query_index, uid)
-            )
-            affected_rows = cursor.rowcount
-            conn.commit()
-            return affected_rows > 0
-    except Exception:
-        return False
-    finally:
-        conn.close()
-
-
-def delete_query_log(query_index: int, uid: int) -> bool:
-    """删除查询日志"""
-    if not query_index or query_index <= 0 or not uid or uid <= 0:
-        return False
-
-    conn = _get_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "DELETE FROM query_log WHERE query_index=%s AND uid=%s",
-                (query_index, uid)
-            )
-            affected_rows = cursor.rowcount
-            conn.commit()
-            return affected_rows > 0
-    except Exception:
-        return False
-    finally:
-        conn.close()
-
-
-def update_query_pause_status(query_index: int, uid: int, should_pause: bool) -> bool:
-    """更新查询暂停状态"""
-    if not query_index or query_index <= 0 or not uid or uid <= 0:
-        return False
+    # 尝试从 Redis 获取历史 ID 列表
+    query_ids = []
+    if redis_ping():
+        query_ids = UserCache.get_history(uid, limit)
     
-    conn = _get_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                "UPDATE query_log SET should_pause=%s WHERE query_index=%s AND uid=%s",
-                (should_pause, query_index, uid)
-            )
-            affected_rows = cursor.rowcount
-            conn.commit()
-            return affected_rows > 0
-    except Exception:
-        return False
-    finally:
-        conn.close()
-
-
-def finalize_query_if_done(table_name: str, query_index: int):
-    """检查并完成查询"""
-    if not table_name or query_index is None:
-        return
+    if query_ids:
+        # 批量获取查询详情
+        return _get_query_logs_by_ids(query_ids)
     
+    # 回源 MySQL
     conn = _get_connection()
     try:
-        with conn.cursor() as cursor:
-            # 检查总任务数
-            cursor.execute(
-                f"SELECT COUNT(*) FROM `{table_name}` WHERE query_index=%s",
-                (query_index,)
-            )
-            (total_count,) = cursor.fetchone() or (0,)
-            
-            if int(total_count or 0) == 0:
-                return
-            
-            # 检查完成数
-            cursor.execute(
-                f"""SELECT COUNT(*) FROM `{table_name}` 
-                   WHERE query_index=%s 
-                   AND (search_result IS NOT NULL OR result_time IS NOT NULL)""",
-                (query_index,)
-            )
-            (completed_count,) = cursor.fetchone() or (0,)
-            
-            # 如果全部完成
-            if int(total_count) > 0 and int(completed_count) >= int(total_count):
-                cursor.execute(
-                    "SELECT end_time FROM query_log WHERE query_index=%s",
-                    (query_index,)
-                )
-                (current_end_time,) = cursor.fetchone() or (None,)
-                
-                if current_end_time is None:
-                    end_utc = utc_now_str()
-                    cursor.execute(
-                        "UPDATE query_log SET end_time=%s WHERE query_index=%s AND end_time IS NULL",
-                        (end_utc, query_index)
-                    )
-                    conn.commit()
-                    
-                    # 记录日志
-                    try:
-                        from ..log import utils as _utils
-                        _utils.print_and_log(
-                            f"[finalize] Query {query_index} completed. "
-                            f"Total: {total_count}, Completed: {completed_count}"
-                        )
-                    except Exception:
-                        pass
-                    
-                    # 清理进度桶
-                    try:
-                        from ..process import data as _data
-                        row = get_query_log_by_index(query_index) or {}
-                        uid_val = int(row.get('uid') or 0)
-                        if uid_val > 0:
-                            _data.remove_bucket(uid_val, query_index)
-                    except Exception:
-                        pass
-    except Exception as e:
-        print(f"Error in finalize_query_if_done: {e}")
-    finally:
-        conn.close()
-
-
-def compute_query_progress(table_name: str, query_index: int) -> dict:
-    """计算查询进度"""
-    result = {'total': 0, 'completed': 0, 'pending': 0, 'percentage': 0.0}
-    if not table_name or query_index is None:
-        return result
-
-    conn = _get_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(
-                f"SELECT COUNT(*) FROM `{table_name}` WHERE query_index=%s", 
-                (query_index,)
-            )
-            (total_count,) = cursor.fetchone() or (0,)
-
-            cursor.execute(
-                f"""SELECT COUNT(*) FROM `{table_name}`
-                   WHERE query_index=%s 
-                   AND (result_time IS NOT NULL OR search_result IS NOT NULL)""",
-                (query_index,)
-            )
-            (completed_count,) = cursor.fetchone() or (0,)
-
-            total = int(total_count or 0)
-            completed = int(completed_count or 0)
-            pending = max(0, total - completed)
-            percentage = (completed * 100.0 / total) if total > 0 else 0.0
-            
-            result['total'] = total
-            result['completed'] = completed
-            result['pending'] = pending
-            result['percentage'] = round(percentage, 2)
-            
-            return result
-    finally:
-        conn.close()
-
-
-def get_active_queries_info() -> list:
-    """返回所有活跃查询的基本信息"""
-    conn = _get_connection()
-    try:
-        with conn.cursor(dictionary=True) as cursor:
-            cursor.execute("""
-                SELECT uid, query_table, start_time, query_index
-                FROM query_log
-                WHERE end_time IS NULL 
-                  AND query_table IS NOT NULL 
-                  AND query_table <> '' 
-                  AND should_pause = FALSE
-                ORDER BY start_time ASC
-            """)
-            return cursor.fetchall() or []
-    finally:
-        conn.close()
-
-
-def list_active_query_tables() -> list:
-    """列出所有活跃查询对应的表名"""
-    from .search_dao import check_search_table_exists
-    conn = _get_thread_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute("""
-                SELECT query_table
-                FROM query_log
-                WHERE end_time IS NULL 
-                  AND query_table IS NOT NULL 
-                  AND query_table <> '' 
-                  AND should_pause = FALSE
-            """)
-            rows = cursor.fetchall()
-            tables = [r[0] for r in rows if r and r[0]]
-            
-            # 过滤不存在的表
-            filtered = []
-            for t in tables:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT query_id, uid, search_params, start_time, end_time, 
+                   status, total_cost
+            FROM query_log 
+            WHERE uid = %s 
+            ORDER BY start_time DESC 
+            LIMIT %s
+        """, (uid, limit))
+        results = cursor.fetchall() or []
+        cursor.close()
+        
+        # 解析 JSON
+        for r in results:
+            if r.get('search_params') and isinstance(r['search_params'], str):
                 try:
-                    if check_search_table_exists(t):
-                        filtered.append(t)
+                    r['search_params'] = json.loads(r['search_params'])
                 except Exception:
                     pass
-            return filtered
+        
+        # 重建 Redis 历史缓存
+        if redis_ping() and results:
+            history_items = []
+            for r in results:
+                ts = r.get('start_time')
+                if ts:
+                    ts_val = ts.timestamp() if hasattr(ts, 'timestamp') else time.time()
+                else:
+                    ts_val = time.time()
+                history_items.append((r['query_id'], ts_val))
+            UserCache.rebuild_history(uid, history_items)
+        
+        return results
     finally:
-        pass
+        conn.close()
+
+
+def _get_query_logs_by_ids(query_ids: List[str]) -> List[Dict]:
+    """批量获取查询记录"""
+    if not query_ids:
+        return []
+    
+    conn = _get_connection()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        placeholders = ", ".join(["%s"] * len(query_ids))
+        cursor.execute(f"""
+            SELECT query_id, uid, search_params, start_time, end_time, 
+                   status, total_cost
+            FROM query_log 
+            WHERE query_id IN ({placeholders})
+        """, query_ids)
+        results = cursor.fetchall() or []
+        cursor.close()
+        
+        # 解析 JSON 并按原顺序排列
+        result_map = {}
+        for r in results:
+            if r.get('search_params') and isinstance(r['search_params'], str):
+                try:
+                    r['search_params'] = json.loads(r['search_params'])
+                except Exception:
+                    pass
+            result_map[r['query_id']] = r
+        
+        return [result_map[qid] for qid in query_ids if qid in result_map]
+    finally:
+        conn.close()
+
+
+def update_query_status(query_id: str, status: str) -> bool:
+    """更新查询状态"""
+    if not query_id:
+        return False
+    
+    conn = _get_connection()
+    try:
+        cursor = conn.cursor()
+        
+        update_fields = ["status = %s"]
+        params = [status]
+        
+        # 如果是完成状态，记录结束时间
+        if status in ('DONE', 'FAILED', 'CANCELLED'):
+            update_fields.append("end_time = %s")
+            params.append(datetime.now())
+        
+        params.append(query_id)
+        
+        cursor.execute(f"""
+            UPDATE query_log SET {', '.join(update_fields)}
+            WHERE query_id = %s
+        """, params)
+        conn.commit()
+        cursor.close()
+        return True
+    except Exception as e:
+        print(f"[QueryDAO] 更新状态失败: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def update_query_cost(query_id: str, total_cost: float) -> bool:
+    """更新查询总费用"""
+    if not query_id:
+        return False
+    
+    conn = _get_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE query_log SET total_cost = %s WHERE query_id = %s",
+            (total_cost, query_id)
+        )
+        conn.commit()
+        cursor.close()
+        return True
+    finally:
+        conn.close()
+
+
+def mark_query_completed(query_id: str, total_cost: float = None) -> bool:
+    """标记查询完成"""
+    if not query_id:
+        return False
+    
+    conn = _get_connection()
+    try:
+        cursor = conn.cursor()
+        
+        if total_cost is not None:
+            cursor.execute("""
+                UPDATE query_log 
+                SET status = 'DONE', end_time = %s, total_cost = %s
+                WHERE query_id = %s
+            """, (datetime.now(), total_cost, query_id))
+        else:
+            cursor.execute("""
+                UPDATE query_log 
+                SET status = 'DONE', end_time = %s
+                WHERE query_id = %s
+            """, (datetime.now(), query_id))
+        
+        conn.commit()
+        cursor.close()
+        return True
+    finally:
+        conn.close()
+
+
+def get_active_queries() -> List[Dict]:
+    """获取所有进行中的查询"""
+    conn = _get_connection()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT query_id, uid, search_params, start_time, status
+            FROM query_log 
+            WHERE status IN ('PENDING', 'RUNNING')
+            ORDER BY start_time
+        """)
+        results = cursor.fetchall() or []
+        cursor.close()
+        return results
+    finally:
+        conn.close()
+
+
+def get_query_progress(uid: int, query_id: str) -> Optional[Dict]:
+    """
+    获取查询进度
+    
+    从 Redis 获取实时进度
+    """
+    if not query_id:
+        return None
+    
+    # 从 Redis 获取状态
+    if redis_ping():
+        status = TaskQueue.get_status(uid, query_id)
+        if status:
+            total = status.get('total_blocks', 0)
+            finished = status.get('finished_blocks', 0)
+            finished_count = TaskQueue.get_finished_count(uid, query_id)
+            
+            progress = (finished / total * 100) if total > 0 else 0
+            
+            return {
+                'query_id': query_id,
+                'state': status.get('state', 'UNKNOWN'),
+                'total_blocks': total,
+                'finished_blocks': finished,
+                'finished_papers': finished_count,
+                'progress': round(progress, 2),
+                'is_paused': TaskQueue.is_paused(uid, query_id),
+            }
+    
+    # 回退到数据库查询
+    query = get_query_log(query_id)
+    if query:
+        return {
+            'query_id': query_id,
+            'state': query.get('status', 'UNKNOWN'),
+            'progress': 100 if query.get('status') == 'DONE' else 0,
+        }
+    
+    return None
+
+
+def pause_query(uid: int, query_id: str) -> bool:
+    """暂停查询"""
+    if redis_ping():
+        TaskQueue.set_pause_signal(uid, query_id)
+        TaskQueue.set_state(uid, query_id, 'PAUSED')
+    return update_query_status(query_id, 'PAUSED')
+
+
+def resume_query(uid: int, query_id: str) -> bool:
+    """恢复查询"""
+    if redis_ping():
+        TaskQueue.clear_pause_signal(uid, query_id)
+        TaskQueue.set_state(uid, query_id, 'RUNNING')
+    return update_query_status(query_id, 'RUNNING')

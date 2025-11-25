@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>监控大盘 - AutoPaperWeb Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: white;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        
+        .header-actions { display: flex; gap: 1rem; align-items: center; }
+        
+        .header-actions a, .header-actions button {
+            color: white;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            border: 1px solid rgba(255,255,255,0.3);
+            background: transparent;
+        }
+        
+        .header-actions a:hover, .header-actions button:hover {
+            background: rgba(255,255,255,0.1);
+        }
+        
+        .nav {
+            background: white;
+            padding: 0 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .nav ul {
+            display: flex;
+            list-style: none;
+            gap: 0.5rem;
+        }
+        
+        .nav a {
+            display: block;
+            padding: 1rem 1.5rem;
+            color: #666;
+            text-decoration: none;
+            font-weight: 500;
+            border-bottom: 3px solid transparent;
+        }
+        
+        .nav a:hover, .nav a.active {
+            color: #0f3460;
+            border-bottom-color: #0f3460;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        
+        .stat-card h3 {
+            color: #666;
+            font-size: 0.9rem;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+        
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #1a1a2e;
+        }
+        
+        .stat-card .unit {
+            font-size: 0.9rem;
+            color: #999;
+            margin-left: 0.25rem;
+        }
+        
+        .stat-card.warning .value { color: #f59e0b; }
+        .stat-card.danger .value { color: #ef4444; }
+        .stat-card.success .value { color: #10b981; }
+        
+        .panel {
+            background: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            margin-bottom: 1.5rem;
+        }
+        
+        .panel h2 {
+            font-size: 1.1rem;
+            color: #1a1a2e;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid #eee;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #eee;
+        }
+        
+        th {
+            color: #666;
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        
+        .status-running { background: #dcfce7; color: #166534; }
+        .status-done { background: #e0e7ff; color: #3730a3; }
+        .status-paused { background: #fef3c7; color: #92400e; }
+        
+        .refresh-btn {
+            background: #0f3460;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .refresh-btn:hover { background: #16213e; }
+        
+        #lastUpdate { color: #999; font-size: 0.85rem; margin-left: 1rem; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 AutoPaperWeb 管理后台</h1>
+        <div class="header-actions">
+            <span id="adminName">管理员</span>
+            <button onclick="logout()">退出登录</button>
+        </div>
+    </div>
+    
+    <nav class="nav">
+        <ul>
+            <li><a href="dashboard.html" class="active">监控大盘</a></li>
+            <li><a href="users.html">用户管理</a></li>
+            <li><a href="tasks.html">任务管理</a></li>
+        </ul>
+    </nav>
+    
+    <div class="container">
+        <div style="margin-bottom: 1rem; display: flex; align-items: center;">
+            <button class="refresh-btn" onclick="refreshData()">🔄 刷新数据</button>
+            <span id="lastUpdate"></span>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>实时 TPM</h3>
+                <div><span class="value" id="tpm">0</span><span class="unit">tokens/min</span></div>
+            </div>
+            <div class="stat-card">
+                <h3>实时 RPM</h3>
+                <div><span class="value" id="rpm">0</span><span class="unit">req/min</span></div>
+            </div>
+            <div class="stat-card">
+                <h3>活跃 Workers</h3>
+                <div><span class="value" id="workers">0</span></div>
+            </div>
+            <div class="stat-card">
+                <h3>进行中任务</h3>
+                <div><span class="value" id="activeTasks">0</span></div>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>🔄 活跃任务队列</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>查询ID</th>
+                        <th>用户</th>
+                        <th>状态</th>
+                        <th>待处理Blocks</th>
+                        <th>已完成</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="taskList">
+                    <tr><td colspan="6" style="text-align:center;color:#999;">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div class="panel">
+            <h2>📈 系统健康状态</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>组件</th>
+                        <th>状态</th>
+                        <th>详情</th>
+                    </tr>
+                </thead>
+                <tbody id="healthList">
+                    <tr><td colspan="3" style="text-align:center;color:#999;">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        const adminToken = localStorage.getItem('adminToken');
+        const adminUsername = localStorage.getItem('adminUsername');
+        
+        if (!adminToken) {
+            window.location.href = '/admin/login.html';
+        }
+        
+        document.getElementById('adminName').textContent = adminUsername || '管理员';
+        
+        async function fetchWithAuth(url, options = {}) {
+            const headers = {
+                'Content-Type': 'application/json',
+                'X-Admin-Token': adminToken,
+                ...(options.headers || {})
+            };
+            return fetch(url, { ...options, headers });
+        }
+        
+        async function refreshData() {
+            try {
+                const response = await fetchWithAuth('/api/admin/dashboard');
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('tpm').textContent = data.tpm || 0;
+                    document.getElementById('rpm').textContent = data.rpm || 0;
+                    document.getElementById('workers').textContent = data.active_workers || 0;
+                    document.getElementById('activeTasks').textContent = data.active_queries || 0;
+                    
+                    updateTaskList(data.tasks || []);
+                    updateHealthList(data.health || {});
+                    
+                    document.getElementById('lastUpdate').textContent = 
+                        '最后更新: ' + new Date().toLocaleTimeString();
+                }
+            } catch (error) {
+                console.error('刷新数据失败:', error);
+            }
+        }
+        
+        function updateTaskList(tasks) {
+            const tbody = document.getElementById('taskList');
+            if (!tasks.length) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">暂无活跃任务</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = tasks.map(t => `
+                <tr>
+                    <td><code>${t.query_id}</code></td>
+                    <td>${t.uid}</td>
+                    <td><span class="status-badge status-${t.state?.toLowerCase()}">${t.state}</span></td>
+                    <td>${t.pending_blocks || 0}</td>
+                    <td>${t.finished_blocks || 0} / ${t.total_blocks || 0}</td>
+                    <td>
+                        <button onclick="terminateTask(${t.uid}, '${t.query_id}')" 
+                                style="padding:0.25rem 0.5rem;font-size:0.8rem;cursor:pointer;">
+                            终止
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        function updateHealthList(health) {
+            const tbody = document.getElementById('healthList');
+            const items = [
+                { name: 'Redis', status: health.redis ? 'OK' : 'ERROR', detail: health.redis ? '连接正常' : '连接失败' },
+                { name: 'MySQL', status: health.mysql ? 'OK' : 'ERROR', detail: health.mysql ? '连接正常' : '连接失败' },
+                { name: '计费队列', status: 'OK', detail: `积压 ${health.billing_queue_size || 0} 条` },
+            ];
+            
+            tbody.innerHTML = items.map(item => `
+                <tr>
+                    <td>${item.name}</td>
+                    <td><span class="status-badge ${item.status === 'OK' ? 'status-done' : 'status-paused'}">${item.status}</span></td>
+                    <td>${item.detail}</td>
+                </tr>
+            `).join('');
+        }
+        
+        async function terminateTask(uid, qid) {
+            if (!confirm('确定要终止这个任务吗？')) return;
+            
+            try {
+                const response = await fetchWithAuth('/api/admin/tasks/terminate', {
+                    method: 'POST',
+                    body: JSON.stringify({ uid, query_id: qid })
+                });
+                const data = await response.json();
+                alert(data.message || (data.success ? '已发送终止信号' : '操作失败'));
+                refreshData();
+            } catch (error) {
+                alert('操作失败: ' + error.message);
+            }
+        }
+        
+        function logout() {
+            localStorage.removeItem('adminToken');
+            localStorage.removeItem('adminUsername');
+            window.location.href = '/admin/login.html';
+        }
+        
+        // 初始加载和定时刷新
+        refreshData();
+        setInterval(refreshData, 5000);
+    </script>
+</body>
+</html>
+

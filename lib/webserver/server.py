@@ -9,8 +9,14 @@ from ..config import config_loader as config
 from ..log import debug_console
 from .auth import register_user, login_user, get_user_info
 from ..load_data import db_reader
-from ..process.paper_processor import process_papers, process_papers_for_distillation  # 添加process_papers导入
-from ..process import queue_facade
+from ..process.paper_processor import process_papers, process_papers_for_distillation
+from .admin_api import handle_admin_api
+
+# 兼容旧代码
+try:
+    from ..process import queue_facade
+except ImportError:
+    queue_facade = None
 
 LIB_DIR = os.path.dirname(os.path.dirname(__file__))
 HTML_DIR = os.path.join(LIB_DIR, 'html')
@@ -34,6 +40,12 @@ class RequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == '/api/ping':
             return self._send_json(200, {'pong': True})
+        
+        # 新版管理员API (GET)
+        if parsed.path.startswith('/api/admin/') and parsed.path not in ('/api/admin/tokens_per_req',):
+            headers_dict = {k: v for k, v in self.headers.items()}
+            status, response = handle_admin_api(parsed.path, 'GET', headers_dict, None)
+            return self._send_json(status, response)
         # 获取 tokens_per_req（必须为 GET，且从数据库读取）
         if parsed.path == '/api/admin/tokens_per_req':
             try:
@@ -67,8 +79,22 @@ class RequestHandler(BaseHTTPRequestHandler):
             return self._serve_file(os.path.join(HTML_DIR, 'distill.html'), 'text/html; charset=utf-8')
         if parsed.path == '/billing.html':
             return self._serve_file(os.path.join(HTML_DIR, 'billing.html'), 'text/html; charset=utf-8')
-        if parsed.path == '/admin.html' or parsed.path == '/AutoPaperSearchControlPanelAdmin.html':
-            return self._serve_file(os.path.join(HTML_DIR, 'AutoPaperSearchControlPanelAdmin.html'), 'text/html; charset=utf-8')
+        # 新版管理员页面
+        if parsed.path.startswith('/admin/'):
+            admin_file = parsed.path[7:]  # 去掉 /admin/
+            if not admin_file:
+                admin_file = 'login.html'
+            try:
+                file_path = safe_join(HTML_DIR, 'admin', admin_file)
+                if os.path.exists(file_path):
+                    return self._serve_file(file_path, 'text/html; charset=utf-8')
+            except ValueError:
+                pass
+            return self._send_text(404, 'text/plain', 'Not Found')
+        
+        # 兼容旧路径
+        if parsed.path == '/admin.html':
+            return self._send_redirect('/admin/login.html')
         if parsed.path == '/debugLog.html':
             if not getattr(config, 'enable_debug_website_console', False):
                 return self._send_text(403, 'text/plain; charset=utf-8', 'Debug console disabled')
@@ -695,6 +721,12 @@ class RequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         length = int(self.headers.get('Content-Length', 0))
         body = self.rfile.read(length).decode('utf-8') if length > 0 else ''
+        
+        # 新版管理员API
+        if parsed.path.startswith('/api/admin/'):
+            headers_dict = {k: v for k, v in self.headers.items()}
+            status, response = handle_admin_api(parsed.path, 'POST', headers_dict, body)
+            return self._send_json(status, response)
         
         try:
             payload = json.loads(body) if body else {}

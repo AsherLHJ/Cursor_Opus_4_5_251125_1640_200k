@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户管理 - AutoPaperWeb Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f5f7fa; min-height: 100vh; }
+        .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header-actions { display: flex; gap: 1rem; align-items: center; }
+        .header-actions a, .header-actions button { color: white; text-decoration: none; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.9rem; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); background: transparent; }
+        .header-actions a:hover, .header-actions button:hover { background: rgba(255,255,255,0.1); }
+        .nav { background: white; padding: 0 2rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .nav ul { display: flex; list-style: none; gap: 0.5rem; }
+        .nav a { display: block; padding: 1rem 1.5rem; color: #666; text-decoration: none; font-weight: 500; border-bottom: 3px solid transparent; }
+        .nav a:hover, .nav a.active { color: #0f3460; border-bottom-color: #0f3460; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .panel { background: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 1.5rem; }
+        .panel h2 { font-size: 1.1rem; color: #1a1a2e; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid #eee; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: 0.75rem 1rem; border-bottom: 1px solid #eee; }
+        th { color: #666; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
+        .btn { padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.85rem; cursor: pointer; border: none; }
+        .btn-primary { background: #0f3460; color: white; }
+        .btn-success { background: #10b981; color: white; }
+        .btn-warning { background: #f59e0b; color: white; }
+        .btn:hover { opacity: 0.9; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
+        .modal.active { display: flex; }
+        .modal-content { background: white; padding: 2rem; border-radius: 12px; width: 400px; max-width: 90%; }
+        .modal-content h3 { margin-bottom: 1rem; }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
+        .form-group input { width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 6px; }
+        .modal-actions { display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 AutoPaperWeb 管理后台</h1>
+        <div class="header-actions">
+            <span id="adminName">管理员</span>
+            <button onclick="logout()">退出登录</button>
+        </div>
+    </div>
+    
+    <nav class="nav">
+        <ul>
+            <li><a href="dashboard.html">监控大盘</a></li>
+            <li><a href="users.html" class="active">用户管理</a></li>
+            <li><a href="tasks.html">任务管理</a></li>
+        </ul>
+    </nav>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>👥 用户列表</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>UID</th>
+                        <th>用户名</th>
+                        <th>余额</th>
+                        <th>权限</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="userList">
+                    <tr><td colspan="5" style="text-align:center;color:#999;">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <div class="modal" id="balanceModal">
+        <div class="modal-content">
+            <h3>💰 调整余额</h3>
+            <input type="hidden" id="balanceUid">
+            <div class="form-group">
+                <label>当前余额</label>
+                <input type="text" id="currentBalance" readonly>
+            </div>
+            <div class="form-group">
+                <label>新余额</label>
+                <input type="number" id="newBalance" step="0.01" min="0">
+            </div>
+            <div class="modal-actions">
+                <button class="btn" onclick="closeModal('balanceModal')">取消</button>
+                <button class="btn btn-primary" onclick="saveBalance()">保存</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal" id="permissionModal">
+        <div class="modal-content">
+            <h3>⚙️ 调整权限</h3>
+            <input type="hidden" id="permUid">
+            <div class="form-group">
+                <label>当前权限（并发数）</label>
+                <input type="text" id="currentPerm" readonly>
+            </div>
+            <div class="form-group">
+                <label>新权限</label>
+                <input type="number" id="newPerm" min="0" max="10">
+            </div>
+            <div class="modal-actions">
+                <button class="btn" onclick="closeModal('permissionModal')">取消</button>
+                <button class="btn btn-primary" onclick="savePermission()">保存</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const adminToken = localStorage.getItem('adminToken');
+        if (!adminToken) window.location.href = '/admin/login.html';
+        document.getElementById('adminName').textContent = localStorage.getItem('adminUsername') || '管理员';
+        
+        async function fetchWithAuth(url, options = {}) {
+            return fetch(url, { ...options, headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken, ...(options.headers || {}) }});
+        }
+        
+        async function loadUsers() {
+            try {
+                const response = await fetchWithAuth('/api/admin/users');
+                const data = await response.json();
+                
+                if (data.success && data.users) {
+                    const tbody = document.getElementById('userList');
+                    tbody.innerHTML = data.users.map(u => `
+                        <tr>
+                            <td>${u.uid}</td>
+                            <td>${u.username}</td>
+                            <td>¥${parseFloat(u.balance || 0).toFixed(2)}</td>
+                            <td>${u.permission || 0}</td>
+                            <td>
+                                <button class="btn btn-success" onclick="openBalanceModal(${u.uid}, ${u.balance || 0})">调整余额</button>
+                                <button class="btn btn-warning" onclick="openPermModal(${u.uid}, ${u.permission || 0})">调整权限</button>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('加载用户失败:', error);
+            }
+        }
+        
+        function openBalanceModal(uid, balance) {
+            document.getElementById('balanceUid').value = uid;
+            document.getElementById('currentBalance').value = balance.toFixed(2);
+            document.getElementById('newBalance').value = balance.toFixed(2);
+            document.getElementById('balanceModal').classList.add('active');
+        }
+        
+        function openPermModal(uid, perm) {
+            document.getElementById('permUid').value = uid;
+            document.getElementById('currentPerm').value = perm;
+            document.getElementById('newPerm').value = perm;
+            document.getElementById('permissionModal').classList.add('active');
+        }
+        
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('active');
+        }
+        
+        async function saveBalance() {
+            const uid = document.getElementById('balanceUid').value;
+            const newBalance = parseFloat(document.getElementById('newBalance').value);
+            
+            try {
+                const response = await fetchWithAuth('/api/admin/users/balance', {
+                    method: 'POST',
+                    body: JSON.stringify({ uid: parseInt(uid), balance: newBalance })
+                });
+                const data = await response.json();
+                alert(data.message || (data.success ? '更新成功' : '更新失败'));
+                closeModal('balanceModal');
+                loadUsers();
+            } catch (error) {
+                alert('操作失败: ' + error.message);
+            }
+        }
+        
+        async function savePermission() {
+            const uid = document.getElementById('permUid').value;
+            const newPerm = parseInt(document.getElementById('newPerm').value);
+            
+            try {
+                const response = await fetchWithAuth('/api/admin/users/permission', {
+                    method: 'POST',
+                    body: JSON.stringify({ uid: parseInt(uid), permission: newPerm })
+                });
+                const data = await response.json();
+                alert(data.message || (data.success ? '更新成功' : '更新失败'));
+                closeModal('permissionModal');
+                loadUsers();
+            } catch (error) {
+                alert('操作失败: ' + error.message);
+            }
+        }
+        
+        function logout() {
+            localStorage.removeItem('adminToken');
+            localStorage.removeItem('adminUsername');
+            window.location.href = '/admin/login.html';
+        }
+        
+        loadUsers();
+    </script>
+</body>
+</html>
+

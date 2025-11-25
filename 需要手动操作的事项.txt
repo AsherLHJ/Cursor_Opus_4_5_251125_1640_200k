@@ -1,0 +1,145 @@
+# 需要手动操作的事项
+
+## 创建时间: 2025-11-25 17:45
+## 项目: AutoPaperWeb 新架构重构
+
+---
+
+## 一、数据库迁移
+
+### 1.1 执行数据库初始化脚本
+```bash
+cd DB_tools
+python init_database.py --config ../config.json
+```
+
+### 1.2 创建初始管理员账户
+在Python环境中执行：
+```python
+from lib.webserver.admin_auth import create_initial_admin
+create_initial_admin(username='admin', password='your_secure_password')
+```
+
+---
+
+## 二、配置文件更新
+
+### 2.1 确保config.json包含以下配置
+```json
+{
+  "database": {
+    "local": {
+      "host": "127.0.0.1",
+      "port": 3306,
+      "user": "root",
+      "password": "your_password",
+      "name": "paperdb"
+    }
+  },
+  "redis": {
+    "local_url": "redis://localhost:6379/0"
+  },
+  "local_develop_mode": true
+}
+```
+
+---
+
+## 三、依赖安装
+
+### 3.1 新增Python依赖
+确保安装以下包：
+- redis
+- bcrypt
+- mysql-connector-python
+- bibtexparser (用于DB_tools)
+- openai (用于AI调用)
+
+```bash
+pip install redis bcrypt mysql-connector-python bibtexparser openai
+```
+
+---
+
+## 四、服务启动顺序
+
+1. 启动Redis服务
+2. 启动MySQL服务
+3. 执行数据库初始化 (首次)
+4. 执行Redis数据预加载 (首次)
+5. 启动主应用
+
+### Redis数据预加载
+```python
+from lib.redis.init_loader import init_redis_from_mysql
+from lib.load_data.db_base import _get_connection
+
+conn = _get_connection()
+init_redis_from_mysql(conn, load_papers=True)
+conn.close()
+```
+
+---
+
+## 五、已删除的废弃文件清单
+
+以下文件已被删除，如果版本控制中仍有残留，请手动清理：
+
+### 5.1 DB_tools目录
+- [x] tools_refresh_db_sentence.py (sentence表已废弃)
+
+### 5.2 lib/load_data目录
+- [x] app_settings_dao.py (静态配置走config.json)
+- [x] task_dao.py (任务队列由Redis接管)
+- [x] queue_dao.py (队列管理由Redis模块实现)
+
+### 5.3 lib/process目录
+- [x] queue_facade.py
+- [x] queue_manager.py
+- [x] redis_queue_manager.py
+- [x] rate_limiter.py
+- [x] rate_limiter_facade.py
+- [x] redis_rate_limiter.py
+- [x] redis_aggregates.py
+
+### 5.4 lib/html目录
+- [x] AutoPaperSearchControlPanelAdmin.html (新版管理页面在admin/目录下)
+
+---
+
+## 六、Docker部署注意事项
+
+### 6.1 更新Dockerfile
+需要在Dockerfile中添加对lib/redis/目录的COPY
+
+### 6.2 更新docker-compose.yml
+确保Redis服务配置正确，并设置数据持久化
+
+---
+
+## 七、单元测试
+
+重构完成后，需要运行以下测试：
+
+```bash
+# 在项目根目录执行
+python -m pytest tests/ -v
+```
+
+注意：部分旧测试可能需要更新以适配新架构。
+
+---
+
+## 八、其他注意事项
+
+1. 首次启动需要较长时间进行Redis数据预加载（取决于文献数量）
+2. 管理员初始密码请在首次登录后立即修改
+3. 生产环境部署前，请确保：
+   - 关闭debug模式
+   - 设置强密码
+   - 配置HTTPS
+   - 设置适当的Redis过期策略
+
+---
+
+文档更新日期: 2025-11-25
