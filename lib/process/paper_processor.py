@@ -13,7 +13,7 @@ import os
 import time
 import threading
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from . import data
 from . import search_paper
@@ -43,163 +43,195 @@ from .export import export_results_from_db, extract_url_from_entry
 from .scheduler import start_background_scheduler
 
 
-def process_papers(rq, requirements, n, selected_folders=None, 
-                   year_range_info=None, uid: int = 1, query_index: int = None):
+def process_papers(uid: int, search_params: dict) -> Tuple[bool, str]:
     """
     处理论文的主函数 (新架构)
     
     Args:
-        rq: 研究问题
-        requirements: 筛选要求
-        n: 最大处理数量 (-1 表示全部)
-        selected_folders: 选中的期刊/会议名称列表
-        year_range_info: 年份范围信息
         uid: 用户ID
-        query_index: 旧架构查询索引（已废弃，使用 query_id）
+        search_params: 搜索参数字典，包含:
+            - research_question: 研究问题
+            - requirements: 筛选要求
+            - journals: 选中的期刊列表
+            - start_year, end_year: 年份范围
+            - include_all_years: 是否包含所有年份
+        
+    Returns:
+        (success, query_id 或 error_message)
     """
-    lang = language.get_text(config.LANGUAGE)
-    ensure_directories(lang)
+    try:
+        lang = language.get_text(config.LANGUAGE)
+        ensure_directories(lang)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    data.result_file_name = f"Result_{timestamp}"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+        data.result_file_name = f"Result_{timestamp}"
 
-    # 解析年份范围
-    start_year = config.YEAR_RANGE_START
-    end_year = config.YEAR_RANGE_END
-    include_all_years = config.INCLUDE_ALL_YEARS
+        # 从 search_params 提取参数
+        rq = search_params.get('research_question', '')
+        requirements = search_params.get('requirements', '')
+        selected_folders = search_params.get('journals', [])
+        start_year = search_params.get('start_year')
+        end_year = search_params.get('end_year')
+        include_all_years = search_params.get('include_all_years', True)
+        year_range_info = search_params.get('year_range', 'All years')
+
+        # 构建时间范围
+        time_range = {
+            "include_all": include_all_years,
+            "start_year": start_year,
+            "end_year": end_year,
+        }
+
+        # 获取期刊列表
+        if not selected_folders:
+            journals = get_journals_by_filters(time_range=time_range)
+            selected_folders = [j['name'] for j in journals]
+
+        # 统计论文数量
+        paper_count = count_papers_by_filters(selected_folders, time_range)
+        max_papers = paper_count  # 新架构默认处理全部
+        data.total_papers_to_process = max_papers
+
+        print_statistics(lang, max_papers, paper_count)
+
+        if max_papers <= 0:
+            utils.print_and_log(lang.get('no_paper_to_process', '无可处理的论文'))
+            return False, "No papers to process"
+
+        # 构建完整搜索参数（用于存储）
+        full_search_params = {
+            "research_question": rq,
+            "requirements": requirements or "",
+            "selected_journals": selected_folders,
+            "year_range": year_range_info,
+            "max_papers": max_papers,
+        }
+
+        # 创建查询记录
+        query_id = create_query_log(
+            uid=uid,
+            search_params=full_search_params,
+            estimated_cost=float(max_papers)
+        )
+
+        if not query_id:
+            utils.print_and_log("[ERROR] 创建查询记录失败")
+            return False, "Failed to create query log"
+
+        utils.print_and_log(f"[main] 创建查询: {query_id}")
+
+        # 初始化进度跟踪
+        utils.reset_progress_tracking(uid=uid, query_index=query_id, total=max_papers)
+        setup_progress_context(uid, query_id)
+
+        # 计算线程数
+        num_threads = compute_worker_thread_count(max_papers, uid)
+        utils.print_and_log(
+            f"{lang['actual_threads_used'].format(threads=num_threads, avg=max_papers/num_threads if num_threads else 0)}"
+        )
+
+        # 启动处理
+        start_processing(
+            selected_folders, time_range, max_papers,
+            query_id, uid, rq, requirements
+        )
+
+        utils.print_and_log(f"\n{lang.get('tasks_submitted', 'Tasks submitted for processing')}")
+        utils.print_and_log(f"Query ID: {query_id}")
+        utils.print_and_log(f"Total papers to process: {max_papers}")
+
+        return True, query_id
+
+    except Exception as e:
+        utils.print_and_log(f"[ERROR] process_papers failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False, str(e)
+
+
+def process_papers_for_distillation(uid: int, original_query_id: str, 
+                                   relevant_dois: List[str]) -> Tuple[bool, str]:
+    """
+    蒸馏处理函数 (新架构)
     
-    time_range = {
-        "include_all": include_all_years,
-        "start_year": start_year,
-        "end_year": end_year,
-    }
-
-    # 获取期刊列表
-    if not selected_folders:
-        journals = get_journals_by_filters(time_range=time_range)
-        selected_folders = [j['name'] for j in journals]
-
-    # 统计论文数量
-    paper_count = count_papers_by_filters(selected_folders, time_range)
-    max_papers = paper_count if n == -1 else min(n, paper_count)
-    data.total_papers_to_process = max_papers
-
-    print_statistics(lang, max_papers, paper_count)
-
-    if max_papers <= 0:
-        utils.print_and_log(lang.get('no_paper_to_process', '无可处理的论文'))
-        return
-
-    # 构建搜索参数
-    search_params = {
-        "research_question": rq,
-        "requirements": requirements or "",
-        "selected_journals": selected_folders,
-        "year_range": year_range_info or "All years",
-        "max_papers": max_papers,
-    }
-
-    # 创建查询记录
-    query_id = create_query_log(
-        uid=uid,
-        search_params=search_params,
-        estimated_cost=float(max_papers)
-    )
-
-    if not query_id:
-        utils.print_and_log("[ERROR] 创建查询记录失败")
-        return
-
-    utils.print_and_log(f"[main] 创建查询: {query_id}")
-
-    # 初始化进度跟踪
-    utils.reset_progress_tracking(uid=uid, query_index=query_id, total=max_papers)
-    setup_progress_context(uid, query_id)
-
-    # 计算线程数
-    num_threads = compute_worker_thread_count(max_papers, uid)
-    utils.print_and_log(
-        f"{lang['actual_threads_used'].format(threads=num_threads, avg=max_papers/num_threads if num_threads else 0)}"
-    )
-
-    # 启动处理
-    start_processing(
-        selected_folders, time_range, max_papers,
-        query_id, uid, rq, requirements
-    )
-
-    utils.print_and_log(f"\n{lang.get('tasks_submitted', 'Tasks submitted for processing')}")
-    utils.print_and_log(f"Query ID: {query_id}")
-    utils.print_and_log(f"Total papers to process: {max_papers}")
-
-
-def process_papers_for_distillation(rq, requirements, relevant_dois, 
-                                   uid: int = 1, query_index: int = None, 
-                                   original_query_index: int = None):
+    Args:
+        uid: 用户ID
+        original_query_id: 原始查询ID
+        relevant_dois: 相关DOI列表
+        
+    Returns:
+        (success, query_id 或 error_message)
     """
-    蒸馏处理函数：基于DOI列表处理论文
-    """
-    lang = language.get_text(config.LANGUAGE)
-    ensure_directories(lang)
+    try:
+        lang = language.get_text(config.LANGUAGE)
+        ensure_directories(lang)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    data.result_file_name = f"Distill_{timestamp}"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+        data.result_file_name = f"Distill_{timestamp}"
 
-    paper_count = len(relevant_dois)
-    data.total_papers_to_process = paper_count
+        paper_count = len(relevant_dois)
+        data.total_papers_to_process = paper_count
 
-    utils.print_and_log(f"\n开始蒸馏处理 {paper_count} 篇论文")
+        utils.print_and_log(f"\n开始蒸馏处理 {paper_count} 篇论文")
 
-    if paper_count <= 0:
-        utils.print_and_log("无可处理的论文")
-        return
+        if paper_count <= 0:
+            utils.print_and_log("无可处理的论文")
+            return False, "No papers to process for distillation"
 
-    # 创建查询记录
-    search_params = {
-        "research_question": rq,
-        "requirements": requirements or "",
-        "is_distillation": True,
-        "original_query_id": original_query_index,
-        "doi_count": paper_count,
-    }
+        # 创建查询记录
+        search_params = {
+            "research_question": "",  # 蒸馏沿用原始查询的问题
+            "requirements": "",
+            "is_distillation": True,
+            "original_query_id": original_query_id,
+            "doi_count": paper_count,
+        }
 
-    query_id = create_query_log(
-        uid=uid,
-        search_params=search_params,
-        estimated_cost=float(paper_count)
-    )
+        query_id = create_query_log(
+            uid=uid,
+            search_params=search_params,
+            estimated_cost=float(paper_count) * 0.1  # 蒸馏0.1倍费率
+        )
 
-    if not query_id:
-        utils.print_and_log("[ERROR] 创建蒸馏查询记录失败")
-        return
+        if not query_id:
+            utils.print_and_log("[ERROR] 创建蒸馏查询记录失败")
+            return False, "Failed to create distillation query log"
 
-    # 初始化进度跟踪
-    utils.reset_progress_tracking(uid=uid, query_index=query_id, total=paper_count)
+        # 初始化进度跟踪
+        utils.reset_progress_tracking(uid=uid, query_index=query_id, total=paper_count)
 
-    # 计算线程数
-    num_threads = compute_worker_thread_count(paper_count, uid)
-    utils.print_and_log(f"使用线程数: {num_threads}")
+        # 计算线程数
+        num_threads = compute_worker_thread_count(paper_count, uid)
+        utils.print_and_log(f"使用线程数: {num_threads}")
 
-    # 启动进度监控
-    start_progress_monitor(num_threads)
+        # 启动进度监控
+        start_progress_monitor(num_threads)
 
-    # 执行蒸馏处理
-    def run_distillation():
-        try:
-            distillation_producer(relevant_dois, query_id, uid, rq, requirements)
-            scheduler.start_background_scheduler()
-        except Exception as e:
-            utils.print_and_log(f"[distill] Error in distillation: {e}")
+        # 执行蒸馏处理
+        def run_distillation():
             try:
-                mark_query_completed(query_id)
-            except Exception:
-                pass
-    
-    distill_thread = threading.Thread(target=run_distillation, daemon=True)
-    distill_thread.start()
+                distillation_producer(relevant_dois, query_id, uid, "", "")
+                scheduler.start_background_scheduler()
+            except Exception as e:
+                utils.print_and_log(f"[distill] Error in distillation: {e}")
+                try:
+                    mark_query_completed(query_id)
+                except Exception:
+                    pass
+        
+        distill_thread = threading.Thread(target=run_distillation, daemon=True)
+        distill_thread.start()
 
-    setup_progress_context(uid, query_id)
-    utils.print_and_log(f"蒸馏任务已提交: {query_id}")
+        setup_progress_context(uid, query_id)
+        utils.print_and_log(f"蒸馏任务已提交: {query_id}")
+
+        return True, query_id
+
+    except Exception as e:
+        utils.print_and_log(f"[ERROR] process_papers_for_distillation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False, str(e)
 
 
 # === 辅助函数 ===

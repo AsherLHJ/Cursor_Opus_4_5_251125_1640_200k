@@ -157,7 +157,7 @@ def progress_monitor():
             except Exception:
                 pass
 
-def reset_progress_tracking(uid: int = None, query_index: int = None, total: int = 0):
+def reset_progress_tracking(uid: int = None, query_index = None, total: int = 0):
     """重置（或初始化）某个查询的隔离进度桶 + 全局token统计归零（仅在新查询启动时调用）。"""
     # 初始化桶
     if uid is not None and query_index is not None:

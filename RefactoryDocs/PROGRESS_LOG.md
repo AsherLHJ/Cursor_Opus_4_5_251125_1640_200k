@@ -2,11 +2,11 @@
 
 ## 项目概述
 - **开始时间**: 2025-11-25 16:40
-- **完成时间**: 2025-11-25 17:50
-- **总耗时**: 约70分钟
+- **重构完成时间**: 2025-11-25 17:50
+- **最后修复时间**: 2025-11-26 15:30
 - **指导文件**: 新架构项目重构完整指导文件20251124.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 全部完成
+- **状态**: ✅ 重构完成 + 多轮Bug修复
 
 ---
 
@@ -136,6 +136,43 @@
 
 ---
 
+## Bug修复阶段
+
+### 修复轮次一：启动错误修复 (2025-11-26)
+- **时间**: 2025-11-26 14:00 - 14:30
+- **问题**:
+  1. `debug_console.info/warn` 方法不存在
+  2. `PriceCalculator.add_price_column_to_contentlist` 方法不存在
+  3. `db_reader.ensure_default_*` 方法不存在
+- **修复**:
+  - [x] `lib/webserver/server.py`: 替换 `debug_console.info/warn` 为 `print`
+  - [x] `lib/price_calculate/init_db.py`: 简化 `initialize_price_system()`
+  - [x] `main.py`: 移除不存在的 `ensure_default_*` 调用
+
+### 修复轮次二：Redis连接与管理员API修复 (2025-11-26)
+- **时间**: 2025-11-26 14:30 - 15:00
+- **问题**:
+  1. 测试脚本 Redis URL 替换逻辑错误
+  2. `admin_api.py` 期望字符串但收到字典
+  3. `AdminSession.create_session` 调用参数错误
+- **修复**:
+  - [x] `tests/FullTest_20251125_2106.py`: 修正 Redis URL 替换逻辑
+  - [x] `lib/webserver/admin_api.py`: 修改参数类型为 `payload: Dict`
+  - [x] `tests/FullTest_20251125_2106.py`: 修正 `create_session` 调用
+
+### 修复轮次三：API接口适配新架构 (2025-11-26)
+- **时间**: 2025-11-26 15:00 - 15:30
+- **问题**:
+  1. `AdminSession.validate_session` 方法不存在
+  2. `process_papers` 函数签名不符合新架构调用
+  3. `process_papers_for_distillation` 函数签名不符合新架构调用
+- **修复**:
+  - [x] `tests/FullTest_20251125_2106.py`: 使用 `get_session_uid` 替代 `validate_session`
+  - [x] `lib/process/paper_processor.py`: 重写 `process_papers(uid, search_params) -> (bool, str)`
+  - [x] `lib/process/paper_processor.py`: 重写 `process_papers_for_distillation(uid, original_query_id, dois) -> (bool, str)`
+
+---
+
 ## 重要变更记录
 
 | 日期 | 阶段 | 变更内容 | 影响范围 |
@@ -150,6 +187,9 @@
 | 2025-11-25 | 8 | 完成API层重构 | lib/webserver/ |
 | 2025-11-25 | 9 | 完成蒸馏任务模块 | lib/process/ |
 | 2025-11-25 | 10 | 完成清理和文档 | RefactoryDocs/ |
+| 2025-11-26 | 修复1 | 修复启动错误(debug_console/PriceCalculator/db_reader) | server.py, init_db.py, main.py |
+| 2025-11-26 | 修复2 | 修复Redis连接与管理员API | admin_api.py, tests/ |
+| 2025-11-26 | 修复3 | 重写process_papers适配新架构 | paper_processor.py |
 
 ---
 

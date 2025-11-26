@@ -20,6 +20,8 @@
 | 管理员仪表板 | http://localhost:18080/admin/dashboard.html | 系统监控 |
 | 用户管理 | http://localhost:18080/admin/users.html | 管理用户账户 |
 | 任务管理 | http://localhost:18080/admin/tasks.html | 管理查询任务 |
+| 系统控制 | http://localhost:18080/admin/control.html | 管理系统设置 |
+
 
 ### 服务器部署环境
 

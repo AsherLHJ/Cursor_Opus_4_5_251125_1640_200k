@@ -113,7 +113,6 @@
     .btn-csv { background: #28a745; }
     .btn-bib { background: #6f42c1; }
     .btn-distill { background: #ff6b6b; }
-    .btn-delete { background: #dc3545; }
     .btn-pause { background: #ffc107; color: #212529; }
     .btn-resume { background: #17a2b8; }
     
@@ -516,53 +515,9 @@
           }
         });
 
-        // 删除按钮
-        const btnDelete = document.createElement('button');
-        btnDelete.className = 'btn btn-delete';
-        btnDelete.textContent = i18n.t('history.delete');
-        btnDelete.addEventListener('click', () => {
-          if (confirm(i18n.t('history.delete_confirm'))) {
-            const uid = localStorage.getItem('userId');
-            if (!uid) {
-              alert(i18n.t('history.user_missing'));
-              return;
-            }
-            
-            fetch('/api/delete_history', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                query_index: queryIndex,
-                uid: uid
-              })
-            })
-            .then(response => response.json())
-            .then(data => {
-              if (data.success) {
-                alert(i18n.t('history.delete_success'));
-                // 从页面中移除该卡片
-                card.style.transition = 'opacity 0.3s';
-                card.style.opacity = '0';
-                setTimeout(() => {
-                  card.remove();
-                }, 300);
-              } else {
-                alert(i18n.t('history.delete_fail', {msg: data.error || 'Unknown error'}));
-              }
-            })
-            .catch(error => {
-              console.error('Delete error:', error);
-              alert(i18n.t('history.delete_fail', {msg: error.message}));
-            });
-          }
-        });
-
         actions.appendChild(btnCsv);
         actions.appendChild(btnBib);
         actions.appendChild(btnPauseResume);
-        actions.appendChild(btnDelete);
       } else {
         // 未暂停时只显示暂停按钮
         actions.appendChild(btnPauseResume);
@@ -616,56 +571,13 @@
         }
       });
 
-      // 新增：蒸馏按钮
+      // 蒸馏按钮
       const btnDistill = document.createElement('button');
       btnDistill.className = 'btn btn-distill';
       btnDistill.textContent = i18n.t('history.distill');
       btnDistill.addEventListener('click', () => {
         // 跳转到蒸馏页面，传递查询索引
         window.location.href = '/distill.html?query_index=' + encodeURIComponent(queryIndex);
-      });
-
-      // 新增：删除按钮
-      const btnDelete = document.createElement('button');
-      btnDelete.className = 'btn btn-delete';
-      btnDelete.textContent = i18n.t('history.delete');
-      btnDelete.addEventListener('click', () => {
-        if (confirm(i18n.t('history.delete_confirm'))) {
-          const uid = localStorage.getItem('userId');
-          if (!uid) {
-            alert(i18n.t('history.user_missing'));
-            return;
-          }
-          
-          fetch('/api/delete_history', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              query_index: queryIndex,
-              uid: uid
-            })
-          })
-          .then(response => response.json())
-          .then(data => {
-            if (data.success) {
-              alert(i18n.t('history.delete_success'));
-              // 从页面中移除该卡片
-              card.style.transition = 'opacity 0.3s';
-              card.style.opacity = '0';
-              setTimeout(() => {
-                card.remove();
-              }, 300);
-            } else {
-              alert(i18n.t('history.delete_fail', {msg: data.error || 'Unknown error'}));
-            }
-          })
-          .catch(error => {
-            console.error('Delete error:', error);
-            alert(i18n.t('history.delete_fail', {msg: error.message}));
-          });
-        }
       });
 
       // 根据任务状态添加不同的按钮组合
@@ -677,7 +589,6 @@
         actions.appendChild(btnDistill);
       }
       
-      actions.appendChild(btnDelete);
       card.appendChild(actions);
     }
 

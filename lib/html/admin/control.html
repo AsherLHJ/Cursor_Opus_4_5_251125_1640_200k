@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统控制 - AutoPaperWeb Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f5f7fa; min-height: 100vh; }
+        .header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header-actions { display: flex; gap: 1rem; align-items: center; }
+        .header-actions a, .header-actions button { color: white; text-decoration: none; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.9rem; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); background: transparent; }
+        .header-actions a:hover, .header-actions button:hover { background: rgba(255,255,255,0.1); }
+        .nav { background: white; padding: 0 2rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .nav ul { display: flex; list-style: none; gap: 0.5rem; }
+        .nav a { display: block; padding: 1rem 1.5rem; color: #666; text-decoration: none; font-weight: 500; border-bottom: 3px solid transparent; }
+        .nav a:hover, .nav a.active { color: #0f3460; border-bottom-color: #0f3460; }
+        .container { max-width: 1000px; margin: 0 auto; padding: 2rem; }
+        .panel { background: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 1.5rem; }
+        .panel h2 { font-size: 1.1rem; color: #1a1a2e; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid #eee; }
+        
+        .switch-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .switch-row:last-child { border-bottom: none; }
+        
+        .switch-info h3 { 
+            font-size: 1rem; 
+            color: #1a1a2e; 
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        .switch-info p { 
+            font-size: 0.85rem; 
+            color: #666; 
+        }
+        
+        .switch-control {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        .status-on { background: #dcfce7; color: #166534; }
+        .status-off { background: #fee2e2; color: #991b1b; }
+        
+        /* Toggle Switch */
+        .toggle {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 28px;
+        }
+        .toggle input { opacity: 0; width: 0; height: 0; }
+        .toggle .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #ccc;
+            transition: .3s;
+            border-radius: 28px;
+        }
+        .toggle .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+        .toggle input:checked + .slider { background-color: #10b981; }
+        .toggle input:checked + .slider:before { transform: translateX(22px); }
+        .toggle input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #0f3460;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 AutoPaperWeb 管理后台</h1>
+        <div class="header-actions">
+            <span id="adminName">管理员</span>
+            <button onclick="logout()">退出登录</button>
+        </div>
+    </div>
+    
+    <nav class="nav">
+        <ul>
+            <li><a href="dashboard.html">监控大盘</a></li>
+            <li><a href="users.html">用户管理</a></li>
+            <li><a href="tasks.html">任务管理</a></li>
+            <li><a href="control.html" class="active">系统控制</a></li>
+        </ul>
+    </nav>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>⚙️ 功能开关</h2>
+            
+            <div class="switch-row">
+                <div class="switch-info">
+                    <h3>用户注册</h3>
+                    <p>控制是否允许新用户注册账号。关闭后，登录页面将不显示注册入口。</p>
+                </div>
+                <div class="switch-control">
+                    <span id="regStatusBadge" class="status-badge status-on">已开启</span>
+                    <span id="regLoading" class="loading-spinner hidden"></span>
+                    <label class="toggle">
+                        <input type="checkbox" id="regToggle" checked onchange="toggleRegistration()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <!-- 预留更多开关位置 -->
+            <!--
+            <div class="switch-row">
+                <div class="switch-info">
+                    <h3>调试控制台</h3>
+                    <p>控制前端是否启用调试控制台。</p>
+                </div>
+                <div class="switch-control">
+                    <span class="status-badge status-off">已关闭</span>
+                    <label class="toggle">
+                        <input type="checkbox">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            -->
+        </div>
+    </div>
+    
+    <script>
+        const adminToken = localStorage.getItem('adminToken');
+        if (!adminToken) window.location.href = '/admin/login.html';
+        document.getElementById('adminName').textContent = localStorage.getItem('adminUsername') || '管理员';
+        
+        async function fetchWithAuth(url, options = {}) {
+            return fetch(url, { 
+                ...options, 
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'X-Admin-Token': adminToken, 
+                    ...(options.headers || {}) 
+                }
+            });
+        }
+        
+        async function loadRegistrationStatus() {
+            try {
+                const response = await fetch('/api/registration_status');
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateRegistrationUI(data.registration_enabled);
+                }
+            } catch (error) {
+                console.error('获取注册状态失败:', error);
+            }
+        }
+        
+        function updateRegistrationUI(enabled) {
+            const toggle = document.getElementById('regToggle');
+            const badge = document.getElementById('regStatusBadge');
+            
+            toggle.checked = enabled;
+            badge.textContent = enabled ? '已开启' : '已关闭';
+            badge.className = 'status-badge ' + (enabled ? 'status-on' : 'status-off');
+        }
+        
+        async function toggleRegistration() {
+            const toggle = document.getElementById('regToggle');
+            const loading = document.getElementById('regLoading');
+            const newValue = toggle.checked;
+            
+            toggle.disabled = true;
+            loading.classList.remove('hidden');
+            
+            try {
+                const response = await fetchWithAuth('/api/admin/toggle_registration', {
+                    method: 'POST',
+                    body: JSON.stringify({ enabled: newValue })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateRegistrationUI(data.registration_enabled);
+                } else {
+                    // 恢复原状态
+                    toggle.checked = !newValue;
+                    alert('操作失败: ' + (data.message || '未知错误'));
+                }
+            } catch (error) {
+                toggle.checked = !newValue;
+                alert('操作失败: ' + error.message);
+            } finally {
+                toggle.disabled = false;
+                loading.classList.add('hidden');
+            }
+        }
+        
+        function logout() {
+            localStorage.removeItem('adminToken');
+            localStorage.removeItem('adminUsername');
+            window.location.href = '/admin/login.html';
+        }
+        
+        // 初始加载
+        loadRegistrationStatus();
+    </script>
+</body>
+</html>
+

@@ -37,9 +37,6 @@ def handle_user_api(path: str, method: str, headers: Dict, payload: Dict) -> Tup
         
         if path == '/api/logout':
             return 200, {'success': True, 'message': '已登出'}
-        
-        if path == '/api/delete_history':
-            return _handle_delete_history(payload)
     
     # ============================================================
     # GET 请求
@@ -102,11 +99,12 @@ def _handle_get_user_info(payload: Dict, headers: Dict) -> Tuple[int, Dict]:
         if uid <= 0:
             return 400, {'success': False, 'error': 'invalid_uid'}
         
-        user_info = get_user_info(uid)
-        if user_info:
-            return 200, {'success': True, 'user': user_info}
+        # get_user_info 已经返回包含 success 和 user_info 的完整响应
+        result = get_user_info(uid)
+        if result.get('success'):
+            return 200, result
         else:
-            return 404, {'success': False, 'error': 'user_not_found'}
+            return 404, result
     except Exception as e:
         return 500, {'success': False, 'error': 'get_user_info_failed', 'message': str(e)}
 
@@ -175,42 +173,6 @@ def _handle_get_history(payload: Dict) -> Tuple[int, Dict]:
         }
     except Exception as e:
         return 500, {'success': False, 'error': 'get_history_failed', 'message': str(e)}
-
-
-def _handle_delete_history(payload: Dict) -> Tuple[int, Dict]:
-    """删除历史记录"""
-    try:
-        query_index = payload.get('query_index')
-        uid = payload.get('uid')
-        hard = payload.get('hard', True)
-        
-        # 参数验证
-        if not query_index or not uid:
-            return 400, {'success': False, 'error': 'missing_parameters'}
-        
-        try:
-            query_index = int(query_index)
-            uid = int(uid)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_parameters'}
-        
-        if query_index <= 0 or uid <= 0:
-            return 400, {'success': False, 'error': 'invalid_parameters'}
-        
-        # 执行删除
-        perform_hard = bool(hard)
-        if perform_hard:
-            success = db_reader.delete_query_log(query_index, uid)
-        else:
-            success = db_reader.hide_query_log(query_index, uid)
-        
-        if success:
-            return 200, {'success': True, 'message': 'history_deleted', 'hard': perform_hard}
-        else:
-            return 404, {'success': False, 'error': 'record_not_found'}
-            
-    except Exception as e:
-        return 500, {'success': False, 'error': 'delete_failed', 'message': str(e)}
 
 
 def _handle_get_billing(payload: Dict) -> Tuple[int, Dict]:

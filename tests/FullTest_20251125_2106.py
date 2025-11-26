@@ -377,12 +377,12 @@ class TestAdminAPI(unittest.TestCase):
                 self.skipTest("Redis创建会话失败")
             
             # 验证会话
-            admin_info = AdminSession.validate_session(token)
-            self.assertIsNotNone(admin_info)
-            self.assertEqual(admin_info.get('admin_id'), 1)
+            admin_uid = AdminSession.get_session_uid(token)
+            self.assertIsNotNone(admin_uid)
+            self.assertEqual(admin_uid, 1)
             
             # 删除会话
-            AdminSession.delete_session(token)
+            AdminSession.destroy_session(token)
             
             print_result("管理员会话", True)
         except Exception as e:

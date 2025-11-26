@@ -44,11 +44,11 @@ progress_map_lock = threading.Lock()
 # 当前聚焦的 uid（用于进度展示选择，默认由启动查询的入口设置）
 current_uid = None
 
-def init_progress_bucket(uid: int, query_index: int, total: int):
+def init_progress_bucket(uid: int, query_index, total: int):
 	"""若 (uid, query_index) 进度桶不存在则初始化。"""
 	if uid is None or query_index is None:
 		return
-	key = (int(uid), int(query_index))
+	key = (int(uid), str(query_index))
 	with progress_map_lock:
 		if key not in progress_map:
 			from collections import deque as _dq
@@ -59,9 +59,9 @@ def init_progress_bucket(uid: int, query_index: int, total: int):
 				'total': int(total or 0)
 			}
 
-def bump_progress(uid: int, query_index: int, single_elapsed: float):
+def bump_progress(uid: int, query_index, single_elapsed: float):
 	"""在指定桶中增加进度（仅正常完成的任务调用）。"""
-	key = (int(uid), int(query_index))
+	key = (int(uid), str(query_index))
 	with progress_map_lock:
 		bucket = progress_map.get(key)
 		if not bucket:
@@ -72,22 +72,22 @@ def bump_progress(uid: int, query_index: int, single_elapsed: float):
 		except Exception:
 			pass
 
-def set_bucket_start_time_if_absent(uid: int, query_index: int, ts: float):
-	key = (int(uid), int(query_index))
+def set_bucket_start_time_if_absent(uid: int, query_index, ts: float):
+	key = (int(uid), str(query_index))
 	with progress_map_lock:
 		bucket = progress_map.get(key)
 		if bucket and bucket.get('start_time') is None:
 			bucket['start_time'] = float(ts)
 
-def update_bucket_total(uid: int, query_index: int, total: int):
-	key = (int(uid), int(query_index))
+def update_bucket_total(uid: int, query_index, total: int):
+	key = (int(uid), str(query_index))
 	with progress_map_lock:
 		bucket = progress_map.get(key)
 		if bucket:
 			bucket['total'] = int(total or 0)
 
-def read_bucket(uid: int, query_index: int):
-	key = (int(uid), int(query_index))
+def read_bucket(uid: int, query_index):
+	key = (int(uid), str(query_index))
 	with progress_map_lock:
 		b = progress_map.get(key)
 		if not b:
@@ -100,7 +100,7 @@ def read_bucket(uid: int, query_index: int):
 			'total': b['total']
 		}
 
-def remove_bucket(uid: int, query_index: int):
-	key = (int(uid), int(query_index))
+def remove_bucket(uid: int, query_index):
+	key = (int(uid), str(query_index))
 	with progress_map_lock:
 		progress_map.pop(key, None)

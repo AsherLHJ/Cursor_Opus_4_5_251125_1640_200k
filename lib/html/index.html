@@ -227,81 +227,6 @@
       color: #a78bfa;
     }
 
-    .history-item-menu {
-      position: relative;
-      margin-left: 8px;
-      flex-shrink: 0;
-    }
-
-    .history-item-menu-btn {
-      width: 24px;
-      height: 24px;
-      border: none;
-      background: none;
-      color: #888;
-      cursor: pointer;
-      border-radius: 4px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 16px;
-      transition: all 0.2s;
-    }
-
-    .history-item-menu-btn:hover {
-      background-color: rgba(255, 255, 255, 0.1);
-      color: #fff;
-    }
-
-    .history-item.active .history-item-menu-btn {
-      color: rgba(255, 255, 255, 0.8);
-    }
-
-    .history-item.active .history-item-menu-btn:hover {
-      color: #fff;
-      background-color: rgba(255, 255, 255, 0.2);
-    }
-
-    .history-item-dropdown {
-      position: absolute;
-      top: 100%;
-      right: 0;
-      background: #2a2a2a;
-      border: 1px solid #444;
-      border-radius: 6px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      z-index: 1000;
-      min-width: 120px;
-      display: none;
-    }
-
-    .history-item-dropdown.show {
-      display: block;
-    }
-
-    .history-item-dropdown-item {
-      padding: 8px 12px;
-      cursor: pointer;
-      font-size: 14px;
-      color: #fff;
-      transition: background-color 0.2s;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .history-item-dropdown-item:hover {
-      background-color: #dc3545;
-    }
-
-    .history-item-dropdown-item:first-child {
-      border-radius: 6px 6px 0 0;
-    }
-
-    .history-item-dropdown-item:last-child {
-      border-radius: 0 0 6px 6px;
-    }
-
     .sidebar.collapsed .history-item-title,
     .sidebar.collapsed .history-item-meta {
       display: none;
@@ -2002,14 +1927,6 @@
           <div class="status-icon">💰</div>
           <span id="costCount" data-i18n="index.estimated_cost">预计花费点数：0</span>
         </div>
-        <!-- 新增：容量与队列ETA提示（约等于） -->
-        <div id="queueEta" class="status" style="gap: 10px;">
-          <div class="status-icon">⏳</div>
-          <span id="etaText">预计等待时间（约）：--</span>
-          <span id="capText" style="color:#888; font-size:12px;">容量：--/min</span>
-          <span id="backlogText" style="color:#888; font-size:12px;">排队：--</span>
-          <span id="redisText" style="color:#666; font-size:12px;">后端：MySQL</span>
-        </div>
       </div>
 
         <div id="errorMessage" class="error-message"></div>
@@ -2192,6 +2109,23 @@
       '二级分类': []
     };
 
+    // 防抖函数：避免频繁触发更新统计
+    function debounce(fn, delay) {
+      let timer = null;
+      return function(...args) {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), delay);
+      };
+    }
+
+    // 防抖版本的 updateStats（延迟 500ms）
+    const debouncedUpdateStats = debounce(function() {
+      // 只有选中了期刊才执行更新统计
+      if (selectedJournals.length > 0) {
+        updateStats();
+      }
+    }, 500);
+
     // 当前会话管理
     function getCurrentSession() {
       return localStorage.getItem('currentSession');
@@ -2245,7 +2179,7 @@
     let distillCardCounter = 0; // 蒸馏卡片计数器
     let activeDistillCards = new Map(); // 活跃的蒸馏卡片 Map<cardId, cardData>
     let distillProgressIntervals = new Map(); // 蒸馏进度轮询间隔 Map<cardId, intervalId>
-    let currentSearchQueryIndex = null; // 当前检索的query_index
+    let currentSearchQueryIndex = null; // 当前检索的query_id
 
     // 随机句子缓存管理
     let sentenceCache = []; // 句子缓存数组
@@ -2700,6 +2634,8 @@
         renderAvailableJournals();
         renderSelectedJournals();
         updateCounts();
+        // 自动更新统计
+        debouncedUpdateStats();
       }
     };
 
@@ -2714,6 +2650,8 @@
       }
       renderSelectedJournals();
       updateCounts();
+      // 自动更新统计
+      debouncedUpdateStats();
     };
 
     // 更新计数显示
@@ -2790,11 +2728,6 @@
             title.title = emptyText;
           }
           
-          // 更新菜单按钮标题
-          const menuBtn = item.querySelector('.history-item-menu-btn');
-          if (menuBtn && menuBtn.hasAttribute('data-i18n-title')) {
-            menuBtn.title = i18n.t('common.actions');
-          }
         });
         
         // 重新加载历史记录以更新语言，但不显示加载状态
@@ -2914,6 +2847,14 @@
       renderAvailableJournals();
       renderSelectedJournals();
       updateCounts();
+      // 清空后重置统计显示
+      document.querySelector('#statusCount').textContent = i18n.t('index.selected_count', {count: 0});
+      const costCountEl = document.getElementById('costCount');
+      if (costCountEl) {
+        costCountEl.textContent = i18n.t('index.estimated_cost', {cost: 0});
+        costCountEl.setAttribute('data-cost-value', '0');
+      }
+      document.getElementById('costStatus').style.display = 'none';
     });
 
     // 搜索输入框事件监听
@@ -2967,11 +2908,21 @@
       }
       
       loadJournals(); // 重新加载期刊
+      // 自动更新统计
+      debouncedUpdateStats();
     });
 
     // 年份输入变化时重新加载
-    document.getElementById('startYear').addEventListener('change', loadJournals);
-    document.getElementById('endYear').addEventListener('change', loadJournals);
+    document.getElementById('startYear').addEventListener('change', function() {
+      loadJournals();
+      // 自动更新统计
+      debouncedUpdateStats();
+    });
+    document.getElementById('endYear').addEventListener('change', function() {
+      loadJournals();
+      // 自动更新统计
+      debouncedUpdateStats();
+    });
 
     // 更新统计
     async function updateStats() {
@@ -3085,6 +3036,11 @@
     
         console.log('准备发送请求到 /api/start_search');
     
+        // 获取页面显示的预估费用（由自动更新统计计算得出）
+        // 从 costCount 元素的 data-cost-value 属性获取
+        const costCountEl = document.getElementById('costCount');
+        const estimated_cost = parseFloat(costCountEl?.getAttribute('data-cost-value')) || 0;
+
         const payload = {
           question,
           requirements,
@@ -3092,7 +3048,8 @@
           start_year: startYear,
           end_year: endYear,
           selected_journals: selectedNames,
-          uid
+          uid,
+          estimated_cost
         };
     
         const res = await fetch('/api/start_search', {
@@ -3107,6 +3064,11 @@
         console.log('API 响应数据:', data);
         
         if (!res.ok || !data.success) {
+          // 特殊处理余额不足错误
+          if (data.error === 'insufficient_balance') {
+            showError(i18n.t('index.insufficient_balance') || '余额不足，请充值后再试');
+            return;
+          }
           const msg = data.message || data.error || ('HTTP ' + res.status);
           throw new Error(msg);
         }
@@ -3120,7 +3082,7 @@
           startYear,
           endYear,
           selectedJournals: selectedNames,
-          queryIndex: data.query_index,
+          queryIndex: data.query_id,
           articleCount: data.article_count || 0,
           estimatedCost: data.estimated_cost || 0
         });
@@ -3236,7 +3198,7 @@
           const uid = localStorage.getItem('userId');
 
           // 并发获取进度与暂停状态
-          const progressReq = fetch(`/api/query_progress?query_index=${encodeURIComponent(queryIndex)}`);
+          const progressReq = fetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}`);
           const historyReq = uid
             ? fetch(`/api/query_history?uid=${encodeURIComponent(uid)}`)
             : null;
@@ -3253,7 +3215,7 @@
           if (historyRes && historyRes.ok) {
             const historyData = await historyRes.json();
             if (historyData.success && Array.isArray(historyData.logs)) {
-              const log = historyData.logs.find(l => l.query_index === queryIndex);
+              const log = historyData.logs.find(l => l.query_id === queryIndex);
               if (log) currentShouldPause = !!log.should_pause;
             }
           }
@@ -3345,7 +3307,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            query_index: currentQueryIndex,
+            query_id: currentQueryIndex,
             uid: parseInt(uid, 10),
             should_pause: newShouldPause
           })
@@ -3419,7 +3381,7 @@
       // 下载CSV按钮
       downloadCsvBtn.onclick = async () => {
         try {
-          const response = await fetch(`/api/download_csv?query_index=${encodeURIComponent(queryIndex)}`);
+          const response = await fetch(`/api/download_csv?query_id=${encodeURIComponent(queryIndex)}`);
           if (!response.ok) throw new Error('Download failed');
           
           const blob = await response.blob();
@@ -3440,7 +3402,7 @@
       // 下载BIB按钮
       downloadBibBtn.onclick = async () => {
         try {
-          const response = await fetch(`/api/download_bib?query_index=${encodeURIComponent(queryIndex)}`);
+          const response = await fetch(`/api/download_bib?query_id=${encodeURIComponent(queryIndex)}`);
           if (!response.ok) throw new Error('Download failed');
           
           const blob = await response.blob();
@@ -3474,19 +3436,6 @@
       }
     }
 
-    // 控制下拉菜单显示/隐藏
-    function toggleDropdown(dropdown) {
-      // 先关闭所有其他下拉菜单
-      document.querySelectorAll('.history-item-dropdown.show').forEach(d => {
-        if (d !== dropdown) {
-          d.classList.remove('show');
-        }
-      });
-      
-      // 切换当前下拉菜单
-      dropdown.classList.toggle('show');
-    }
-
     // 历史记录的暂停/恢复功能
     window.toggleHistoryProgress = async function(queryIndex) {
       const uid = localStorage.getItem('userId');
@@ -3507,7 +3456,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             uid: parseInt(uid),
-            query_index: queryIndex,
+            query_id: queryIndex,
             should_pause: action === 'pause'
           })
         });
@@ -3546,7 +3495,7 @@
       
       window.historyProgressIntervals[queryIndex] = setInterval(async () => {
         try {
-          const response = await fetch(`/api/query_progress?query_index=${encodeURIComponent(queryIndex)}`);
+          const response = await fetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}`);
           if (!response.ok) return;
           
           const data = await response.json();
@@ -3585,46 +3534,6 @@
           console.error('History progress polling error:', error);
         }
       }, 2000);
-    }
-
-    // 删除历史项
-    async function deleteHistoryItem(queryIndex) {
-      const uid = localStorage.getItem('userId');
-      if (!uid) {
-        alert(i18n.t('common.login_required'));
-        return;
-      }
-
-      try {
-        const response = await fetch('/api/delete_history', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            query_index: queryIndex,
-            uid: parseInt(uid)
-          })
-        });
-
-        const data = await response.json();
-        if (data.success) {
-          showSuccess(i18n.t('index.delete_success'));
-          
-          // 如果删除的是当前查询，返回输入模式
-          if (currentQueryIndex === queryIndex) {
-            backToInput();
-          }
-          
-          // 更新历史记录列表
-          loadHistory();
-        } else {
-          showError(i18n.t('index.delete_failed') + ': ' + (data.error || 'Unknown error'));
-        }
-      } catch (error) {
-        console.error('Delete error:', error);
-        showError(i18n.t('index.delete_failed') + ': ' + error.message);
-      }
     }
 
     // 格式化时间戳用于文件名
@@ -3887,7 +3796,7 @@
     function createHistoryItem(item) {
       const div = document.createElement('div');
       div.className = 'history-item';
-      div.dataset.qid = item.query_index;
+      div.dataset.qid = item.query_id;
       
       // 检查是否为蒸馏类型并添加相应的CSS类
       if (item.is_distillation) {
@@ -3943,47 +3852,12 @@
       content.appendChild(title);
       content.appendChild(meta);
       
-      // 创建三个点菜单
-      const menu = document.createElement('div');
-      menu.className = 'history-item-menu';
-      
-      const menuBtn = document.createElement('button');
-      menuBtn.className = 'history-item-menu-btn';
-      menuBtn.innerHTML = '⋯';
-      menuBtn.title = i18n.t('common.actions');
-      menuBtn.setAttribute('data-i18n-title', 'common.actions');
-      
-      const dropdown = document.createElement('div');
-      dropdown.className = 'history-item-dropdown';
-      
-      const deleteItem = document.createElement('div');
-      deleteItem.className = 'history-item-dropdown-item';
-      deleteItem.innerHTML = `<span>🗑️</span><span data-i18n="index.delete">${i18n.t('index.delete')}</span>`;
-      
-      dropdown.appendChild(deleteItem);
-      menu.appendChild(menuBtn);
-      menu.appendChild(dropdown);
-      
       div.appendChild(content);
-      div.appendChild(menu);
       
       // 添加点击事件
       content.addEventListener('click', () => {
-        setCurrentSession(item.query_index);
+        setCurrentSession(item.query_id);
         selectHistoryItem(div, item);
-      });
-      
-      // 菜单按钮点击事件
-      menuBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleDropdown(dropdown);
-      });
-      
-      // 删除项点击事件
-      deleteItem.addEventListener('click', (e) => {
-        e.stopPropagation();
-        deleteHistoryItem(item.query_index);
-        dropdown.classList.remove('show');
       });
       
       return div;
@@ -4011,7 +3885,7 @@
       itemElement.classList.add('active');
       
       // 保存当前会话状态
-      setCurrentSession(historyData.query_index);
+      setCurrentSession(historyData.query_id);
       
       // 尝试导航到对应的卡片
       navigateToHistoryCard(historyData);
@@ -4034,7 +3908,7 @@
 
     // 导航到历史卡片
     async function navigateToHistoryCard(historyData) {
-      const queryIndex = historyData.query_index;
+      const queryIndex = historyData.query_id;
       console.log('Navigating to history card for query:', queryIndex);
       
       // 首先检查是否已有对应的卡片在页面上
@@ -4140,7 +4014,7 @@
 
     // 创建历史描述卡片
     async function createHistoryDescriptionCard(historyData) {
-      const queryIndex = historyData.query_index;
+      const queryIndex = historyData.query_id;
       
       // 检查是否已存在
       let existingCard = document.getElementById(`historyCard_${queryIndex}`);
@@ -4187,7 +4061,7 @@
     // 加载历史详情
     async function loadHistoryDetails(queryIndex) {
       const uid = localStorage.getItem('userId');
-      const response = await fetch(`/api/get_query_info?uid=${uid}&query_index=${queryIndex}`);
+      const response = await fetch(`/api/get_query_info?uid=${uid}&query_id=${queryIndex}`);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -4371,7 +4245,7 @@
             </div>
           </div>
           <div class="history-actions">
-            <button class="btn-secondary" onclick="retryLoadHistoryDetails('${historyData.query_index}')">
+            <button class="btn-secondary" onclick="retryLoadHistoryDetails('${historyData.query_id}')">
               ${i18n.t('index.retry')}
             </button>
           </div>
@@ -4438,12 +4312,12 @@
         const title = historyItem.querySelector('.history-item-title').textContent;
         const meta = historyItem.querySelector('.history-item-meta').textContent;
         return {
-          query_index: queryIndex,
+          query_id: queryIndex,
           research_question: title,
           completed: meta.includes(i18n.t('history.status_done'))
         };
       }
-      return { query_index: queryIndex };
+      return { query_id: queryIndex };
     }
 
     // 历史任务操作函数
@@ -4465,7 +4339,7 @@
         const endpoint = type === 'bib' ? '/api/download_bib' : '/api/download_csv';
         const extension = type === 'bib' ? 'bib' : 'csv';
         
-        const response = await fetch(`${endpoint}?query_index=${encodeURIComponent(queryIndex)}`);
+        const response = await fetch(`${endpoint}?query_id=${encodeURIComponent(queryIndex)}`);
         if (!response.ok) throw new Error('Download failed');
         
         const blob = await response.blob();
@@ -4633,7 +4507,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             uid: uid,
-            original_query_index: queryIndex
+            original_query_id: queryIndex
           })
         });
         
@@ -4698,7 +4572,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            original_query_index: queryIndex,
+            original_query_id: queryIndex,
             question: question,
             requirements: requirements || '',
             uid
@@ -4716,7 +4590,7 @@
           
           // 转换为蒸馏摘要卡片
           convertToDistillSummaryCard(cardId, {
-            queryIndex: data.query_index,
+            queryIndex: data.query_id,
             question: question,
             requirements: requirements,
             estimatedCost: estimatedCostEl.textContent,
@@ -4725,7 +4599,7 @@
           });
           
           // 开始轮询进度
-          startDistillProgressPolling(cardId, data.query_index);
+          startDistillProgressPolling(cardId, data.query_id);
           
           // 折叠原始检索卡片并更新历史列表
           collapseSearchSummaryCard();
@@ -4863,7 +4737,7 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               uid,
-              query_index: queryIndex,
+              query_id: queryIndex,
               should_pause: action === 'pause'
             })
           });
@@ -4891,7 +4765,7 @@
       
       const pollInterval = setInterval(async () => {
         try {
-          const response = await fetch(`/api/query_progress?query_index=${encodeURIComponent(queryIndex)}`);
+          const response = await fetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}`);
           if (!response.ok) return;
           
           const data = await response.json();
@@ -4955,7 +4829,7 @@
       const timestamp = formatTimestampForFilename(new Date());
       
       // 使用与普通检索相同的CSV下载端点
-      fetch(`/api/download_csv?query_index=${encodeURIComponent(queryIndex)}`)
+      fetch(`/api/download_csv?query_id=${encodeURIComponent(queryIndex)}`)
         .then(response => {
           if (!response.ok) throw new Error('Download failed');
           return response.blob();
@@ -4987,7 +4861,7 @@
       const timestamp = formatTimestampForFilename(new Date());
       
       // 使用与普通检索相同的BIB下载端点
-      fetch(`/api/download_bib?query_index=${encodeURIComponent(queryIndex)}`)
+      fetch(`/api/download_bib?query_id=${encodeURIComponent(queryIndex)}`)
         .then(response => {
           if (!response.ok) throw new Error('Download failed');
           return response.blob();
@@ -5049,17 +4923,6 @@
         document.getElementById('endYear').value = currentYear;
         document.getElementById('startYear').value = currentYear - 5;
 
-        // 添加全局点击事件来关闭下拉菜单
-        document.addEventListener('click', (e) => {
-          if (!e.target.closest('.history-item-menu')) {
-            document.querySelectorAll('.history-item-dropdown.show').forEach(dropdown => {
-              dropdown.classList.remove('show');
-            });
-          }
-        });
-
-        // 启动队列/容量 ETA 轮询
-        startQueueStatsPolling();
       }
     });
 
@@ -5068,62 +4931,6 @@
     // 暴露全局函数
     window.startDistillation = startDistillation;
     window.updateTitleGreeting = updateTitleGreeting;
-
-    // ==================== 队列与容量 ETA 轮询 ====================
-    let queueStatsTimer = null;
-
-    function humanizeMinutes(mins) {
-      if (!isFinite(mins) || mins < 0) return '--';
-      if (mins < 1) return '<1 分钟';
-      if (mins < 60) return Math.ceil(mins) + ' 分钟';
-      const h = Math.floor(mins / 60);
-      const m = Math.ceil(mins % 60);
-      return h + ' 小时 ' + (m > 0 ? m + ' 分钟' : '');
-    }
-
-    async function fetchQueueStatsOnce() {
-      try {
-        const res = await fetch('/api/queue/stats');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const data = await res.json();
-        if (!data || data.success === false) throw new Error(data && (data.error || data.message) || 'unknown');
-
-        const eff = Number(data.effective_capacity_per_min || 0);
-        const backlog = Number(data.backlog || 0);
-        const etaMin = eff > 0 ? backlog / eff : Infinity;
-
-        const etaEl = document.getElementById('etaText');
-        const capEl = document.getElementById('capText');
-        const backEl = document.getElementById('backlogText');
-        const redisEl = document.getElementById('redisText');
-
-        if (etaEl) etaEl.textContent = '预计等待时间（约）：' + humanizeMinutes(etaMin);
-        if (capEl) capEl.textContent = '容量：' + (eff || 0).toLocaleString() + '/min';
-        if (backEl) backEl.textContent = '排队：' + (backlog || 0).toLocaleString();
-
-        const redisInfo = data.redis || {};
-        const usingRedis = !!(redisInfo.queue_enabled || redisInfo.ratelimiter_enabled);
-        const healthy = !!(redisInfo.queue_ping && redisInfo.ratelimiter_ping);
-        if (redisEl) {
-          if (usingRedis) {
-            redisEl.textContent = '后端：Redis' + (healthy ? ' ✅' : ' ⚠');
-            redisEl.style.color = healthy ? '#4a9eff' : '#ffa500';
-          } else {
-            redisEl.textContent = '后端：MySQL';
-            redisEl.style.color = '#666';
-          }
-        }
-      } catch (e) {
-        const etaEl = document.getElementById('etaText');
-        if (etaEl) etaEl.textContent = '预计等待时间（约）：--';
-      }
-    }
-
-    function startQueueStatsPolling() {
-      if (queueStatsTimer) clearInterval(queueStatsTimer);
-      fetchQueueStatsOnce();
-      queueStatsTimer = setInterval(fetchQueueStatsOnce, 5000);
-    }
 
   </script>
 </body>

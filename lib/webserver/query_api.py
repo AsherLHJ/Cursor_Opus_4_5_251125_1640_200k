@@ -72,9 +72,6 @@ def handle_query_api(path: str, method: str, headers: Dict, payload: Dict) -> Tu
         if path == '/api/count_papers':
             return _handle_count_papers(payload)
         
-        if path == '/api/delete_history':
-            return _handle_delete_history(payload)
-        
         if path == '/api/query_status':
             return _handle_get_query_status(payload)
     
@@ -182,6 +179,26 @@ def _handle_start_search(payload: Dict) -> Tuple[int, Dict]:
             'include_all_years': include_all_years
         }
         
+        # 余额检查（使用前端传来的预估费用）
+        estimated_cost = payload.get('estimated_cost') or 0
+        try:
+            estimated_cost = float(estimated_cost)
+        except (ValueError, TypeError):
+            estimated_cost = 0
+        
+        if estimated_cost > 0:
+            from ..redis.user_cache import UserCache
+            user_balance = UserCache.get_balance(uid)
+            if user_balance is None:
+                user_balance = db_reader.get_balance(uid) or 0
+            
+            if user_balance < estimated_cost:
+                return 400, {
+                    'success': False, 
+                    'error': 'insufficient_balance',
+                    'message': f'余额不足'
+                }
+        
         # 调用新架构的处理函数
         success, result = process_papers(uid, search_params)
         
@@ -229,6 +246,27 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
         
         if not relevant_dois:
             return 400, {'success': False, 'error': 'no_relevant_papers'}
+        
+        # 计算蒸馏费用（基价*0.1）并检查余额
+        try:
+            price_map = db_reader.get_prices_by_dois(relevant_dois)
+            estimated_cost = sum(float(price_map.get(doi, 1.0)) * 0.1 for doi in relevant_dois)
+        except Exception:
+            estimated_cost = len(relevant_dois) * 0.1  # 默认每篇0.1
+        
+        # 获取用户余额
+        from ..redis.user_cache import UserCache
+        user_balance = UserCache.get_balance(uid)
+        if user_balance is None:
+            user_balance = db_reader.get_balance(uid) or 0
+        
+        # 余额不足检查
+        if user_balance < estimated_cost:
+            return 400, {
+                'success': False,
+                'error': 'insufficient_balance',
+                'message': f'余额不足'
+            }
         
         # 调用蒸馏处理函数
         success, result = process_papers_for_distillation(uid, str(original_query_index), relevant_dois)
@@ -608,40 +646,6 @@ def _handle_cancel_query(payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'cancel_query_failed', 'message': str(e)}
 
 
-def _handle_delete_history(payload: Dict) -> Tuple[int, Dict]:
-    """删除历史记录"""
-    try:
-        query_index = payload.get('query_index') or payload.get('query_id')
-        uid = payload.get('uid')
-        hard = payload.get('hard', True)
-        
-        if not query_index or not uid:
-            return 400, {'success': False, 'error': 'missing_parameters'}
-        
-        try:
-            query_index = int(query_index) if str(query_index).isdigit() else query_index
-            uid = int(uid)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_parameters'}
-        
-        if uid <= 0:
-            return 400, {'success': False, 'error': 'invalid_parameters'}
-        
-        # 执行删除
-        perform_hard = bool(hard)
-        if perform_hard:
-            success = db_reader.delete_query_log(query_index, uid)
-        else:
-            success = db_reader.hide_query_log(query_index, uid)
-        
-        if success:
-            return 200, {'success': True, 'message': 'history_deleted', 'hard': perform_hard}
-        else:
-            return 404, {'success': False, 'error': 'record_not_found'}
-    except Exception as e:
-        return 500, {'success': False, 'error': 'delete_failed', 'message': str(e)}
-
-
 def _handle_get_query_history(payload: Dict) -> Tuple[int, Dict]:
     """获取查询历史"""
     try:
@@ -670,19 +674,27 @@ def _handle_get_query_history(payload: Dict) -> Tuple[int, Dict]:
         
         formatted_logs = []
         for r in logs:
+            # 从 search_params 中提取字段（新架构）
+            sp = r.get('search_params') or {}
+            if isinstance(sp, str):
+                try:
+                    sp = json.loads(sp)
+                except Exception:
+                    sp = {}
+            
             formatted_logs.append({
-                'query_index': r.get('query_index') or r.get('query_id'),
+                'query_id': r.get('query_id') or r.get('query_index'),
                 'uid': r.get('uid'),
                 'query_time': fmt_time(r.get('query_time') or r.get('start_time')),
-                'selected_folders': r.get('selected_folders') or '',
-                'year_range': r.get('year_range') or '',
-                'research_question': r.get('research_question') or '',
-                'requirements': r.get('requirements') or '',
+                'selected_folders': sp.get('selected_journals') or sp.get('journals') or r.get('selected_folders') or '',
+                'year_range': sp.get('year_range') or r.get('year_range') or '',
+                'research_question': sp.get('research_question') or r.get('research_question') or '',
+                'requirements': sp.get('requirements') or r.get('requirements') or '',
                 'query_table': r.get('query_table') or '',
                 'start_time': fmt_time(r.get('start_time')),
                 'end_time': fmt_time(r.get('end_time')),
-                'completed': bool(r.get('end_time') or r.get('status') == 'COMPLETED'),
-                'total_papers_count': r.get('total_papers_count') or 0,
+                'completed': bool(r.get('end_time') or r.get('status') == 'COMPLETED' or r.get('status') == 'DONE'),
+                'total_papers_count': r.get('total_papers_count') or sp.get('max_papers') or 0,
                 'is_distillation': bool(r.get('is_distillation')),
                 'is_visible': r.get('is_visible', True),
                 'should_pause': bool(r.get('should_pause')),
@@ -748,20 +760,28 @@ def _handle_get_query_info(payload: Dict) -> Tuple[int, Dict]:
                 return v.strftime("%Y-%m-%d %H:%M:%S")
             return str(v)
         
+        # 从 search_params 中提取字段（新架构）
+        sp = row.get('search_params') or {}
+        if isinstance(sp, str):
+            try:
+                sp = json.loads(sp)
+            except Exception:
+                sp = {}
+        
         return 200, {
             'success': True,
             'query_info': {
-                'query_index': row.get('query_id') or row.get('query_index'),
+                'query_id': row.get('query_id') or row.get('query_index'),
                 'uid': row.get('uid'),
                 'query_time': fmt_time(row.get('start_time')),
-                'selected_folders': row.get('selected_folders') or '',
-                'year_range': row.get('year_range') or '',
-                'research_question': row.get('research_question') or '',
-                'requirements': row.get('requirements') or '',
+                'selected_folders': sp.get('selected_journals') or sp.get('journals') or row.get('selected_folders') or '',
+                'year_range': sp.get('year_range') or row.get('year_range') or '',
+                'research_question': sp.get('research_question') or row.get('research_question') or '',
+                'requirements': sp.get('requirements') or row.get('requirements') or '',
                 'query_table': row.get('query_table') or '',
                 'start_time': fmt_time(row.get('start_time')),
                 'end_time': fmt_time(row.get('end_time')),
-                'completed': bool(row.get('end_time') or row.get('status') == 'COMPLETED')
+                'completed': bool(row.get('end_time') or row.get('status') == 'COMPLETED' or row.get('status') == 'DONE')
             }
         }
     except Exception as e:

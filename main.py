@@ -25,6 +25,23 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"价格系统初始化失败: {e}")
     
+    # 从MySQL同步数据到Redis（新架构关键步骤）
+    try:
+        from lib.redis.connection import redis_ping
+        from lib.redis.init_loader import init_redis_from_mysql
+        from lib.load_data.db_base import _get_connection
+        
+        if redis_ping():
+            print("[Init] 开始从MySQL同步数据到Redis...")
+            conn = _get_connection()
+            result = init_redis_from_mysql(conn, load_papers=True)
+            conn.close()
+            print(f"[Init] Redis数据同步完成: {result}")
+        else:
+            print("[Init] Redis不可用，跳过数据同步")
+    except Exception as e:
+        print(f"[Init] Redis数据初始化失败: {e}")
+    
     # 启动后端 Web 服务：
     # - 本地开发者模式：仅监听本机 127.0.0.1
     # - 生产/容器环境：监听 0.0.0.0（容器可暴露端口）

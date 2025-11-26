@@ -4,9 +4,9 @@
 
 ## 当前进度
 
-**最后更新**: 2025-11-25 17:50  
-**当前阶段**: 阶段十 - 清理与文档  
-**完成阶段**: 阶段一至阶段九（全部完成）
+**最后更新**: 2025-11-26 15:30  
+**当前阶段**: Bug修复与测试  
+**完成阶段**: 阶段一至阶段十（全部完成）+ 三轮Bug修复
 
 ---
 
@@ -145,6 +145,18 @@ lib/html/
 
 ## 关键接口
 
+### 论文处理（新架构 - 2025-11-26更新）
+```python
+from lib.process.paper_processor import process_papers, process_papers_for_distillation
+
+# 普通查询
+success, query_id = process_papers(uid, search_params)
+# search_params: {research_question, requirements, journals, start_year, end_year, include_all_years}
+
+# 蒸馏查询
+success, query_id = process_papers_for_distillation(uid, original_query_id, relevant_dois)
+```
+
 ### Worker生产
 ```python
 from lib.process.scheduler import submit_query, start_scheduler
@@ -164,6 +176,14 @@ from lib.webserver.admin_auth import admin_login
 success, token, message = admin_login(username, password)
 ```
 
+### 管理员会话验证
+```python
+from lib.redis.admin import AdminSession
+token = AdminSession.create_session(uid)  # 创建会话
+admin_uid = AdminSession.get_session_uid(token)  # 验证会话
+AdminSession.destroy_session(token)  # 销毁会话
+```
+
 ### 蒸馏任务
 ```python
 from lib.process.distill import create_distill_task
@@ -172,13 +192,37 @@ distill_qid = create_distill_task(uid, parent_qid)
 
 ---
 
+## Bug修复记录 (2025-11-26)
+
+### 修复1: 启动错误
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `server.py` | `debug_console.info/warn` 不存在 | 替换为 `print()` |
+| `init_db.py` | `add_price_column_*` 方法不存在 | 简化函数 |
+| `main.py` | `ensure_default_*` 方法不存在 | 移除调用 |
+
+### 修复2: Redis与管理员API
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `admin_api.py` | 期望str但收到dict | 改为 `payload: Dict` |
+| `tests/*.py` | Redis URL替换错误 | 修正替换逻辑 |
+
+### 修复3: 接口适配新架构
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `paper_processor.py` | 旧签名 `(rq, requirements, n, ...)` | 新签名 `(uid, search_params) -> (bool, str)` |
+| `paper_processor.py` | 蒸馏旧签名 | 新签名 `(uid, original_query_id, dois) -> (bool, str)` |
+| `tests/*.py` | `validate_session` 不存在 | 使用 `get_session_uid` |
+
+---
+
 ## 恢复指南
 
 如果你是新的Agent会话，请：
-1. 阅读本文档了解重构成果
+1. 阅读本文档了解重构成果和修复历史
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `需要手动操作的事项.txt` 了解待完成操作
-4. 项目重构已基本完成，可进行测试和集成
+4. 项目重构已基本完成，经过三轮Bug修复，可进行测试
 
 ---
 

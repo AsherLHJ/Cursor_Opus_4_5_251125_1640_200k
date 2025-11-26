@@ -52,7 +52,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         if path == '/api/ping':
             return self._send_json(200, {'pong': True})
         
-        if path in ('/api/system_status', '/api/debug-log'):
+        if path in ('/api/system_status', '/api/debug-log', '/api/registration_status'):
             status, response = handle_system_api(path, 'GET', headers_dict, payload)
             return self._send_json(status, response)
         
@@ -146,6 +146,11 @@ class RequestHandler(BaseHTTPRequestHandler):
         # API 路由
         # ============================================================
         
+        # 系统 API（需要在 admin 通用路由前处理）
+        if path == '/api/admin/toggle_registration':
+            status, response = handle_system_api(path, 'POST', headers_dict, payload)
+            return self._send_json(status, response)
+        
         # 管理员 API
         if path.startswith('/api/admin/'):
             status, response = handle_admin_api(path, 'POST', headers_dict, payload)
@@ -160,7 +165,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         if path in ('/api/update', '/api/start_search', '/api/start_distillation',
                     '/api/estimate_distillation_cost', '/api/query_status',
                     '/api/pause_query', '/api/resume_query', '/api/cancel_query',
-                    '/api/delete_history', '/api/journals', '/api/count_papers'):
+                    '/api/journals', '/api/count_papers'):
             status, response = handle_query_api(path, 'POST', headers_dict, payload)
             return self._send_json(status, response)
         
@@ -282,7 +287,8 @@ class RequestHandler(BaseHTTPRequestHandler):
             return self._send_json(404, {'success': False, 'error': 'query_not_found'})
         
         # 获取结果数据
-        results = search_dao.fetch_results_with_paperinfo(str(query_id)) or []
+        uid = query_log.get('uid')
+        results = search_dao.fetch_results_with_paperinfo(uid, str(query_id)) or []
         
         if path == '/api/download_csv':
             return self._download_csv(query_id, query_log, results)
