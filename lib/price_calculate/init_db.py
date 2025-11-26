@@ -1,31 +1,22 @@
 """
-数据库初始化脚本
-确保价格相关的表结构正确
-"""
+数据库初始化脚本 (新架构)
 
-from .price_calculator import PriceCalculator
+新架构变更:
+- 数据库表结构由 DB_tools/init_database.py 管理
+- PriceCalculator 只负责运行时价格查询和扣费
+"""
 
 
 def initialize_price_system():
     """
-    初始化价格系统，确保所有必要的数据库列存在
+    初始化价格系统（新架构已简化）
+    
+    新架构中数据库表结构由 DB_tools/init_database.py 管理，
+    PriceCalculator 只负责运行时价格查询和扣费。
     """
-    calculator = PriceCalculator()
-    try:
-        print("正在初始化价格系统...")
-        
-        # 为ContentList表添加Price列
-        calculator.add_price_column_to_contentlist()
-        
-        # 为query_log表添加total_cost列
-        calculator.add_cost_column_to_query_log()
-        
-        print("价格系统初始化完成")
-        
-    except Exception as e:
-        print(f"价格系统初始化失败: {e}")
-    finally:
-        calculator.close()
+    print("正在初始化价格系统...")
+    # 新架构中无需动态添加列，表结构由 DB_tools 统一管理
+    print("价格系统初始化完成")
 
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ from ..process.worker import get_active_worker_count, stop_workers_for_query
 
 
 def handle_admin_api(path: str, method: str, headers: Dict, 
-                     body: Optional[str] = None) -> Tuple[int, Dict]:
+                     payload: Dict = None) -> Tuple[int, Dict]:
     """
     处理管理员API请求
     
@@ -32,18 +32,13 @@ def handle_admin_api(path: str, method: str, headers: Dict,
         path: 请求路径（如 /api/admin/login）
         method: 请求方法（GET/POST）
         headers: 请求头
-        body: 请求体（JSON字符串）
+        payload: 请求体数据（已解析的字典）
         
     Returns:
         (status_code, response_dict) 元组
     """
-    # 解析请求体
-    data = {}
-    if body:
-        try:
-            data = json.loads(body)
-        except json.JSONDecodeError:
-            pass
+    # 获取请求数据
+    data = payload or {}
     
     # 登录接口（无需认证）
     if path == '/api/admin/login' and method == 'POST':

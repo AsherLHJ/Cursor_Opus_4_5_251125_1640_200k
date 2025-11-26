@@ -386,9 +386,9 @@ def run_server(host: str = '127.0.0.1', port: int = 8080):
         try:
             from ..process.scheduler import start_scheduler
             start_scheduler()
-            debug_console.info("[Init] 后台调度器已启动")
+            print("[Init] 后台调度器已启动")
         except Exception as e:
-            debug_console.warn(f"[Init] 启动后台调度器失败: {e}")
+            print(f"[Init] 启动后台调度器失败: {e}")
         
         # 启动 HTTP 服务器
         httpd = HTTPServer((host, port), RequestHandler)

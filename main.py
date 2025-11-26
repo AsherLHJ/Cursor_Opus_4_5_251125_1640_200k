@@ -17,12 +17,6 @@ if __name__ == "__main__":
     # Start backend web service
     # - Local developer mode: listen on 127.0.0.1
     # - Production/container mode: listen on 0.0.0.0 to expose the port
-    # 启动时：确保注册开关在数据库中存在；若缺失则初始化为开启('1')
-    try:
-        from lib.load_data import db_reader
-        db_reader.ensure_default_registration_enabled(True)
-    except Exception:
-        pass
     
     # 初始化价格系统
     try:
@@ -41,12 +35,4 @@ if __name__ == "__main__":
     except Exception:
         in_container = False
     host = "127.0.0.1" if (getattr(config, "local_develop_mode", False) and not in_container) else "0.0.0.0"
-    # 确保 bcrypt_rounds 默认存在
-    try:
-        from lib.load_data import db_reader
-        db_reader.ensure_default_bcrypt_rounds(12)
-        # 启动时确保 worker_req_per_min 存在，默认 120（仅初始化，不覆盖已有设置）
-        db_reader.ensure_default_worker_req_per_min(120)
-    except Exception:
-        pass
     run_server(host=host, port=port)

@@ -65,9 +65,9 @@ def _setup_local_redis_url():
         from lib.config import config_loader as config
         # 检查当前URL是否包含Docker服务名
         current_url = getattr(config, 'REDIS_URL', '')
-        if 'apw-redis' in current_url or 'redis:' in current_url:
-            # 替换为localhost
-            new_url = current_url.replace('apw-redis', 'localhost').replace('redis:', 'localhost:')
+        if 'apw-redis' in current_url:
+            # 替换Docker服务名为localhost
+            new_url = current_url.replace('apw-redis', 'localhost')
             config.REDIS_URL = new_url
             print(f"[测试环境] Redis URL已调整为本地: {new_url}")
     except Exception as e:
@@ -370,8 +370,8 @@ class TestAdminAPI(unittest.TestCase):
             
             from lib.redis.admin import AdminSession
             
-            # 创建会话
-            token = AdminSession.create_session(1, "test_admin")
+            # 创建会话（只需传入uid，ttl使用默认值）
+            token = AdminSession.create_session(1)
             if not token:
                 print_result("管理员会话", False, "创建会话失败(Redis可能不可用)")
                 self.skipTest("Redis创建会话失败")

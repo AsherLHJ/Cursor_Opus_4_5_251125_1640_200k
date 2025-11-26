@@ -1,6 +1,37 @@
 # AutoPaperWeb 新架构
 
-> 最后更新时间：2025-11-25-2035
+> 最后更新时间：2025-11-26
+
+## 访问地址
+
+### 本地开发环境
+
+启动容器后（`docker compose up -d --build`），可通过以下地址访问：
+
+| 页面 | URL | 说明 |
+|------|-----|------|
+| 首页 | http://localhost:18080/ | 主搜索页面 |
+| 用户登录 | http://localhost:18080/login.html | 普通用户登录 |
+| 用户注册 | http://localhost:18080/register.html | 新用户注册 |
+| 查询历史 | http://localhost:18080/history.html | 查看历史查询记录 |
+| 账单记录 | http://localhost:18080/billing.html | 查看消费明细 |
+| 蒸馏任务 | http://localhost:18080/distill.html | 对已完成查询进行蒸馏 |
+| **管理员登录** | http://localhost:18080/admin/login.html | 管理员入口 |
+| 管理员仪表板 | http://localhost:18080/admin/dashboard.html | 系统监控 |
+| 用户管理 | http://localhost:18080/admin/users.html | 管理用户账户 |
+| 任务管理 | http://localhost:18080/admin/tasks.html | 管理查询任务 |
+
+### 服务器部署环境
+
+部署到服务器后，将 `localhost:18080` 替换为您的域名或服务器IP：
+
+| 页面 | URL |
+|------|-----|
+| 首页 | https://autopapersearch.com/ |
+| 用户登录 | https://autopapersearch.com/login.html |
+| 管理员登录 | https://autopapersearch.com/admin/login.html |
+
+---
 
 ## 项目概述
 
