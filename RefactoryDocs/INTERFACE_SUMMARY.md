@@ -4,9 +4,9 @@
 
 ## 当前进度
 
-**最后更新**: 2025-11-26 15:30  
+**最后更新**: 2025-11-26 18:00  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 三轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 六轮Bug修复
 
 ---
 
@@ -59,6 +59,7 @@
 - `lib/html/admin/dashboard.html` - 监控大盘
 - `lib/html/admin/users.html` - 用户管理
 - `lib/html/admin/tasks.html` - 任务管理
+- `lib/html/admin/control.html` - 系统控制（注册开关）
 
 #### 7. API层 (阶段八)
 - `lib/webserver/admin_api.py` - 管理员API处理
@@ -214,6 +215,29 @@ distill_qid = create_distill_task(uid, parent_qid)
 | `paper_processor.py` | 蒸馏旧签名 | 新签名 `(uid, original_query_id, dois) -> (bool, str)` |
 | `tests/*.py` | `validate_session` 不存在 | 使用 `get_session_uid` |
 
+### 修复4: 前端修复与功能完善
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `user_api.py` | get_user_info 返回格式双重包装 | 移除多余的包装层 |
+| `index.html` | 引用不存在的 estimatedCost/articleCount 元素 | 移除无效引用 |
+| `index.html` | 队列轮询代码 queueEta 已废弃 | 删除相关 HTML 和 JS 代码 |
+
+### 修复5: 管理员系统控制页面
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `admin/control.html` | 系统控制页面缺失 | 新建页面，含注册开关功能 |
+| `admin/*.html` | 导航缺少系统控制链接 | 在 dashboard/users/tasks 添加链接 |
+| `server.py` | `/api/registration_status` 未路由 | 添加到 GET 路由 |
+| `server.py` | `/api/admin/toggle_registration` 路由错误 | 添加到 system_api 处理 |
+
+### 修复6: 登录页面优化
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `login.html` | 注册链接默认隐藏 | 改为默认显示，仅 API 明确关闭时隐藏 |
+| `login.html` | 页面风格与 admin 不统一 | CSS 改为深色主题 |
+| `login.html` | 注册链接位置不佳 | 移到密码框下方、登录按钮上方 |
+| `control.html` | 开关默认状态与后端不一致 | 默认状态改为开启 |
+
 ---
 
 ## 恢复指南
@@ -222,7 +246,7 @@ distill_qid = create_distill_task(uid, parent_qid)
 1. 阅读本文档了解重构成果和修复历史
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `需要手动操作的事项.txt` 了解待完成操作
-4. 项目重构已基本完成，经过三轮Bug修复，可进行测试
+4. 项目重构已基本完成，经过六轮Bug修复，可进行测试
 
 ---
 

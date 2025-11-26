@@ -3,10 +3,10 @@
 ## 项目概述
 - **开始时间**: 2025-11-25 16:40
 - **重构完成时间**: 2025-11-25 17:50
-- **最后修复时间**: 2025-11-26 15:30
+- **最后修复时间**: 2025-11-26 18:00
 - **指导文件**: 新架构项目重构完整指导文件20251124.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 多轮Bug修复
+- **状态**: ✅ 重构完成 + 六轮Bug修复
 
 ---
 
@@ -171,6 +171,44 @@
   - [x] `lib/process/paper_processor.py`: 重写 `process_papers(uid, search_params) -> (bool, str)`
   - [x] `lib/process/paper_processor.py`: 重写 `process_papers_for_distillation(uid, original_query_id, dois) -> (bool, str)`
 
+### 修复轮次四：前端修复与功能完善 (2025-11-26)
+- **时间**: 2025-11-26 15:30 - 16:00
+- **问题**:
+  1. `user_api.py` 的 `get_user_info` 返回格式双重包装
+  2. `index.html` 引用不存在的元素 ID (estimatedCost, articleCount)
+  3. `index.html` 队列轮询代码 (queueEta) 已废弃
+- **修复**:
+  - [x] `lib/webserver/user_api.py`: 修复返回格式，移除多余包装
+  - [x] `lib/html/index.html`: 移除对不存在元素的引用
+  - [x] `lib/html/index.html`: 删除 queueEta HTML 和相关 JS 代码
+
+### 修复轮次五：管理员系统控制页面 (2025-11-26)
+- **时间**: 2025-11-26 16:00 - 17:00
+- **问题**:
+  1. 缺少系统控制页面
+  2. 注册开关 API 路由缺失
+  3. 导航栏缺少系统控制入口
+- **修复**:
+  - [x] 新建 `lib/html/admin/control.html`: 系统控制页面（注册开关）
+  - [x] `lib/html/admin/dashboard.html`: 添加系统控制导航链接
+  - [x] `lib/html/admin/users.html`: 添加系统控制导航链接
+  - [x] `lib/html/admin/tasks.html`: 添加系统控制导航链接
+  - [x] `lib/webserver/server.py`: 添加 `/api/registration_status` GET 路由
+  - [x] `lib/webserver/server.py`: 添加 `/api/admin/toggle_registration` POST 路由
+
+### 修复轮次六：登录页面优化 (2025-11-26)
+- **时间**: 2025-11-26 17:00 - 18:00
+- **问题**:
+  1. 注册链接默认隐藏，用户体验不佳
+  2. 登录页面风格与管理员页面不统一
+  3. 注册链接位置不合理
+  4. control.html 开关默认状态与后端不一致
+- **修复**:
+  - [x] `lib/html/login.html`: 注册链接默认显示，仅 API 明确返回关闭时隐藏
+  - [x] `lib/html/login.html`: CSS 改为深色主题
+  - [x] `lib/html/login.html`: 注册链接移到密码框下方、登录按钮上方
+  - [x] `lib/html/admin/control.html`: 默认状态改为开启（与后端一致）
+
 ---
 
 ## 重要变更记录
@@ -190,6 +228,9 @@
 | 2025-11-26 | 修复1 | 修复启动错误(debug_console/PriceCalculator/db_reader) | server.py, init_db.py, main.py |
 | 2025-11-26 | 修复2 | 修复Redis连接与管理员API | admin_api.py, tests/ |
 | 2025-11-26 | 修复3 | 重写process_papers适配新架构 | paper_processor.py |
+| 2025-11-26 | 修复4 | 前端修复(user_api返回格式/移除废弃代码) | user_api.py, index.html |
+| 2025-11-26 | 修复5 | 新建系统控制页面，修复注册开关API路由 | admin/control.html, server.py |
+| 2025-11-26 | 修复6 | 登录页面优化(深色主题/注册链接默认显示) | login.html, control.html |
 
 ---
 
