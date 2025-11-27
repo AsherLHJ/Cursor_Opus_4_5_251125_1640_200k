@@ -6,7 +6,7 @@
 
 **最后更新**: 2025-11-27  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 七轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 十一轮Bug修复
 
 ---
 
@@ -133,7 +133,8 @@ lib/html/
 ### 任务队列
 - `task:{uid}:{qid}:pending_blocks` (List)
 - `query:{uid}:{qid}:status` (Hash)
-- `query:{uid}:{qid}:pause_signal` (String)
+- `query:{uid}:{qid}:pause_signal` (String) - 暂停信号
+- `query:{uid}:{qid}:terminate_signal` (String) - 终止信号（新增）
 - `result:{uid}:{qid}` (Hash)
 
 ### 计费
@@ -253,6 +254,40 @@ distill_qid = create_distill_task(uid, parent_qid)
 | `distill.py` | spawn_distill_workers无数量限制 | 添加min(count, blocks)限制 |
 | `新架构指导文件` | 缺少Worker数量优化说明 | 规则R2后补充说明 |
 
+### 修复8: 暂停/终止功能与蒸馏API修复 (2025-11-27)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `query_api.py` | `_handle_update_pause_status`参数名不匹配 | 同时支持query_id和query_index，不强制转int |
+| `query_api.py` | `_handle_start_distillation`参数缺失 | 支持original_query_id，修正get_relevant_dois调用 |
+| `query_api.py` | `_handle_estimate_distillation_cost`参数缺失 | 同上修复 |
+| `distill.html` | parseInt对字符串query_id返回NaN | 移除parseInt，使用字符串类型 |
+| `scheduler.py` | `_check_completions`暂停后标记完成 | 检查PAUSED/CANCELLED状态再决定是否标记完成 |
+| `task_queue.py` | 缺少终止信号类型 | 新增set_terminate_signal/is_terminated方法 |
+| `worker.py` | 终止显示"暂停信号" | 优先检查终止信号，输出"收到终止信号" |
+| `admin_api.py` | 终止操作用pause_signal | 改用terminate_signal |
+
+### 修复9: 暂停功能深度修复 (2025-11-27)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `server.py` | POST路由遗漏`/api/update_pause_status` | 添加到查询API路由列表 |
+| `worker.py` | 完成判定时未检查暂停信号导致暂停后被标记完成 | 完成判定前再次检查暂停/终止信号 |
+
+### 修复10: 历史状态显示与蒸馏按钮修复 (2025-11-27)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `index.html` | 暂停后历史记录状态仍显示"进行中" | `createHistoryItem`状态判断改为三态(完成>暂停>进行中) |
+| `index.html` | 语言切换时状态不更新暂停状态 | 添加`data-paused`属性并在语言切换时判断 |
+| `index.html` | 历史详情卡片不显示暂停状态 | 添加三态状态判断 |
+| `index.html` | 进行中任务错误显示蒸馏按钮 | 删除未完成任务的蒸馏按钮 |
+| `query_api.py` | `get_query_info`缺少暂停状态字段 | 返回值添加`should_pause`字段 |
+
+### 修复11: 侧边栏状态刷新与任务完成检测修复 (2025-11-27)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `index.html` | 暂停后侧边栏历史记录状态不更新 | `handlePauseResume`成功后添加`loadHistory()`调用 |
+| `index.html` | 任务完成后页面不自动切换到完成状态 | 历史进度轮询完成时正确更新卡片UI并刷新侧边栏 |
+| `index.html` | 历史卡片缺少查找属性 | 创建卡片时添加`data-history-qid`属性 |
+
 ---
 
 ## 恢复指南
@@ -261,7 +296,7 @@ distill_qid = create_distill_task(uid, parent_qid)
 1. 阅读本文档了解重构成果和修复历史
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `需要手动操作的事项.txt` 了解待完成操作
-4. 项目重构已基本完成，经过七轮Bug修复，可进行测试
+4. 项目重构已基本完成，经过十一轮Bug修复，可进行测试
 
 ---
 

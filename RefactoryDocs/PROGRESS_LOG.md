@@ -6,7 +6,7 @@
 - **最后修复时间**: 2025-11-27
 - **指导文件**: 新架构项目重构完整指导文件20251124.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 七轮Bug修复
+- **状态**: ✅ 重构完成 + 十一轮Bug修复
 
 ---
 
@@ -229,6 +229,55 @@
   - [x] `lib/process/distill.py`: `spawn_distill_workers` 添加同样的Worker数量限制
   - [x] `新架构项目重构完整指导文件20251124.txt`: 规则R2后补充Worker数量优化说明
 
+### 修复轮次八：暂停/终止功能与蒸馏API修复 (2025-11-27)
+- **时间**: 2025-11-27
+- **问题**:
+  1. 普通用户暂停按钮无效：`_handle_update_pause_status`参数名query_index与前端不匹配，且强制转int
+  2. 暂停后任务直接完成：`_check_completions`未检查PAUSED/CANCELLED状态
+  3. 终止显示"暂停信号"：终止操作复用pause_signal，日志无法区分
+  4. 蒸馏API参数错误：`get_relevant_dois`调用缺少uid参数
+  5. 蒸馏前端类型错误：`parseInt(queryIndex)`对字符串query_id返回NaN
+- **修复**:
+  - [x] `lib/webserver/query_api.py`: `_handle_update_pause_status` 同时支持query_id和query_index，不强制转int
+  - [x] `lib/webserver/query_api.py`: `_handle_start_distillation` 支持original_query_id，修正get_relevant_dois调用
+  - [x] `lib/webserver/query_api.py`: `_handle_estimate_distillation_cost` 同上修复
+  - [x] `lib/html/distill.html`: 移除parseInt，使用字符串类型originalQueryId
+  - [x] `lib/process/scheduler.py`: `_check_completions` 检查PAUSED/CANCELLED状态再决定是否标记完成
+  - [x] `lib/redis/task_queue.py`: 新增set_terminate_signal/clear_terminate_signal/is_terminated方法
+  - [x] `lib/process/worker.py`: 优先检查终止信号，输出"收到终止信号"
+  - [x] `lib/webserver/admin_api.py`: `_handle_terminate_task` 改用terminate_signal
+
+### 修复轮次九：暂停功能深度修复 (2025-11-27)
+- **时间**: 2025-11-27
+- **问题**:
+  1. 普通用户暂停无效：`server.py` POST路由遗漏了 `/api/update_pause_status`，导致返回404
+  2. 暂停后任务直接完成：Worker完成判定时未检查暂停信号，最后一个Worker完成Block后触发归档
+- **修复**:
+  - [x] `lib/webserver/server.py`: POST路由添加 `/api/update_pause_status` 到查询API列表
+  - [x] `lib/process/worker.py`: 完成判定前再次检查暂停/终止信号，避免暂停后被错误标记为完成
+
+### 修复轮次十：历史状态显示与蒸馏按钮修复 (2025-11-27)
+- **时间**: 2025-11-27
+- **问题**:
+  1. 暂停后历史记录状态仍显示"进行中"：`createHistoryItem`函数只判断`completed`属性
+  2. 进行中任务错误显示蒸馏按钮：历史详情卡片模板在未完成任务区域也显示了蒸馏按钮
+- **修复**:
+  - [x] `lib/html/index.html`: `createHistoryItem`状态判断改为三态(完成>已暂停>进行中)
+  - [x] `lib/html/index.html`: 添加`data-paused`属性并在语言切换时正确更新状态
+  - [x] `lib/html/index.html`: 历史详情卡片状态显示添加三态判断
+  - [x] `lib/html/index.html`: 删除未完成任务的蒸馏按钮（蒸馏按钮只在任务完成后显示）
+  - [x] `lib/webserver/query_api.py`: `_handle_get_query_info`返回值添加`should_pause`字段
+
+### 修复轮次十一：侧边栏状态刷新与任务完成检测修复 (2025-11-27)
+- **时间**: 2025-11-27
+- **问题**:
+  1. 暂停后侧边栏历史记录状态不更新：`handlePauseResume`成功后未调用`loadHistory()`刷新侧边栏
+  2. 任务完成后页面不自动切换到完成状态：历史进度轮询完成时只调用`loadHistoryDetails()`但未使用返回结果更新卡片UI
+- **修复**:
+  - [x] `lib/html/index.html`: `handlePauseResume`成功后添加`loadHistory()`调用刷新侧边栏
+  - [x] `lib/html/index.html`: 历史卡片创建时添加`data-history-qid`属性以便查找
+  - [x] `lib/html/index.html`: 历史进度轮询完成时正确获取详情、更新卡片UI并刷新侧边栏
+
 ---
 
 ## 重要变更记录
@@ -252,6 +301,10 @@
 | 2025-11-26 | 修复5 | 新建系统控制页面，修复注册开关API路由 | admin/control.html, server.py |
 | 2025-11-26 | 修复6 | 登录页面优化(深色主题/注册链接默认显示) | login.html, control.html |
 | 2025-11-27 | 修复7 | 核心业务Bug修复(BillingSyncer/进度/下载/Worker) | main.py, index.html, history.html, query_api.py, search_dao.py, server.py, scheduler.py, distill.py, 新架构指导文件 |
+| 2025-11-27 | 修复8 | 暂停/终止功能与蒸馏API修复 | query_api.py, distill.html, scheduler.py, task_queue.py, worker.py, admin_api.py |
+| 2025-11-27 | 修复9 | 暂停功能深度修复(API路由/Worker完成判定) | server.py, worker.py |
+| 2025-11-27 | 修复10 | 历史状态显示三态+移除进行中蒸馏按钮 | index.html, query_api.py |
+| 2025-11-27 | 修复11 | 侧边栏状态刷新+任务完成检测修复 | index.html |
 
 ---
 

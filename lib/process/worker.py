@@ -100,9 +100,16 @@ class BlockWorker:
         """Worker主循环 (规则R4.c)"""
         try:
             while self._running:
-                # 1. 检查暂停信号 (R4.c.i)
+                # 1. 检查终止信号（优先于暂停信号）
+                if TaskQueue.is_terminated(self.uid, self.qid):
+                    # 终止信号：任务被强制取消，不推回Block
+                    self._current_block = None
+                    print(f"[Worker-{self.worker_id}] 收到终止信号，退出")
+                    break
+                
+                # 2. 检查暂停信号 (R4.c.i)
                 if TaskQueue.is_paused(self.uid, self.qid):
-                    # 如果有未处理的Block，推回队列
+                    # 如果有未处理的Block，推回队列（暂停可恢复）
                     if self._current_block:
                         TaskQueue.push_back_block(self.uid, self.qid, self._current_block)
                         self._current_block = None
@@ -129,11 +136,23 @@ class BlockWorker:
                 status = TaskQueue.get_status(self.uid, self.qid)
                 total = status.get('total_blocks', 0) if status else 0
                 
-                # 完成判定
+                # 完成判定前再次检查暂停/终止信号（修复9: 防止暂停后被错误标记为完成）
                 if total > 0 and finished >= total:
+                    # 检查是否被终止
+                    if TaskQueue.is_terminated(self.uid, self.qid):
+                        print(f"[Worker-{self.worker_id}] 检测到终止信号，不触发归档")
+                        self._current_block = None
+                        break
+                    # 检查是否被暂停
+                    if TaskQueue.is_paused(self.uid, self.qid):
+                        print(f"[Worker-{self.worker_id}] 检测到暂停信号，不触发归档")
+                        self._current_block = None
+                        break
+                    
+                    # 只有没被暂停/终止时才设为完成
                     TaskQueue.set_state(self.uid, self.qid, 'DONE')
                     print(f"[Worker-{self.worker_id}] 所有Block处理完成")
-                    # 触发归档（可选）
+                    # 触发归档
                     self._trigger_archive()
                 
                 self._current_block = None

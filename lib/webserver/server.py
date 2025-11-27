@@ -164,6 +164,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         # 查询 API
         if path in ('/api/update', '/api/start_search', '/api/start_distillation',
                     '/api/estimate_distillation_cost', '/api/query_status',
+                    '/api/update_pause_status',  # 修复9: 添加普通用户暂停API路由
                     '/api/pause_query', '/api/resume_query', '/api/cancel_query',
                     '/api/journals', '/api/count_papers'):
             status, response = handle_query_api(path, 'POST', headers_dict, payload)

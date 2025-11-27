@@ -324,7 +324,8 @@
 
   <script src="/static/js/i18n.js"></script>
   <script>
-    let originalQueryIndex = null;
+    // 新架构修复：使用字符串类型的 originalQueryId
+    let originalQueryId = null;
 
     // 工具函数
     function showError(message) {
@@ -402,8 +403,9 @@
 
     // 加载原始查询信息
     async function loadOriginalQueryInfo() {
-      const queryIndex = getUrlParameter('query_index');
-      if (!queryIndex) {
+      // 新架构修复：同时支持 query_index 和 query_id 参数，使用字符串类型
+      const queryId = getUrlParameter('query_index') || getUrlParameter('query_id');
+      if (!queryId) {
         showError(i18n.t('distill.err_missing_qid'));
         return;
       }
@@ -415,10 +417,11 @@
         return;
       }
 
-      originalQueryIndex = parseInt(queryIndex);
+      // 保持字符串类型（新架构格式如 Q20251127102812_74137bb4）
+      originalQueryId = queryId;
       
       try {
-        const res = await fetch(`/api/get_query_info?query_index=${encodeURIComponent(queryIndex)}&uid=${encodeURIComponent(uid)}`);
+        const res = await fetch(`/api/get_query_info?query_id=${encodeURIComponent(queryId)}&uid=${encodeURIComponent(uid)}`);
         if (!res.ok) {
           throw new Error(`服务器错误: ${res.status}`);
         }
@@ -483,12 +486,12 @@
     async function estimateDistillationCost() {
       try {
         const uid = parseInt(localStorage.getItem('userId') || '0', 10);
-        if (!uid || !originalQueryIndex) return;
+        if (!uid || !originalQueryId) return;
 
         const res = await fetch('/api/estimate_distillation_cost', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ uid, original_query_index: originalQueryIndex })
+          body: JSON.stringify({ uid, original_query_id: originalQueryId })
         });
         const data = await res.json();
         if (!data || !data.success) return;
@@ -518,7 +521,7 @@
 
     // 开始蒸馏
     async function startDistill() {
-      if (!originalQueryIndex) {
+      if (!originalQueryId) {
         showError(i18n.t('distill.err_missing_qid'));
         return;
       }
@@ -542,7 +545,7 @@
         }
 
         const payload = {
-          original_query_index: originalQueryIndex,
+          original_query_id: originalQueryId,
           question,
           requirements,
           uid

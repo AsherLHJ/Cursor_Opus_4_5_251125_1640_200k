@@ -216,19 +216,23 @@ def _handle_start_search(payload: Dict) -> Tuple[int, Dict]:
 
 
 def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
-    """处理开始蒸馏请求"""
+    """
+    处理开始蒸馏请求
+    
+    新架构修复：同时支持 original_query_id 和 original_query_index 参数名，
+    使用字符串类型的query_id，修正 get_relevant_dois 调用参数
+    """
     try:
         question = str(payload.get('question') or '').strip()
         requirements = str(payload.get('requirements') or '').strip()
-        original_query_index_raw = payload.get('original_query_index')
         
-        try:
-            original_query_index = int(original_query_index_raw)
-        except Exception:
-            original_query_index = 0
+        # 同时支持 original_query_id 和 original_query_index 参数名
+        original_query_id = payload.get('original_query_id') or payload.get('original_query_index')
+        if not original_query_id:
+            return 400, {'success': False, 'error': 'missing_original_query_id'}
         
-        if original_query_index <= 0:
-            return 400, {'success': False, 'error': 'invalid_original_query_index'}
+        # 保持字符串类型（新架构格式如 Q20251127102812_74137bb4）
+        original_query_id = str(original_query_id)
         
         uid_raw = payload.get('uid')
         try:
@@ -238,9 +242,9 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
         if uid <= 0:
             return 400, {'success': False, 'error': 'invalid_uid'}
         
-        # 获取原始查询的相关DOI列表
+        # 获取原始查询的相关DOI列表（修正：传入uid和query_id两个参数）
         try:
-            relevant_dois = db_reader.get_relevant_dois(original_query_index)
+            relevant_dois = db_reader.get_relevant_dois(uid, original_query_id)
         except Exception as e:
             return 500, {'success': False, 'error': 'get_relevant_dois_failed', 'message': str(e)}
         
@@ -269,7 +273,7 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
             }
         
         # 调用蒸馏处理函数
-        success, result = process_papers_for_distillation(uid, str(original_query_index), relevant_dois)
+        success, result = process_papers_for_distillation(uid, original_query_id, relevant_dois)
         
         if success:
             return 200, {
@@ -285,27 +289,32 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
 
 
 def _handle_estimate_distillation_cost(payload: Dict) -> Tuple[int, Dict]:
-    """估算蒸馏费用"""
+    """
+    估算蒸馏费用
+    
+    新架构修复：同时支持 original_query_id 和 original_query_index 参数名，
+    使用字符串类型的query_id，修正 get_relevant_dois 调用参数
+    """
     try:
         uid_raw = payload.get('uid')
-        original_query_index_raw = payload.get('original_query_index')
+        # 同时支持 original_query_id 和 original_query_index 参数名
+        original_query_id = payload.get('original_query_id') or payload.get('original_query_index')
         
         try:
             uid = int(uid_raw)
         except Exception:
             uid = 0
-        try:
-            original_query_index = int(original_query_index_raw)
-        except Exception:
-            original_query_index = 0
         
         if uid <= 0:
             return 400, {'success': False, 'error': 'invalid_uid'}
-        if original_query_index <= 0:
-            return 400, {'success': False, 'error': 'invalid_original_query_index'}
+        if not original_query_id:
+            return 400, {'success': False, 'error': 'missing_original_query_id'}
         
-        # 获取相关DOI
-        relevant_dois = db_reader.get_relevant_dois(original_query_index)
+        # 保持字符串类型（新架构格式如 Q20251127102812_74137bb4）
+        original_query_id = str(original_query_id)
+        
+        # 获取相关DOI（修正：传入uid和query_id两个参数）
+        relevant_dois = db_reader.get_relevant_dois(uid, original_query_id)
         if not relevant_dois:
             return 200, {
                 'success': True,
@@ -386,30 +395,38 @@ def _handle_get_query_result(payload: Dict) -> Tuple[int, Dict]:
 
 
 def _handle_update_pause_status(payload: Dict) -> Tuple[int, Dict]:
-    """更新暂停状态"""
+    """
+    更新暂停状态
+    
+    新架构修复：同时支持 query_id 和 query_index 参数名，
+    不再强制转int，使用字符串类型的query_id
+    """
     try:
-        query_index = payload.get('query_index')
+        # 同时支持 query_id 和 query_index 参数名
+        query_id = payload.get('query_id') or payload.get('query_index')
         uid = payload.get('uid')
         should_pause = payload.get('should_pause')
         
-        if query_index is None or uid is None or should_pause is None:
+        if not query_id or uid is None or should_pause is None:
             return 400, {'success': False, 'error': 'missing_parameters'}
         
         try:
-            query_index = int(query_index)
             uid = int(uid)
             should_pause = bool(should_pause)
         except (ValueError, TypeError):
             return 400, {'success': False, 'error': 'invalid_parameters'}
         
-        if query_index <= 0 or uid <= 0:
-            return 400, {'success': False, 'error': 'invalid_parameters'}
+        if uid <= 0:
+            return 400, {'success': False, 'error': 'invalid_uid'}
+        
+        # query_id 保持字符串类型（新架构格式如 Q20251127102812_74137bb4）
+        qid = str(query_id)
         
         if should_pause:
-            success = pause_query(uid, str(query_index))
+            success = pause_query(uid, qid)
             msg = 'paused' if success else 'pause_failed'
         else:
-            success = resume_query(uid, str(query_index))
+            success = resume_query(uid, qid)
             msg = 'resumed' if success else 'resume_failed'
         
         if success:
@@ -790,7 +807,8 @@ def _handle_get_query_info(payload: Dict) -> Tuple[int, Dict]:
                 'query_table': row.get('query_table') or '',
                 'start_time': fmt_time(row.get('start_time')),
                 'end_time': fmt_time(row.get('end_time')),
-                'completed': bool(row.get('end_time') or row.get('status') == 'COMPLETED' or row.get('status') == 'DONE')
+                'completed': bool(row.get('end_time') or row.get('status') == 'COMPLETED' or row.get('status') == 'DONE'),
+                'should_pause': bool(row.get('should_pause'))  # 修复10: 添加暂停状态字段
             }
         }
     except Exception as e:

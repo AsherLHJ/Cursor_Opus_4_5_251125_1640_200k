@@ -243,7 +243,11 @@ def _handle_get_tasks() -> Tuple[int, Dict]:
 
 
 def _handle_terminate_task(data: Dict) -> Tuple[int, Dict]:
-    """终止任务"""
+    """
+    终止任务
+    
+    新架构修复：使用独立的终止信号，区别于暂停信号
+    """
     uid = data.get('uid')
     qid = data.get('query_id')
     
@@ -255,8 +259,8 @@ def _handle_terminate_task(data: Dict) -> Tuple[int, Dict]:
     except (TypeError, ValueError):
         return 400, {'success': False, 'message': 'uid格式错误'}
     
-    # 设置暂停信号
-    TaskQueue.set_pause_signal(uid, qid)
+    # 设置终止信号（区别于暂停信号，Worker会输出不同日志）
+    TaskQueue.set_terminate_signal(uid, qid)
     TaskQueue.set_state(uid, qid, 'CANCELLED')
     
     # 停止Workers

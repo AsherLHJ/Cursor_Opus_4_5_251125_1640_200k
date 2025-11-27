@@ -32,6 +32,10 @@ class TaskQueue:
         return f"query:{uid}:{qid}:pause_signal"
     
     @staticmethod
+    def _key_terminate(uid: int, qid: str) -> str:
+        return f"query:{uid}:{qid}:terminate_signal"
+    
+    @staticmethod
     def _key_progress(uid: int, qid: str) -> str:
         return f"progress:{uid}:{qid}:finished_count"
     
@@ -265,6 +269,55 @@ class TaskQueue:
         
         try:
             return client.exists(cls._key_pause(uid, qid)) > 0
+        except Exception:
+            return False
+    
+    # ==================== 终止信号操作 ====================
+    
+    @classmethod
+    def set_terminate_signal(cls, uid: int, qid: str, ttl: int = 604800) -> bool:
+        """
+        设置终止信号
+        
+        区别于暂停信号：终止信号表示任务被强制取消，不会恢复
+        
+        Args:
+            uid: 用户ID
+            qid: 查询ID
+            ttl: 过期时间（默认7天）
+        """
+        client = get_redis_client()
+        if not client or uid <= 0 or not qid:
+            return False
+        
+        try:
+            client.set(cls._key_terminate(uid, qid), "1", ex=ttl)
+            return True
+        except Exception:
+            return False
+    
+    @classmethod
+    def clear_terminate_signal(cls, uid: int, qid: str) -> bool:
+        """清除终止信号"""
+        client = get_redis_client()
+        if not client or uid <= 0 or not qid:
+            return False
+        
+        try:
+            client.delete(cls._key_terminate(uid, qid))
+            return True
+        except Exception:
+            return False
+    
+    @classmethod
+    def is_terminated(cls, uid: int, qid: str) -> bool:
+        """检查是否存在终止信号"""
+        client = get_redis_client()
+        if not client or uid <= 0 or not qid:
+            return False
+        
+        try:
+            return client.exists(cls._key_terminate(uid, qid)) > 0
         except Exception:
             return False
     
