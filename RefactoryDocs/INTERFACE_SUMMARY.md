@@ -4,9 +4,9 @@
 
 ## 当前进度
 
-**最后更新**: 2025-11-26 18:00  
+**最后更新**: 2025-11-27  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 六轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 七轮Bug修复
 
 ---
 
@@ -238,6 +238,21 @@ distill_qid = create_distill_task(uid, parent_qid)
 | `login.html` | 注册链接位置不佳 | 移到密码框下方、登录按钮上方 |
 | `control.html` | 开关默认状态与后端不一致 | 默认状态改为开启 |
 
+### 修复7: 核心业务Bug修复 (2025-11-27)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `main.py` | BillingSyncer未启动导致计费队列积压 | 添加 `start_billing_syncer()` 调用 |
+| `index.html` | 进度轮询缺少uid参数 | 3处fetch调用添加uid参数 |
+| `history.html` | 进度轮询缺少uid参数 | 1处fetch调用添加uid参数 |
+| `query_api.py` | `_handle_get_query_progress` 用uid=0 | 从payload获取uid参数 |
+| `search_dao.py` | `fetch_results_with_paperinfo` 返回嵌套结构 | 重构为扁平化结构(策略B) |
+| `search_dao.py` | 缺少bib解析函数 | 新增 `_parse_bib_fields()` |
+| `server.py` | `_download_csv` 判断条件错误 | 适配新的 'Y'/'N' 字段值 |
+| `server.py` | `_download_bib` 判断条件错误 | 适配新的 'Y'/'N' 字段值 |
+| `scheduler.py` | Worker数量不考虑Block数量 | 实际Worker数=min(permission, blocks) |
+| `distill.py` | spawn_distill_workers无数量限制 | 添加min(count, blocks)限制 |
+| `新架构指导文件` | 缺少Worker数量优化说明 | 规则R2后补充说明 |
+
 ---
 
 ## 恢复指南
@@ -246,7 +261,7 @@ distill_qid = create_distill_task(uid, parent_qid)
 1. 阅读本文档了解重构成果和修复历史
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `需要手动操作的事项.txt` 了解待完成操作
-4. 项目重构已基本完成，经过六轮Bug修复，可进行测试
+4. 项目重构已基本完成，经过七轮Bug修复，可进行测试
 
 ---
 

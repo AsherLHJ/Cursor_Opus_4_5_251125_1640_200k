@@ -3,10 +3,10 @@
 ## 项目概述
 - **开始时间**: 2025-11-25 16:40
 - **重构完成时间**: 2025-11-25 17:50
-- **最后修复时间**: 2025-11-26 18:00
+- **最后修复时间**: 2025-11-27
 - **指导文件**: 新架构项目重构完整指导文件20251124.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 六轮Bug修复
+- **状态**: ✅ 重构完成 + 七轮Bug修复
 
 ---
 
@@ -209,6 +209,26 @@
   - [x] `lib/html/login.html`: 注册链接移到密码框下方、登录按钮上方
   - [x] `lib/html/admin/control.html`: 默认状态改为开启（与后端一致）
 
+### 修复轮次七：核心业务Bug修复 (2025-11-27)
+- **时间**: 2025-11-27
+- **问题**:
+  1. BillingSyncer未启动，导致计费队列积压
+  2. 进度条卡0%，前端轮询缺少uid参数导致Redis Key拼接错误
+  3. CSV下载显示"未判定"，数据结构不匹配
+  4. Worker数量未考虑Block数量，导致大量Worker立即退出
+- **修复**:
+  - [x] `main.py`: 添加 `start_billing_syncer()` 启动调用
+  - [x] `lib/html/index.html`: 3处fetch调用添加uid参数
+  - [x] `lib/html/history.html`: 1处fetch调用添加uid参数
+  - [x] `lib/webserver/query_api.py`: `_handle_get_query_progress` 从payload获取uid
+  - [x] `lib/load_data/search_dao.py`: 新增 `_parse_bib_fields()` 辅助函数
+  - [x] `lib/load_data/search_dao.py`: 重构 `fetch_results_with_paperinfo` 返回扁平化结构(策略B)
+  - [x] `lib/webserver/server.py`: `_download_csv` 适配新的 'Y'/'N' 判断条件
+  - [x] `lib/webserver/server.py`: `_download_bib` 适配新的 'Y'/'N' 判断条件
+  - [x] `lib/process/scheduler.py`: `_start_query_workers` 实际Worker数=min(permission, blocks)
+  - [x] `lib/process/distill.py`: `spawn_distill_workers` 添加同样的Worker数量限制
+  - [x] `新架构项目重构完整指导文件20251124.txt`: 规则R2后补充Worker数量优化说明
+
 ---
 
 ## 重要变更记录
@@ -231,6 +251,7 @@
 | 2025-11-26 | 修复4 | 前端修复(user_api返回格式/移除废弃代码) | user_api.py, index.html |
 | 2025-11-26 | 修复5 | 新建系统控制页面，修复注册开关API路由 | admin/control.html, server.py |
 | 2025-11-26 | 修复6 | 登录页面优化(深色主题/注册链接默认显示) | login.html, control.html |
+| 2025-11-27 | 修复7 | 核心业务Bug修复(BillingSyncer/进度/下载/Worker) | main.py, index.html, history.html, query_api.py, search_dao.py, server.py, scheduler.py, distill.py, 新架构指导文件 |
 
 ---
 

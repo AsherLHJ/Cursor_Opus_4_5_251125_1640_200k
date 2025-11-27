@@ -156,14 +156,30 @@ def _process_pending_queries() -> None:
 
 
 def _start_query_workers(uid: int, qid: str, worker_count: int) -> None:
-    """为查询启动Worker"""
+    """
+    为查询启动Worker
+    
+    新架构优化：实际启动的Worker数量 = min(permission, 待处理Block数量)
+    避免启动多余的Worker（它们会立即退出）
+    """
     from .search_paper import create_ai_processor
+    
+    # 获取待处理Block数量
+    pending_blocks = TaskQueue.get_pending_count(uid, qid)
+    
+    # 实际Worker数量 = min(permission, block数量)
+    actual_workers = min(worker_count, pending_blocks) if pending_blocks > 0 else 0
+    if actual_workers <= 0:
+        actual_workers = 1  # 至少1个Worker
+    
+    print(f"[Scheduler] 任务 {qid}: {pending_blocks} 个Block, "
+          f"permission={worker_count}, 实际启动 {actual_workers} 个Worker")
     
     # 创建AI处理器
     ai_processor = create_ai_processor(uid, qid)
     
     # 生产Workers
-    workers = spawn_workers(uid, qid, worker_count, ai_processor)
+    workers = spawn_workers(uid, qid, actual_workers, ai_processor)
     
     # 更新任务状态
     TaskQueue.set_state(uid, qid, 'RUNNING')
@@ -172,7 +188,7 @@ def _start_query_workers(uid: int, qid: str, worker_count: int) -> None:
     with _managed_lock:
         _managed_queries[qid] = workers
     
-    print(f"[Scheduler] 启动查询 {qid}: {worker_count} 个Worker")
+    print(f"[Scheduler] 启动查询 {qid}: {actual_workers} 个Worker")
 
 
 def _check_completions() -> None:

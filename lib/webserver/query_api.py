@@ -709,19 +709,28 @@ def _handle_get_query_progress(payload: Dict) -> Tuple[int, Dict]:
     """获取查询进度"""
     try:
         qid = payload.get('query_index') or payload.get('query_id')
+        uid_raw = payload.get('uid')
         
         if not qid:
             return 400, {'success': False, 'error': 'missing_query_index'}
         
+        # 从前端获取uid（新架构：前端传递uid以正确构建Redis Key）
+        try:
+            uid = int(uid_raw) if uid_raw else 0
+        except (ValueError, TypeError):
+            uid = 0
+        
         # 获取进度
-        status = get_query_progress(0, str(qid)) or {}  # uid=0 表示不验证
+        status = get_query_progress(uid, str(qid)) or {}
         
         return 200, {
             'success': True,
-            'progress': status.get('progress_percent', 0),
-            'completed': status.get('status') == 'COMPLETED',
+            'progress': status.get('progress', 0),
+            'completed': status.get('state') in ('DONE', 'COMPLETED'),
             'total_blocks': status.get('total_blocks', 0),
-            'finished_blocks': status.get('finished_blocks', 0)
+            'finished_blocks': status.get('finished_blocks', 0),
+            'finished_papers': status.get('finished_papers', 0),
+            'is_paused': status.get('is_paused', False)
         }
     except Exception as e:
         return 500, {'success': False, 'error': 'progress_failed', 'message': str(e)}

@@ -268,13 +268,30 @@ class DistillWorker:
 
 def spawn_distill_workers(uid: int, qid: str, count: int, 
                           ai_processor=None) -> List[DistillWorker]:
-    """生产蒸馏Worker"""
+    """
+    生产蒸馏Worker
+    
+    新架构优化：实际启动的Worker数量 = min(count, 待处理Block数量)
+    避免启动多余的Worker
+    """
+    from ..redis.task_queue import TaskQueue
+    
+    # 获取待处理Block数量
+    pending_blocks = TaskQueue.get_pending_count(uid, qid)
+    
+    # 实际Worker数量 = min(permission/count, block数量)
+    actual_count = min(count, pending_blocks) if pending_blocks > 0 else 0
+    if actual_count <= 0:
+        actual_count = 1  # 至少1个Worker
+    
+    print(f"[Distill] 任务 {qid}: {pending_blocks} 个Blocks, "
+          f"请求={count}, 实际启动 {actual_count} 个DistillWorker")
+    
     workers = []
-    for _ in range(count):
+    for _ in range(actual_count):
         worker = DistillWorker(uid, qid, ai_processor)
         worker.start()
         workers.append(worker)
     
-    print(f"[Distill] 为 uid={uid} qid={qid} 启动了 {count} 个DistillWorker")
     return workers
 

@@ -365,9 +365,10 @@
 
           // 轮询进度（第6步将提供API，这里先占位）
           const qid = item.query_index;
+          const uid = localStorage.getItem('userId');
           const interval = setInterval(async () => {
             try {
-              const res = await fetch('/api/query_progress?query_index=' + encodeURIComponent(qid));
+              const res = await fetch('/api/query_progress?query_index=' + encodeURIComponent(qid) + '&uid=' + encodeURIComponent(uid || ''));
               if (!res.ok) return;
               const data = await res.json();
               const pct = Math.max(0, Math.min(100, Number(data.progress || 0)));

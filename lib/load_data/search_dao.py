@@ -9,11 +9,49 @@
 """
 
 import json
+import re
 from datetime import datetime
 from typing import List, Dict, Optional, Any
 from .db_base import _get_connection
 from ..redis.result_cache import ResultCache
 from ..redis.connection import redis_ping
+
+
+def _parse_bib_fields(bib_str: str) -> Dict[str, str]:
+    """
+    从Bib字符串提取title、url等字段
+    
+    Args:
+        bib_str: BibTeX格式字符串
+        
+    Returns:
+        {'title': '...', 'url': '...'}
+    """
+    result = {'title': '', 'url': ''}
+    
+    if not bib_str:
+        return result
+    
+    try:
+        # 提取title（支持花括号和引号）
+        title_match = re.search(
+            r'title\s*=\s*[{"](.+?)[}"]',
+            bib_str, re.IGNORECASE | re.DOTALL
+        )
+        if title_match:
+            result['title'] = title_match.group(1).strip()
+        
+        # 提取url
+        url_match = re.search(
+            r'url\s*=\s*[{"]([^}"]+)[}"]',
+            bib_str, re.IGNORECASE
+        )
+        if url_match:
+            result['url'] = url_match.group(1).strip()
+    except Exception:
+        pass
+    
+    return result
 
 
 def save_result(uid: int, query_id: str, doi: str, 
@@ -152,7 +190,7 @@ def archive_results_to_mysql(uid: int, query_id: str) -> int:
 def fetch_results_with_paperinfo(uid: int, query_id: str, 
                                   only_relevant: bool = False) -> List[Dict]:
     """
-    获取查询结果及对应的文献信息
+    获取查询结果及对应的文献信息（扁平化结构）
     
     用于下载 CSV/Bib 文件
     
@@ -160,6 +198,17 @@ def fetch_results_with_paperinfo(uid: int, query_id: str,
         uid: 用户ID
         query_id: 查询ID
         only_relevant: 是否只返回相关的结果
+        
+    Returns:
+        扁平化的结果列表，每个元素包含:
+        - doi: 文献DOI
+        - search_result: 'Y' 或 'N'（相关性判断）
+        - reason: 判断理由
+        - source: 期刊名
+        - year: 发表年份
+        - title: 论文标题
+        - bib: 完整bib字符串
+        - paper_url: 论文URL
     """
     from .paper_dao import get_paper_by_doi
     from ..redis.paper_blocks import PaperBlocks
@@ -172,43 +221,60 @@ def fetch_results_with_paperinfo(uid: int, query_id: str,
     for doi, data in results.items():
         ai_result = data.get('ai_result', {})
         
+        # 提取相关性判断（支持多种格式）
+        if isinstance(ai_result, dict):
+            relevant = ai_result.get('relevant', 'N')
+            reason = ai_result.get('reason', '')
+        else:
+            relevant = 'Y' if ai_result in (True, 1, '1', 'Y', 'y') else 'N'
+            reason = ''
+        
+        # 标准化 search_result 字段
+        search_result = 'Y' if str(relevant).upper() in ('Y', 'YES', '1', 'TRUE') else 'N'
+        
         # 过滤非相关结果
-        if only_relevant:
-            is_relevant = False
-            if isinstance(ai_result, dict):
-                is_relevant = ai_result.get('relevant', '').upper() == 'Y'
-            elif ai_result in (True, 1, '1', 'Y', 'y'):
-                is_relevant = True
-            
-            if not is_relevant:
-                continue
+        if only_relevant and search_result != 'Y':
+            continue
         
         # 获取文献信息
         block_key = data.get('block_key', '')
-        paper_info = None
+        source = ''
+        year = ''
+        bib_str = ''
         
         # 优先从 Block 获取
         if block_key and redis_ping():
             parsed = PaperBlocks.parse_block_key(block_key)
             if parsed:
-                journal, year = parsed
-                bib_str = PaperBlocks.get_block(journal, year).get(doi)
-                if bib_str:
-                    paper_info = {
-                        'doi': doi,
-                        'name': journal,
-                        'year': year,
-                        'bib': bib_str,
-                    }
+                source, year = parsed
+                bib_str = PaperBlocks.get_block(source, year).get(doi, '')
         
         # 回退到数据库
-        if not paper_info:
-            paper_info = get_paper_by_doi(doi) or {'doi': doi}
+        if not bib_str:
+            paper_info = get_paper_by_doi(doi)
+            if paper_info:
+                source = paper_info.get('name', '') or paper_info.get('source', '')
+                year = paper_info.get('year', '')
+                bib_str = paper_info.get('bib', '')
+        
+        # 从bib解析title和url
+        bib_fields = _parse_bib_fields(bib_str)
+        title = bib_fields.get('title', '')
+        paper_url = bib_fields.get('url', '')
+        
+        # 如果没有url，从doi生成
+        if not paper_url and doi:
+            paper_url = f"https://doi.org/{doi}"
         
         output.append({
             'doi': doi,
-            'ai_result': ai_result,
-            'paper_info': paper_info,
+            'search_result': search_result,
+            'reason': reason,
+            'source': source,
+            'year': year,
+            'title': title,
+            'bib': bib_str,
+            'paper_url': paper_url,
         })
     
     return output

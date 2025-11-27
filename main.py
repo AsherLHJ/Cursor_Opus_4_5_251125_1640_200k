@@ -42,6 +42,14 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[Init] Redis数据初始化失败: {e}")
     
+    # 启动BillingSyncer后台线程（新架构：异步计费同步）
+    try:
+        from lib.process.billing_syncer import start_billing_syncer
+        start_billing_syncer()
+        print("[Init] BillingSyncer已启动")
+    except Exception as e:
+        print(f"[Init] BillingSyncer启动失败: {e}")
+    
     # 启动后端 Web 服务：
     # - 本地开发者模式：仅监听本机 127.0.0.1
     # - 生产/容器环境：监听 0.0.0.0（容器可暴露端口）

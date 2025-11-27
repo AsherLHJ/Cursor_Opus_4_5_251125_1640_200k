@@ -3198,7 +3198,7 @@
           const uid = localStorage.getItem('userId');
 
           // 并发获取进度与暂停状态
-          const progressReq = fetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}`);
+          const progressReq = fetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}&uid=${encodeURIComponent(uid || '')}`);
           const historyReq = uid
             ? fetch(`/api/query_history?uid=${encodeURIComponent(uid)}`)
             : null;
@@ -3495,7 +3495,8 @@
       
       window.historyProgressIntervals[queryIndex] = setInterval(async () => {
         try {
-          const response = await fetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}`);
+          const uid = localStorage.getItem('userId');
+          const response = await fetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}&uid=${encodeURIComponent(uid || '')}`);
           if (!response.ok) return;
           
           const data = await response.json();
@@ -4765,7 +4766,8 @@
       
       const pollInterval = setInterval(async () => {
         try {
-          const response = await fetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}`);
+          const uid = localStorage.getItem('userId');
+          const response = await fetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}&uid=${encodeURIComponent(uid || '')}`);
           if (!response.ok) return;
           
           const data = await response.json();

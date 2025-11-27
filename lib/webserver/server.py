@@ -296,7 +296,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             return self._download_bib(query_id, query_log, results)
 
     def _download_csv(self, query_id: str, query_log: dict, results: list):
-        """生成并下载 CSV 文件"""
+        """生成并下载 CSV 文件（新架构：扁平化数据结构）"""
         import io
         import csv
         
@@ -304,15 +304,20 @@ class RequestHandler(BaseHTTPRequestHandler):
         writer = csv.writer(buf)
         writer.writerow(['source', 'year', 'title', 'url', 'search_result', 'reason'])
         
+        # 判断相关性（新架构使用 'Y'/'N' 字符串）
+        def is_relevant(r):
+            val = r.get('search_result', '')
+            return str(val).upper() in ('Y', 'YES', '1', 'TRUE')
+        
         # 先输出相关，再输出其他
-        relevant = [r for r in results if r.get('search_result') in (1, True, '1')]
-        others = [r for r in results if r.get('search_result') not in (1, True, '1')]
+        relevant = [r for r in results if is_relevant(r)]
+        others = [r for r in results if not is_relevant(r)]
         
         for r in relevant + others:
-            result_val = r.get('search_result')
-            if result_val in (1, True, '1'):
+            result_val = r.get('search_result', '')
+            if str(result_val).upper() in ('Y', 'YES', '1', 'TRUE'):
                 result_display = '符合'
-            elif result_val in (0, False, '0'):
+            elif str(result_val).upper() in ('N', 'NO', '0', 'FALSE'):
                 result_display = '不符'
             else:
                 result_display = '未判定'
@@ -339,7 +344,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         })
 
     def _download_bib(self, query_id: str, query_log: dict, results: list):
-        """生成并下载 BIB 文件"""
+        """生成并下载 BIB 文件（新架构：扁平化数据结构）"""
         header_lines = []
         
         query_time = query_log.get('start_time') or ''
@@ -358,10 +363,11 @@ class RequestHandler(BaseHTTPRequestHandler):
                 header_lines.append(f"% Requirements: {requirements}")
             header_lines.append(f"\n% Search Topic {{{research_question}}}\n")
         
-        # 只输出相关条目
+        # 只输出相关条目（新架构使用 'Y'/'N' 字符串）
         entries = []
         for r in results:
-            if r.get('search_result') in (1, True, '1'):
+            result_val = r.get('search_result', '')
+            if str(result_val).upper() in ('Y', 'YES', '1', 'TRUE'):
                 bib = (r.get('bib') or '').strip()
                 if bib:
                     entries.append(bib)
