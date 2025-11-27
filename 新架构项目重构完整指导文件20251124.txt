@@ -308,6 +308,19 @@ d. 只有当 MySQL 更新成功后，才从 Redis Queue 中截断（Trim）已�
 - 分发器检测到该 Query 还有 `pending_blocks`，根据 permission 重新生产新的 Worker 线程继续消费。
 4）**僵尸任务处理**：
 - 为防止用户暂停后永远不恢复，可为 `pause_signal` 设置 TTL（如 7 天）。过期后，配合定期清理脚本将长期未动的任务标记为“已终止”并清理队列。
+===13.5 任务终止 (Terminate) 设计 (新增)===
+区别于“暂停”的软性停止，“终止”是强制且不可恢复的操作：
+1）**信号设计**：
+- Key: `query:{uid}:{qid}:terminate_signal` (String, Value="1", TTL 7天)。
+- 优先级高于 `pause_signal`。
+2）**终止流程**：
+- 用户/管理员点击“终止” -> API 设置 `terminate_signal`。
+- API 将任务状态设为 `CANCELLED` 并清空 `pending_blocks` 队列。
+- API 调用 `stop_workers_for_query` 向所有活跃 Worker 发送信号。
+3）**Worker 响应**：
+- Worker 循环中检测到 `terminate_signal`。
+- 立即停止当前处理，**不**将手中的 Block 推回队列。
+- 打印“收到终止信号”日志并退出销毁。
 ===14. 蒸馏任务业务全流程设计===
 蒸馏任务本质上是一个“输入范围受限”的查询任务。它复用大部分查询架构，但在数据源和计费上有所不同。
 1）**数据源与复用**：
@@ -320,6 +333,7 @@ d. 只有当 MySQL 更新成功后，才从 Redis Queue 中截断（Trim）已�
 - 复用 `task:{uid}:{qid}:pending_blocks` 结构。
 - 但其中的“Block”不再是刊物年份 Key，而是**临时生成的 DOI 分片（Distill Chunk）**。
 - Key: `distill_chunk:{uid}:{qid}:{chunk_id}` (List)，存储本批次待蒸馏的 DOI 列表。
+- **API 参数修正**：发起蒸馏时，必须使用 `original_query_id` (String) 而非 `query_index` (Int)，因为新架构 Query ID 为字符串格式。
 3）**流程设计**：
 - **A. 估算**：
 - 读取 `result:{uid}:{parent_qid}` 中所有 `search_result=1` 的 DOI。
@@ -364,6 +378,7 @@ d. 只有当 MySQL 更新成功后，才从 Redis Queue 中截断（Trim）已�
 - **系统监控大盘**:
 - **任务监控**: 实时 TPM/RPM (滑动窗口)、Redis 队列积压数、活跃 Worker 数。
 - **健康监控**: Redis/MySQL 连接状态、Billing Queue 积压报警。
+- **系统控制**: 新增 `control.html` 页面，提供“用户注册开关”等全局配置的实时切换 (API: `/api/admin/toggle_registration`)。
 4) **废弃**:
 - 删除 `AutoPaperSearchControlPanelAdmin.html`。
 - 移除所有未经过鉴权的旧版管理接口。
