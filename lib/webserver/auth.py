@@ -22,7 +22,7 @@ def verify_password(password: str, hashed: str) -> bool:
     except Exception:
         return False
 
-def register_user(username: str, password: str, initial_balance: int = 0, initial_permission: int = 50) -> dict:
+def register_user(username: str, password: str, initial_balance: int = 0, initial_permission: int = 2) -> dict:
     """
     注册新用户
     返回: {'success': bool, 'message': str, 'uid': int}

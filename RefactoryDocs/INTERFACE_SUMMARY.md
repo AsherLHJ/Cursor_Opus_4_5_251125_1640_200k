@@ -6,7 +6,7 @@
 
 **最后更新**: 2025-11-27  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 十一轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 十二轮Bug修复
 
 ---
 
@@ -288,6 +288,18 @@ distill_qid = create_distill_task(uid, parent_qid)
 | `index.html` | 任务完成后页面不自动切换到完成状态 | 历史进度轮询完成时正确更新卡片UI并刷新侧边栏 |
 | `index.html` | 历史卡片缺少查找属性 | 创建卡片时添加`data-history-qid`属性 |
 
+### 修复12: 普通用户终止任务功能 (2025-11-27)
+|| 文件 | 问题 | 修复 |
+||------|------|------|
+|| `i18n.js` | 缺少终止相关翻译 | 添加terminate/terminate_confirm/terminate_success/terminate_fail/terminate_complete翻译 |
+|| `index.html` | 普通用户无法主动终止任务 | 主进度区域和历史详情卡片添加终止按钮(.btn-danger) |
+|| `index.html` | 缺少终止处理函数 | 添加handleTerminate和terminateHistoryTask函数 |
+|| `index.html` | 终止后页面不显示下载界面 | 添加showTerminatedSection和updateHistoryCardAsTerminated函数 |
+|| `index.html` | 终止后历史卡片不更新 | 添加downloadHistoryCsv和downloadHistoryBib辅助函数 |
+|| `query_dao.py` | cancel_query使用pause_signal | 改用terminate_signal以区分暂停和终止 |
+|| `query_dao.py` | **修复12c** cancel_query未停止Worker线程 | 添加stop_workers_for_query调用，确保Worker线程真正停止 |
+|| `auth.py` | 新用户默认permission过高(50) | 修改register_user默认permission为2 |
+
 ---
 
 ## 恢复指南
@@ -296,7 +308,7 @@ distill_qid = create_distill_task(uid, parent_qid)
 1. 阅读本文档了解重构成果和修复历史
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `需要手动操作的事项.txt` 了解待完成操作
-4. 项目重构已基本完成，经过十一轮Bug修复，可进行测试
+4. 项目重构已基本完成，经过十二轮Bug修复，可进行测试
 
 ---
 

@@ -6,7 +6,7 @@
 - **最后修复时间**: 2025-11-27
 - **指导文件**: 新架构项目重构完整指导文件20251124.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 十一轮Bug修复
+- **状态**: ✅ 重构完成 + 十二轮Bug修复
 
 ---
 
@@ -278,6 +278,26 @@
   - [x] `lib/html/index.html`: 历史卡片创建时添加`data-history-qid`属性以便查找
   - [x] `lib/html/index.html`: 历史进度轮询完成时正确获取详情、更新卡片UI并刷新侧边栏
 
+### 修复轮次十二：普通用户终止任务功能 (2025-11-27)
+- **时间**: 2025-11-27
+- **问题**:
+  1. 普通用户无法主动终止错误的任务：只有暂停功能，无法终止
+  2. 用户发起错误任务后只能等待完成或寻求管理员帮助
+  3. `/api/cancel_query` 使用 pause_signal，无法区分暂停和终止操作
+  4. **修复12c**: 终止后Worker线程仍在运行：`cancel_query`未调用`stop_workers_for_query`
+  5. 新用户默认permission过高(50)，应改为2
+- **修复**:
+  - [x] `lib/html/static/js/i18n.js`: 添加terminate/terminate_confirm/terminate_success/terminate_fail/terminate_complete中英文翻译
+  - [x] `lib/html/index.html`: 添加`.btn-danger`按钮样式（红色终止按钮）
+  - [x] `lib/html/index.html`: 主进度区域添加终止按钮(id=terminateBtn)和`handleTerminate`函数
+  - [x] `lib/html/index.html`: 历史详情卡片添加终止按钮和`terminateHistoryTask`函数
+  - [x] `lib/html/index.html`: 添加`showTerminatedSection`函数，终止后自动显示"任务终止（可下载已完成检索的部分）"界面
+  - [x] `lib/html/index.html`: 添加`updateHistoryCardAsTerminated`函数，更新历史卡片为终止完成状态
+  - [x] `lib/html/index.html`: 添加`downloadHistoryCsv`和`downloadHistoryBib`辅助函数，支持历史卡片下载
+  - [x] `lib/load_data/query_dao.py`: `cancel_query`改用`terminate_signal`以区分暂停和终止
+  - [x] **修复12c** `lib/load_data/query_dao.py`: `cancel_query`添加`stop_workers_for_query`调用，确保Worker线程真正停止
+  - [x] `lib/webserver/auth.py`: `register_user`默认permission从50改为2
+
 ---
 
 ## 重要变更记录
@@ -305,6 +325,7 @@
 | 2025-11-27 | 修复9 | 暂停功能深度修复(API路由/Worker完成判定) | server.py, worker.py |
 | 2025-11-27 | 修复10 | 历史状态显示三态+移除进行中蒸馏按钮 | index.html, query_api.py |
 | 2025-11-27 | 修复11 | 侧边栏状态刷新+任务完成检测修复 | index.html |
+| 2025-11-27 | 修复12 | 普通用户终止任务功能+修复12c:Worker真正停止+默认permission改为2 | i18n.js, index.html, query_dao.py, auth.py |
 
 ---
 

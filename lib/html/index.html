@@ -1188,6 +1188,24 @@
       box-shadow: none;
     }
 
+    /* 终止按钮样式（修复12） */
+    .btn-danger {
+      background: linear-gradient(135deg, #dc3545, #c82333);
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-danger:hover {
+      background: linear-gradient(135deg, #c82333, #bd2130);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(220, 53, 69, 0.3);
+    }
+
     .btn-collapse {
       background: #333;
       color: #888;
@@ -1991,6 +2009,9 @@
           <div class="progress-actions">
             <button id="pauseResumeBtn" class="btn-secondary" style="display: none;">
               <span data-i18n="index.pause">暂停</span>
+            </button>
+            <button id="terminateBtn" class="btn-danger" style="display: none;">
+              <span data-i18n="index.terminate">终止</span>
             </button>
           </div>
         </div>
@@ -3270,13 +3291,86 @@
       updatePauseResumeButton(effectiveShouldPause);
     }
 
-    // 设置暂停/恢复按钮
+    // 设置暂停/恢复按钮和终止按钮
     function setupPauseResumeButton() {
       const pauseResumeBtn = document.getElementById('pauseResumeBtn');
+      const terminateBtn = document.getElementById('terminateBtn');
+      
       pauseResumeBtn.style.display = 'block';
+      terminateBtn.style.display = 'block';
       
       // 使用 onclick，避免重复绑定导致多次触发
       pauseResumeBtn.onclick = handlePauseResume;
+      terminateBtn.onclick = handleTerminate;
+    }
+    
+    // 处理终止任务（修复12：为普通用户添加终止功能）
+    async function handleTerminate() {
+      if (!currentQueryIndex) return;
+      
+      const uid = localStorage.getItem('userId');
+      if (!uid) {
+        alert(i18n.t('common.login_required'));
+        return;
+      }
+      
+      // 确认提示
+      if (!confirm(i18n.t('index.terminate_confirm'))) {
+        return;
+      }
+      
+      try {
+        // 使用普通用户API而非管理员API
+        const response = await fetch('/api/cancel_query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uid: parseInt(uid, 10),
+            query_id: currentQueryIndex
+          })
+        });
+        
+        const data = await response.json();
+        if (response.ok && data.success) {
+          showSuccess(i18n.t('index.terminate_success'));
+          
+          // 停止进度轮询
+          if (currentProgressInterval) {
+            clearInterval(currentProgressInterval);
+            currentProgressInterval = null;
+          }
+          
+          // 显示终止完成界面（修复12b：显示可下载部分结果的界面）
+          showTerminatedSection(currentQueryIndex);
+          
+          // 刷新历史记录
+          loadHistory();
+        } else {
+          showError(i18n.t('index.terminate_fail') + ': ' + (data.message || data.error || 'Unknown error'));
+        }
+      } catch (error) {
+        console.error('Terminate error:', error);
+        showError(i18n.t('index.terminate_fail') + ': ' + error.message);
+      }
+    }
+    
+    // 显示终止后的完成界面（修复12b：任务终止后显示可下载部分结果的界面）
+    function showTerminatedSection(queryIndex) {
+      const progressSection = document.getElementById('progressSection');
+      const completionSection = document.getElementById('completionSection');
+      
+      progressSection.style.display = 'none';
+      completionSection.style.display = 'block';
+      
+      // 更新标题为终止专用文本
+      const completionTitle = completionSection.querySelector('h4[data-i18n]');
+      if (completionTitle) {
+        completionTitle.textContent = i18n.t('index.terminate_complete');
+        completionTitle.setAttribute('data-i18n', 'index.terminate_complete');
+      }
+      
+      // 设置完成后的按钮事件（与正常完成相同）
+      setupCompletionButtons(queryIndex, {});
     }
 
     // 更新暂停/恢复按钮状态
@@ -3485,7 +3579,123 @@
       }
     };
 
-
+    // 历史记录的终止功能（修复12）
+    window.terminateHistoryTask = async function(queryIndex) {
+      const uid = localStorage.getItem('userId');
+      if (!uid) {
+        showError(i18n.t('index.login_required'));
+        return;
+      }
+      
+      // 确认提示
+      if (!confirm(i18n.t('index.terminate_confirm'))) {
+        return;
+      }
+      
+      try {
+        const response = await fetch('/api/cancel_query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uid: parseInt(uid, 10),
+            query_id: queryIndex
+          })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          showSuccess(i18n.t('index.terminate_success'));
+          
+          // 停止该任务的进度轮询
+          if (window.historyProgressIntervals && window.historyProgressIntervals[queryIndex]) {
+            clearInterval(window.historyProgressIntervals[queryIndex]);
+            delete window.historyProgressIntervals[queryIndex];
+          }
+          
+          // 修复12b: 更新历史卡片为终止完成状态
+          updateHistoryCardAsTerminated(queryIndex);
+          
+          // 刷新历史记录
+          loadHistory();
+        } else {
+          showError(i18n.t('index.terminate_fail') + ': ' + (data.error || 'Unknown error'));
+        }
+      } catch (error) {
+        console.error('Terminate history task error:', error);
+        showError(i18n.t('index.terminate_fail') + ': ' + error.message);
+      }
+    };
+    
+    // 更新历史卡片为终止完成状态（修复12b）
+    function updateHistoryCardAsTerminated(queryIndex) {
+      const card = document.querySelector(`[data-history-qid="${queryIndex}"]`);
+      if (!card) return;
+      
+      const content = card.querySelector('.card-content');
+      if (!content) return;
+      
+      // 生成时间戳用于文件名
+      const timestamp = formatTimestampForFilename(new Date());
+      
+      // 替换进度区域为终止完成区域
+      content.innerHTML = `
+        <div class="completion-section" style="display: block;">
+          <div class="completion-header">
+            <h4 data-i18n="index.terminate_complete">${i18n.t('index.terminate_complete')}</h4>
+          </div>
+          <div class="completion-actions">
+            <button class="btn-secondary" onclick="downloadHistoryCsv('${queryIndex}', '${timestamp}')">
+              <span data-i18n="index.download_all_results">${i18n.t('index.download_all_results')}</span>
+            </button>
+            <button class="btn-secondary" onclick="downloadHistoryBib('${queryIndex}', '${timestamp}')">
+              <span data-i18n="index.download_bib_results">${i18n.t('index.download_bib_results')}</span>
+            </button>
+          </div>
+        </div>
+      `;
+    }
+    
+    // 下载历史任务CSV（修复12b）
+    window.downloadHistoryCsv = async function(queryIndex, timestamp) {
+      try {
+        const response = await fetch(`/api/download_csv?query_id=${encodeURIComponent(queryIndex)}`);
+        if (!response.ok) throw new Error('Download failed');
+        
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Overall_${timestamp}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        showSuccess(i18n.t('index.download_success'));
+      } catch (error) {
+        console.error('CSV download error:', error);
+        showError(i18n.t('index.download_failed') + ': ' + error.message);
+      }
+    };
+    
+    // 下载历史任务BIB（修复12b）
+    window.downloadHistoryBib = async function(queryIndex, timestamp) {
+      try {
+        const response = await fetch(`/api/download_bib?query_id=${encodeURIComponent(queryIndex)}`);
+        if (!response.ok) throw new Error('Download failed');
+        
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Overall_${timestamp}.bib`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        showSuccess(i18n.t('index.download_success'));
+      } catch (error) {
+        console.error('BIB download error:', error);
+        showError(i18n.t('index.download_failed') + ': ' + error.message);
+      }
+    };
 
     // 历史记录进度轮询
     function startHistoryProgressPolling(queryIndex) {
@@ -4248,6 +4458,9 @@
               <div class="progress-actions">
                 <button id="historyPauseResumeBtn_${queryIndex}" class="btn-secondary" onclick="toggleHistoryProgress('${queryIndex}')">
                   <span data-i18n="index.pause">暂停</span>
+                </button>
+                <button id="historyTerminateBtn_${queryIndex}" class="btn-danger" onclick="terminateHistoryTask('${queryIndex}')">
+                  <span data-i18n="index.terminate">终止</span>
                 </button>
               </div>
             </div>

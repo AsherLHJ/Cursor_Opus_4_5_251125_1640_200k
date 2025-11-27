@@ -21,6 +21,7 @@ from .db_base import _get_connection
 from ..redis.task_queue import TaskQueue
 from ..redis.user_cache import UserCache
 from ..redis.connection import redis_ping
+from ..process.worker import stop_workers_for_query
 
 
 def generate_query_id() -> str:
@@ -354,7 +355,13 @@ def resume_query(uid: int, query_id: str) -> bool:
 
 def cancel_query(uid: int, query_id: str) -> bool:
     """
-    取消查询任务
+    取消/终止查询任务
+    
+    新架构修复12：使用 terminate_signal 而不是 pause_signal，
+    以区分用户主动终止和暂停操作
+    
+    新架构修复12c：必须调用 stop_workers_for_query 停止Worker线程，
+    否则Worker会继续运行直到完成
     
     Args:
         uid: 用户ID
@@ -364,9 +371,14 @@ def cancel_query(uid: int, query_id: str) -> bool:
         True 如果取消成功
     """
     if redis_ping():
-        # 设置暂停信号（Worker会检测并退出）
-        TaskQueue.set_pause_signal(uid, query_id)
+        # 设置终止信号（Worker会检测并退出，日志显示"终止"而非"暂停"）
+        TaskQueue.set_terminate_signal(uid, query_id)
         TaskQueue.set_state(uid, query_id, 'CANCELLED')
         # 清理待处理队列
         TaskQueue.clear_pending(uid, query_id)
+    
+    # 修复12c: 必须停止Worker线程，否则任务会继续运行
+    stopped = stop_workers_for_query(uid, query_id)
+    print(f"[cancel_query] 已停止 {stopped} 个Worker线程 (uid={uid}, qid={query_id})")
+    
     return update_query_status(query_id, 'CANCELLED')
