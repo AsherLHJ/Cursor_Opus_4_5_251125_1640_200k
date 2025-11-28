@@ -4,9 +4,9 @@
 
 ## 当前进度
 
-**最后更新**: 2025-11-27  
+**最后更新**: 2025-11-28  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 十二轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 十四轮Bug修复
 
 ---
 
@@ -128,7 +128,7 @@ lib/html/
 - `sys:year_number:{Name}` (String)
 
 ### 文献Block
-- `meta:{Journal}:{Year}` (Hash, 7d)
+- `meta:{Journal}:{Year}` (Hash, 永不过期)
 
 ### 任务队列
 - `task:{uid}:{qid}:pending_blocks` (List)
@@ -300,6 +300,36 @@ distill_qid = create_distill_task(uid, parent_qid)
 || `query_dao.py` | **修复12c** cancel_query未停止Worker线程 | 添加stop_workers_for_query调用，确保Worker线程真正停止 |
 || `auth.py` | 新用户默认permission过高(50) | 修改register_user默认permission为2 |
 
+### 修复14: Docker镜像拉取失败修复 (2025-11-28)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `deploy_autopaperweb.sh` | 中国大陆无法访问Docker Hub | 新增 `load_image_cache()` 加载离线镜像 |
+| `scripts/package_images.py` | 需要离线镜像生成工具 | 新建镜像打包脚本（本地开发机执行）|
+| `docker/image-cache/README.md` | 缺少使用说明 | 新建离线缓存使用说明 |
+
+---
+
+## 离线镜像部署流程
+
+由于中国大陆无法稳定访问 Docker Hub，需要使用离线镜像缓存：
+
+1. **在本地开发机**（能访问 Docker Hub）执行：
+```bash
+python scripts/package_images.py
+```
+
+2. 生成的文件位于 `docker/image-cache/`:
+   - `redis-7-alpine.tar` (~15 MB)
+   - `python-3.10-slim.tar` (~130 MB)
+   - `nginx-alpine.tar` (~45 MB)
+
+3. 将整个项目打包为 `AutoPaperWeb_Server.zip` 上传到服务器
+
+4. 执行部署脚本，会自动加载离线镜像：
+```bash
+sudo /opt/deploy_autopaperweb.sh
+```
+
 ---
 
 ## 恢复指南
@@ -308,7 +338,7 @@ distill_qid = create_distill_task(uid, parent_qid)
 1. 阅读本文档了解重构成果和修复历史
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `需要手动操作的事项.txt` 了解待完成操作
-4. 项目重构已基本完成，经过十二轮Bug修复，可进行测试
+4. 项目重构已基本完成，经过十四轮Bug修复，可进行测试
 
 ---
 

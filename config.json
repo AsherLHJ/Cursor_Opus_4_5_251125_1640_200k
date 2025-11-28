@@ -18,7 +18,7 @@
     "api_timeout": 60,
 
     "unit_test_mode": false,
-    "enable_debug_website_console": false,
+    "enable_debug_website_console": true,
     "local_develop_mode": true,
 
     "TOKENS_PER_REQ": 400,
@@ -35,13 +35,13 @@
             "port": 3306,
             "user": "user_20251028",
             "password": "PaperUser2025",
-            "name": "paperdb_20251105"
+            "name": "paperdb_20251128"
         }
     },
     "redis": {
         "use_queue": true,
         "use_rate_limiter": true,
         "local_url": "redis://apw-redis:6379/0",
-        "cloud_url": "redis://user_20251028:PaperUser2025@r-7xvuz53fhs94ar5668.redis.rds.aliyuncs.com:6379/0"
+        "cloud_url": "redis://apw-redis:6379/0"
     }
 }

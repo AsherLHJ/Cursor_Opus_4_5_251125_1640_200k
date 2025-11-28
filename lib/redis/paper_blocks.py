@@ -12,7 +12,7 @@ import json
 import zlib
 from typing import Optional, Dict, List, Tuple
 
-from .connection import get_redis_client, TTL_PAPER_BLOCK
+from .connection import get_redis_client
 
 
 class PaperBlocks:
@@ -154,7 +154,7 @@ class PaperBlocks:
             key = cls._key_block(journal, year)
             value = cls._compress_bib(bib) if compress else bib
             client.hset(key, doi, value)
-            client.expire(key, TTL_PAPER_BLOCK)
+            # 文献Block永不过期，不设置TTL
             return True
         except Exception:
             return False
@@ -182,11 +182,10 @@ class PaperBlocks:
             else:
                 mapping = papers
             
-            # 使用pipeline批量写入
+            # 使用pipeline批量写入（文献Block永不过期）
             pipe = client.pipeline()
             pipe.delete(key)
             pipe.hset(key, mapping=mapping)
-            pipe.expire(key, TTL_PAPER_BLOCK)
             pipe.execute()
             return True
         except Exception:

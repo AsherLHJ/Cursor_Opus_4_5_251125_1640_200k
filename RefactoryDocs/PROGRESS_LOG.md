@@ -3,10 +3,10 @@
 ## 项目概述
 - **开始时间**: 2025-11-25 16:40
 - **重构完成时间**: 2025-11-25 17:50
-- **最后修复时间**: 2025-11-27
+- **最后修复时间**: 2025-11-28
 - **指导文件**: 新架构项目重构完整指导文件20251124.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 十二轮Bug修复
+- **状态**: ✅ 重构完成 + 十四轮Bug修复
 
 ---
 
@@ -298,6 +298,38 @@
   - [x] **修复12c** `lib/load_data/query_dao.py`: `cancel_query`添加`stop_workers_for_query`调用，确保Worker线程真正停止
   - [x] `lib/webserver/auth.py`: `register_user`默认permission从50改为2
 
+### 修复轮次十三：文献Block缓存策略修改 (2025-11-28)
+- **时间**: 2025-11-28
+- **问题**:
+  1. 文献Block设置了7天TTL，导致数据过期后需要重新从MySQL加载
+  2. 文献元数据是静态数据，不应设置过期时间
+- **修复**:
+  - [x] `lib/redis/connection.py`: 移除 `TTL_PAPER_BLOCK` 常量定义
+  - [x] `lib/redis/paper_blocks.py`: 移除 `TTL_PAPER_BLOCK` 导入
+  - [x] `lib/redis/paper_blocks.py`: `set_paper` 方法移除 `expire` 调用
+  - [x] `lib/redis/paper_blocks.py`: `set_block` 方法移除 `pipe.expire` 调用
+  - [x] `README.md`: 更新Redis数据过期策略表格
+  - [x] `RefactoryDocs/INTERFACE_SUMMARY.md`: 更新文献Block缓存说明
+
+### 修复轮次十四：Docker镜像拉取失败修复 (2025-11-28)
+- **时间**: 2025-11-28
+- **问题**:
+  1. 服务器位于中国大陆，无法访问Docker Hub (registry-1.docker.io)
+  2. `docker compose up --build` 拉取基础镜像超时，部署脚本执行失败
+  3. 受影响镜像：redis:7-alpine、python:3.10-slim、nginx:alpine
+  4. **修复14b**: 阿里云公共镜像仓库地址 `/library/` 不存在，改用标准镜像名+加速器
+- **修复**:
+  - [x] `deploy_autopaperweb.sh`: 新增 `setup_docker_mirror()` 函数配置阿里云专属镜像加速器 `https://ap2qz3w9.mirror.aliyuncs.com`
+  - [x] `deploy_autopaperweb.sh`: `compose_up()` 添加3次重试机制和详细错误提示
+  - [x] `deploy_autopaperweb.sh`: 更新步骤编号(7步→8步)和 `main()` 调用顺序
+  - [x] `docker/Dockerfile.backend`: pip安装使用清华源 `-i https://pypi.tuna.tsinghua.edu.cn/simple`
+  - [x] **修复14b** `docker-compose.yml`: 镜像名保持 `redis:7-alpine`（依赖加速器）
+  - [x] **修复14b** `docker/Dockerfile.backend`: 镜像名保持 `python:3.10-slim`（依赖加速器）
+  - [x] **修复14b** `docker/Dockerfile.frontend`: 镜像名保持 `nginx:alpine`（依赖加速器）
+  - [x] **修复14c** `scripts/package_images.py`: 新建镜像打包工具（在本地开发机执行）
+  - [x] **修复14c** `docker/image-cache/README.md`: 新建离线缓存使用说明
+  - [x] **修复14c** `deploy_autopaperweb.sh`: 新增 `load_image_cache()` 函数，步骤更新为9步
+
 ---
 
 ## 重要变更记录
@@ -326,6 +358,8 @@
 | 2025-11-27 | 修复10 | 历史状态显示三态+移除进行中蒸馏按钮 | index.html, query_api.py |
 | 2025-11-27 | 修复11 | 侧边栏状态刷新+任务完成检测修复 | index.html |
 | 2025-11-27 | 修复12 | 普通用户终止任务功能+修复12c:Worker真正停止+默认permission改为2 | i18n.js, index.html, query_dao.py, auth.py |
+| 2025-11-28 | 修复13 | 文献Block缓存策略改为永不过期 | connection.py, paper_blocks.py, README.md, INTERFACE_SUMMARY.md |
+| 2025-11-28 | 修复14 | Docker镜像拉取失败修复(离线镜像缓存+加速器+重试机制) | docker-compose.yml, Dockerfile.*, deploy_autopaperweb.sh, scripts/package_images.py |
 
 ---
 

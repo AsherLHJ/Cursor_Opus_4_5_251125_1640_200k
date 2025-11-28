@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # =====================================================
-# AutoPaperWeb 部署脚本（新架构版）
+# AutoPaperWeb 部署脚本（新架构版 v3 - 支持离线镜像）
 # 作用：
 #   1) 检查并安装Nginx（如未安装）
 #   2) 停止并清理现有容器（如果有）
 #   3) 解压 /opt/AutoPaperWeb_Server.zip 到 /opt/AutoPaperWeb_Server
 #   4) 关闭 config.json 中的 local_develop_mode
-#   5) 以 docker compose 启动所有服务（Redis先启动并健康检查）
-#   6) 配置并启动Nginx
+#   5) 配置Docker镜像加速器（阿里云专属）
+#   6) 加载离线镜像缓存（如果存在）
+#   7) 以 docker compose 启动所有服务（带重试机制）
+#   8) 等待Redis健康检查
+#   9) 配置并启动Nginx
 # 使用：
 #   sudo /opt/deploy_autopaperweb.sh
 # 说明：
@@ -28,7 +31,7 @@ require_cmd() {
 
 # 检查并安装Nginx
 ensure_nginx() {
-    log "[1/7] 检查Nginx..."
+    log "[1/9] 检查Nginx..."
     if ! command -v nginx >/dev/null 2>&1; then
         log "  Nginx未安装，正在安装..."
         apt-get update -qq
@@ -40,7 +43,7 @@ ensure_nginx() {
 }
 
 cleanup_containers() {
-    log "[2/7] 停止并删除所有 Docker 容器（如存在）..."
+    log "[2/9] 停止并删除所有 Docker 容器（如存在）..."
     if docker ps -aq >/dev/null 2>&1; then
         ids=$(docker ps -aq)
         if [ -n "$ids" ]; then
@@ -51,7 +54,7 @@ cleanup_containers() {
 }
 
 unpack_release() {
-    log "[3/7] 解压更新包到 /opt/AutoPaperWeb_Server ..."
+    log "[3/9] 解压更新包到 /opt/AutoPaperWeb_Server ..."
     cd /opt/
     rm -rf /opt/AutoPaperWeb_Server
     require_cmd unzip
@@ -62,7 +65,7 @@ unpack_release() {
 }
 
 patch_config() {
-    log "[4/7] 配置：设置为云端模式..."
+    log "[4/9] 配置：设置为云端模式..."
     cd /opt/AutoPaperWeb_Server
     
     # 强制设置为云端模式
@@ -84,8 +87,97 @@ patch_config() {
     fi
 }
 
+setup_docker_mirror() {
+    log "[5/9] 配置Docker镜像加速器..."
+    
+    DAEMON_JSON="/etc/docker/daemon.json"
+    
+    # 检查是否已配置加速器
+    if [ -f "$DAEMON_JSON" ] && grep -q "registry-mirrors" "$DAEMON_JSON"; then
+        log "  - Docker镜像加速器已配置，跳过"
+        return 0
+    fi
+    
+    # 备份现有配置
+    if [ -f "$DAEMON_JSON" ]; then
+        cp "$DAEMON_JSON" "${DAEMON_JSON}.bak"
+        log "  - 已备份原有配置到 ${DAEMON_JSON}.bak"
+    fi
+    
+    # 写入阿里云专属镜像加速器配置
+    log "  - 写入阿里云专属镜像加速器配置..."
+    mkdir -p /etc/docker
+    cat > "$DAEMON_JSON" << 'EOF'
+{
+    "registry-mirrors": ["https://ap2qz3w9.mirror.aliyuncs.com"]
+}
+EOF
+    
+    log "  - 重启Docker服务以应用配置..."
+    systemctl daemon-reload
+    systemctl restart docker
+    
+    # 等待Docker就绪
+    for i in {1..15}; do
+        if docker info >/dev/null 2>&1; then
+            log "  - Docker镜像加速器配置完成"
+            return 0
+        fi
+        sleep 2
+    done
+    
+    err "Docker重启超时，请手动检查Docker服务状态"
+    return 1
+}
+
+load_image_cache() {
+    log "[6/9] 加载离线镜像缓存..."
+    
+    CACHE_DIR="/opt/AutoPaperWeb_Server/docker/image-cache"
+    
+    # 检查缓存目录是否存在
+    if [ ! -d "$CACHE_DIR" ]; then
+        log "  - 未检测到离线镜像缓存目录，将尝试在线拉取"
+        return 0
+    fi
+    
+    # 检查是否有 tar 文件
+    tar_count=$(find "$CACHE_DIR" -name "*.tar" -type f 2>/dev/null | wc -l)
+    if [ "$tar_count" -eq 0 ]; then
+        log "  - 缓存目录为空，将尝试在线拉取"
+        return 0
+    fi
+    
+    log "  - 检测到 $tar_count 个离线镜像包，开始加载..."
+    
+    loaded=0
+    failed=0
+    
+    for tarfile in "$CACHE_DIR"/*.tar; do
+        if [ -f "$tarfile" ]; then
+            filename=$(basename "$tarfile")
+            log "  - 加载: $filename"
+            
+            if docker load -i "$tarfile" 2>&1; then
+                loaded=$((loaded + 1))
+            else
+                err "    加载失败: $filename"
+                failed=$((failed + 1))
+            fi
+        fi
+    done
+    
+    log "  - 离线镜像加载完成: 成功 $loaded 个, 失败 $failed 个"
+    
+    # 显示已加载的镜像
+    log "  - 当前可用镜像:"
+    docker images --format "    {{.Repository}}:{{.Tag}}" | head -10
+    
+    return 0
+}
+
 compose_up() {
-    log "[5/7] 检查docker与compose..."
+    log "[7/9] 检查docker与compose..."
     require_cmd docker
     
     # 支持 docker compose 或 docker-compose
@@ -97,13 +189,43 @@ compose_up() {
         err "未找到docker compose（或docker-compose）。请安装Docker Compose。"; exit 1
     fi
 
-    log "[6/7] 构建并启动容器..."
+    log "[7/9] 构建并启动容器（带重试机制）..."
     cd /opt/AutoPaperWeb_Server
-    sudo -E "${COMPOSE_CMD[@]}" up -d --build
+    
+    MAX_RETRIES=3
+    RETRY_DELAY=15
+    
+    for attempt in $(seq 1 $MAX_RETRIES); do
+        log "  - 第 $attempt/$MAX_RETRIES 次尝试构建容器..."
+        
+        if sudo -E "${COMPOSE_CMD[@]}" up -d --build 2>&1; then
+            log "  - 容器构建成功！"
+            return 0
+        fi
+        
+        if [ $attempt -lt $MAX_RETRIES ]; then
+            log "  - 构建失败，等待 ${RETRY_DELAY}秒 后重试..."
+            log "  - 提示：如果持续失败，请检查："
+            log "         1) 离线镜像是否已加载: docker images"
+            log "         2) Docker服务是否运行: systemctl status docker"
+            log "         3) 查看详细错误日志"
+            sleep $RETRY_DELAY
+        fi
+    done
+    
+    err "=============================================="
+    err "容器构建失败（已重试 $MAX_RETRIES 次）"
+    err "排错建议："
+    err "  1. 检查离线镜像是否存在: ls -la /opt/AutoPaperWeb_Server/docker/image-cache/"
+    err "  2. 检查已加载的镜像: docker images"
+    err "  3. 手动加载镜像: docker load -i /opt/AutoPaperWeb_Server/docker/image-cache/redis-7-alpine.tar"
+    err "  4. 查看Docker日志: journalctl -u docker --since '10 minutes ago'"
+    err "=============================================="
+    return 1
 }
 
 wait_redis_healthy() {
-    log "  等待Redis服务就绪..."
+    log "[8/9] 等待Redis服务就绪..."
     for i in {1..30}; do
         if docker exec apw-redis redis-cli ping 2>/dev/null | grep -q PONG; then
             log "  Redis已就绪"
@@ -116,7 +238,7 @@ wait_redis_healthy() {
 }
 
 setup_nginx() {
-    log "[7/7] 配置Nginx..."
+    log "[9/9] 配置Nginx..."
     
     # 复制Nginx配置文件
     if [ -f /opt/AutoPaperWeb_Server/deploy/autopaperweb.conf ]; then
@@ -146,16 +268,18 @@ setup_nginx() {
 main() {
     trap 'err "脚本执行失败（行号：$LINENO）"' ERR
     
-    ensure_nginx
-    cleanup_containers
-    unpack_release
-    patch_config
-    compose_up
-    wait_redis_healthy
-    setup_nginx
+    ensure_nginx          # [1/9]
+    cleanup_containers    # [2/9]
+    unpack_release        # [3/9]
+    patch_config          # [4/9]
+    setup_docker_mirror   # [5/9] 配置镜像加速器（备用）
+    load_image_cache      # [6/9] 加载离线镜像（主要方式）
+    compose_up            # [7/9] 构建并启动容器
+    wait_redis_healthy    # [8/9]
+    setup_nginx           # [9/9]
     
     log "=============================================="
-    log "✅ 部署完成！"
+    log "部署完成！"
     log "  - 使用 'docker ps' 检查运行状态"
     log "  - 使用 'docker logs apw-backend-1' 查看后端日志"
     log "  - 使用 'docker logs apw-redis' 查看Redis日志"

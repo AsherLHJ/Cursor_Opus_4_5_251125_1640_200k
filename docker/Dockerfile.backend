@@ -10,8 +10,8 @@ RUN apt-get update -y && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir openai mysql-connector-python bcrypt redis
+RUN pip install --no-cache-dir --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    && pip install --no-cache-dir openai mysql-connector-python bcrypt redis -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 COPY . /app
 

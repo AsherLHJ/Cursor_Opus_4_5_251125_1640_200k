@@ -78,3 +78,6 @@ config.local.json
 BibPreProcess/
 DB_tools/APIKey/
 DB_tools/PaperAndTagInfo/
+
+# Docker offline image cache (large files)
+docker/image-cache/*.tar
