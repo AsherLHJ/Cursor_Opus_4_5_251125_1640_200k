@@ -101,6 +101,90 @@
             100% { transform: rotate(360deg); }
         }
         .hidden { display: none !important; }
+        
+        /* 系统配置样式 */
+        .config-section {
+            padding: 1rem 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .config-section:last-of-type { border-bottom: none; }
+        .config-section h3 {
+            font-size: 0.95rem;
+            color: #1a1a2e;
+            margin-bottom: 0.3rem;
+        }
+        .config-desc {
+            font-size: 0.85rem;
+            color: #666;
+            margin-bottom: 0.75rem;
+        }
+        .config-row {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .config-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+        .config-item label {
+            font-size: 0.8rem;
+            color: #888;
+        }
+        .config-item input {
+            width: 100px;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.95rem;
+        }
+        .config-item input:focus {
+            outline: none;
+            border-color: #0f3460;
+        }
+        .config-separator {
+            color: #888;
+            font-size: 1.2rem;
+            padding-top: 1.2rem;
+        }
+        .config-preview {
+            font-size: 0.85rem;
+            color: #666;
+            padding-top: 1.2rem;
+        }
+        .config-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 1rem;
+            margin-top: 1.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid #eee;
+        }
+        .btn {
+            padding: 0.6rem 1.5rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            border: none;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #0f3460 0%, #16213e 100%);
+            color: white;
+        }
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
+        }
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .settings-status {
+            font-size: 0.85rem;
+        }
+        .settings-status.success { color: #166534; }
+        .settings-status.error { color: #991b1b; }
     </style>
 </head>
 <body>
@@ -140,22 +224,45 @@
                 </div>
             </div>
             
-            <!-- 预留更多开关位置 -->
-            <!--
-            <div class="switch-row">
-                <div class="switch-info">
-                    <h3>调试控制台</h3>
-                    <p>控制前端是否启用调试控制台。</p>
-                </div>
-                <div class="switch-control">
-                    <span class="status-badge status-off">已关闭</span>
-                    <label class="toggle">
-                        <input type="checkbox">
-                        <span class="slider"></span>
-                    </label>
+        </div>
+        
+        <!-- 系统配置面板 -->
+        <div class="panel">
+            <h2>🔧 系统配置</h2>
+            
+            <div class="config-section">
+                <h3>用户权限范围</h3>
+                <p class="config-desc">设置用户可分配的并发权限（线程数）范围。管理员修改用户权限时将受此范围限制。</p>
+                <div class="config-row">
+                    <div class="config-item">
+                        <label for="permissionMin">最小值</label>
+                        <input type="number" id="permissionMin" min="0" max="100" value="1">
+                    </div>
+                    <span class="config-separator">~</span>
+                    <div class="config-item">
+                        <label for="permissionMax">最大值</label>
+                        <input type="number" id="permissionMax" min="1" max="100" value="10">
+                    </div>
                 </div>
             </div>
-            -->
+            
+            <div class="config-section">
+                <h3>蒸馏任务价格系数</h3>
+                <p class="config-desc">蒸馏任务相对于普通查询任务的价格比例。默认0.1表示蒸馏任务费用为查询任务的10%。</p>
+                <div class="config-row">
+                    <div class="config-item">
+                        <label for="distillRate">系数 (0~1)</label>
+                        <input type="number" id="distillRate" min="0" max="1" step="0.01" value="0.1">
+                    </div>
+                    <span class="config-preview" id="distillPreview">= 查询价格的 10%</span>
+                </div>
+            </div>
+            
+            <div class="config-actions">
+                <span id="settingsLoading" class="loading-spinner hidden"></span>
+                <span id="settingsStatus" class="settings-status"></span>
+                <button class="btn btn-primary" onclick="saveSettings()">保存配置</button>
+            </div>
         </div>
     </div>
     
@@ -234,8 +341,93 @@
             window.location.href = '/admin/login.html';
         }
         
+        // ============================================================
+        // 系统配置
+        // ============================================================
+        
+        async function loadSettings() {
+            try {
+                const response = await fetchWithAuth('/api/admin/settings');
+                const data = await response.json();
+                
+                if (data.success && data.current_values) {
+                    document.getElementById('permissionMin').value = data.current_values.permission_min || 1;
+                    document.getElementById('permissionMax').value = data.current_values.permission_max || 10;
+                    document.getElementById('distillRate').value = data.current_values.distill_rate || 0.1;
+                    updateDistillPreview();
+                }
+            } catch (error) {
+                console.error('加载配置失败:', error);
+            }
+        }
+        
+        function updateDistillPreview() {
+            const rate = parseFloat(document.getElementById('distillRate').value) || 0.1;
+            const percent = Math.round(rate * 100);
+            document.getElementById('distillPreview').textContent = `= 查询价格的 ${percent}%`;
+        }
+        
+        // 监听蒸馏系数变化
+        document.getElementById('distillRate').addEventListener('input', updateDistillPreview);
+        
+        async function saveSettings() {
+            const loading = document.getElementById('settingsLoading');
+            const status = document.getElementById('settingsStatus');
+            const saveBtn = document.querySelector('.btn-primary');
+            
+            const permMin = parseInt(document.getElementById('permissionMin').value);
+            const permMax = parseInt(document.getElementById('permissionMax').value);
+            const distillRate = parseFloat(document.getElementById('distillRate').value);
+            
+            // 前端验证
+            if (permMin < 0 || permMax < 1 || permMax < permMin) {
+                status.textContent = '权限范围无效';
+                status.className = 'settings-status error';
+                return;
+            }
+            if (distillRate < 0 || distillRate > 1) {
+                status.textContent = '蒸馏系数必须在0-1之间';
+                status.className = 'settings-status error';
+                return;
+            }
+            
+            saveBtn.disabled = true;
+            loading.classList.remove('hidden');
+            status.textContent = '';
+            
+            try {
+                const response = await fetchWithAuth('/api/admin/settings', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        settings: {
+                            permission_min: permMin,
+                            permission_max: permMax,
+                            distill_rate: distillRate
+                        }
+                    })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    status.textContent = '✓ 配置已保存';
+                    status.className = 'settings-status success';
+                    setTimeout(() => { status.textContent = ''; }, 3000);
+                } else {
+                    status.textContent = data.message || data.error || '保存失败';
+                    status.className = 'settings-status error';
+                }
+            } catch (error) {
+                status.textContent = '保存失败: ' + error.message;
+                status.className = 'settings-status error';
+            } finally {
+                saveBtn.disabled = false;
+                loading.classList.add('hidden');
+            }
+        }
+        
         // 初始加载
         loadRegistrationStatus();
+        loadSettings();
     </script>
 </body>
 </html>

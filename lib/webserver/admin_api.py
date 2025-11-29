@@ -80,6 +80,13 @@ def handle_admin_api(path: str, method: str, headers: Dict,
     if path == '/api/admin/admins' and method == 'GET':
         return _handle_get_admins()
     
+    # 系统配置 API
+    if path == '/api/admin/settings' and method == 'GET':
+        return _handle_get_settings()
+    
+    if path == '/api/admin/settings' and method == 'POST':
+        return _handle_update_settings(data)
+    
     return 404, {'success': False, 'error': 'not_found', 'message': '接口不存在'}
 
 
@@ -188,6 +195,8 @@ def _handle_update_balance(data: Dict) -> Tuple[int, Dict]:
 
 def _handle_update_permission(data: Dict) -> Tuple[int, Dict]:
     """更新用户权限"""
+    from ..redis.system_config import SystemConfig
+    
     uid = data.get('uid')
     permission = data.get('permission')
     
@@ -200,8 +209,10 @@ def _handle_update_permission(data: Dict) -> Tuple[int, Dict]:
     except (TypeError, ValueError):
         return 400, {'success': False, 'message': '参数格式错误'}
     
-    if permission < 0 or permission > 10:
-        return 400, {'success': False, 'message': '权限值范围: 0-10'}
+    # 从配置获取权限范围（动态配置）
+    min_perm, max_perm = SystemConfig.get_permission_range()
+    if not (min_perm <= permission <= max_perm):
+        return 400, {'success': False, 'message': f'权限值范围: {min_perm}-{max_perm}'}
     
     success = update_user_permission(uid, permission)
     if success:
@@ -337,4 +348,98 @@ def _get_total_billing_queue_size() -> int:
         return total
     except Exception:
         return 0
+
+
+# ============================================================
+# 系统配置 API
+# ============================================================
+
+def _handle_get_settings() -> Tuple[int, Dict]:
+    """获取所有系统配置"""
+    from ..load_data.system_settings_dao import get_all_settings, get_permission_range, get_distill_rate
+    
+    try:
+        # 获取所有配置（从 MySQL）
+        all_settings = get_all_settings()
+        
+        # 也返回当前生效的关键配置值（可能来自 Redis 缓存）
+        min_perm, max_perm = get_permission_range()
+        distill_rate = get_distill_rate()
+        
+        return 200, {
+            'success': True,
+            'settings': all_settings,
+            'current_values': {
+                'permission_min': min_perm,
+                'permission_max': max_perm,
+                'distill_rate': distill_rate
+            }
+        }
+    except Exception as e:
+        return 500, {'success': False, 'error': 'get_settings_failed', 'message': str(e)}
+
+
+def _handle_update_settings(data: Dict) -> Tuple[int, Dict]:
+    """更新系统配置"""
+    from ..load_data.system_settings_dao import set_setting, set_permission_range, set_distill_rate
+    
+    try:
+        settings = data.get('settings', {})
+        
+        if not settings:
+            return 400, {'success': False, 'error': 'missing_settings'}
+        
+        updated = []
+        errors = []
+        
+        # 处理权限范围
+        if 'permission_min' in settings or 'permission_max' in settings:
+            min_val = int(settings.get('permission_min', 1))
+            max_val = int(settings.get('permission_max', 10))
+            
+            if min_val < 0:
+                errors.append('permission_min 不能小于 0')
+            elif max_val < min_val:
+                errors.append('permission_max 不能小于 permission_min')
+            elif set_permission_range(min_val, max_val):
+                updated.append('permission_min')
+                updated.append('permission_max')
+            else:
+                errors.append('权限范围更新失败')
+        
+        # 处理蒸馏系数
+        if 'distill_rate' in settings:
+            rate = float(settings.get('distill_rate', 0.1))
+            if rate < 0 or rate > 1:
+                errors.append('distill_rate 必须在 0-1 之间')
+            elif set_distill_rate(rate):
+                updated.append('distill_rate')
+            else:
+                errors.append('蒸馏系数更新失败')
+        
+        # 处理其他通用配置
+        for key, value in settings.items():
+            if key not in ('permission_min', 'permission_max', 'distill_rate'):
+                if set_setting(key, str(value)):
+                    updated.append(key)
+                else:
+                    errors.append(f'{key} 更新失败')
+        
+        if errors:
+            return 400, {
+                'success': False,
+                'error': 'partial_update',
+                'updated': updated,
+                'errors': errors
+            }
+        
+        return 200, {
+            'success': True,
+            'message': f'已更新 {len(updated)} 个配置项',
+            'updated': updated
+        }
+    except ValueError as e:
+        return 400, {'success': False, 'error': 'invalid_value', 'message': str(e)}
+    except Exception as e:
+        return 500, {'success': False, 'error': 'update_settings_failed', 'message': str(e)}
 

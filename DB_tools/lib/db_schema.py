@@ -122,6 +122,16 @@ TABLE_DEFINITIONS: Dict[str, str] = {
             is_active TINYINT(1) DEFAULT 1
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
     """,
+
+    # 11. 系统配置表 (新增 - 存储动态配置项)
+    "system_settings": """
+        CREATE TABLE IF NOT EXISTS system_settings (
+            setting_key VARCHAR(100) PRIMARY KEY,
+            setting_value TEXT NOT NULL,
+            description TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+    """,
 }
 
 
@@ -137,7 +147,16 @@ TABLE_ORDER: List[str] = [
     "query_log",
     "search_result",
     "api_list",
+    "system_settings",
 ]
+
+
+# 系统配置默认值
+SYSTEM_SETTINGS_DEFAULTS = {
+    'permission_min': ('1', '用户权限最小值'),
+    'permission_max': ('10', '用户权限最大值'),
+    'distill_rate': ('0.1', '蒸馏任务价格系数（相对于查询任务）'),
+}
 
 
 def get_table_definitions() -> Dict[str, str]:

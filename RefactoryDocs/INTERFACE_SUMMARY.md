@@ -4,9 +4,9 @@
 
 ## 当前进度
 
-**最后更新**: 2025-11-28  
+**最后更新**: 2025-11-29  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 十四轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 十七轮Bug修复
 
 ---
 
@@ -110,6 +110,7 @@ lib/html/
 | query_log | query_id | 任务日志（重构）|
 | search_result | id | 结果归档（新增）|
 | api_list | api_index | API密钥 |
+| system_settings | setting_key | 系统配置（修复17新增）|
 
 ---
 
@@ -126,6 +127,11 @@ lib/html/
 - `sys:journals:info` (Hash)
 - `sys:journals:price` (Hash)
 - `sys:year_number:{Name}` (String)
+
+### 系统配置（修复17新增）
+- `sys:config:permission_min` (String) - 权限最小值
+- `sys:config:permission_max` (String) - 权限最大值
+- `sys:config:distill_rate` (String) - 蒸馏系数
 
 ### 文献Block
 - `meta:{Journal}:{Year}` (Hash, 永不过期)
@@ -307,6 +313,36 @@ distill_qid = create_distill_task(uid, parent_qid)
 | `scripts/package_images.py` | 需要离线镜像生成工具 | 新建镜像打包脚本（本地开发机执行）|
 | `docker/image-cache/README.md` | 缺少使用说明 | 新建离线缓存使用说明 |
 
+### 修复15: 费用估算安全修复+Redis数据清理 (2025-11-29)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `query_api.py` | 后端信任前端传递的 `estimated_cost` | 新增 `_calculate_query_cost()` 后端独立计算 |
+| `query_api.py` | `_handle_update_config` 每篇按1点计算 | 使用 `_calculate_query_cost()` 按实际价格计算 |
+| `query_api.py` | 蒸馏API使用低效的MySQL查询 | 新增 `_calculate_distill_cost()` 纯Redis操作 |
+| `index.html` | `startSearch()` 传递 `estimated_cost` | 删除费用参数传递 |
+| `journal_dao.py` | `get_prices_by_dois` 已无调用者 | 删除废弃函数 |
+| `deploy_autopaperweb.sh` | 未清除Redis持久化数据 | 新增 `cleanup_redis_volumes()` 步骤 |
+
+### 修复16: 余额实时更新功能 (2025-11-29)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `query_api.py` | 任务运行时前端余额不实时更新 | `/api/query_progress` 返回值增加 `current_balance` 字段 |
+| `index.html` | 余额显示有60秒缓存 | 进度轮询回调中实时更新余额显示 |
+
+### 修复17: 系统配置优化 (2025-11-29)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `auth.py` | 第137-298行存在无调用者的历史遗留代码 | 删除5个废弃函数 |
+| `db_schema.py` | 缺少系统配置表 | 新增 `system_settings` 表定义 |
+| `system_config.py` | 新建 | 系统配置 Redis 缓存层 |
+| `system_settings_dao.py` | 新建 | MySQL + Redis 双写 DAO |
+| `admin_api.py` | 权限范围硬编码 0-10 | 改为动态读取配置 |
+| `system_api.py` | 权限验证无范围检查 | 添加动态范围验证 |
+| `query_api.py` | 蒸馏系数硬编码 0.1 | 改为动态获取 `distill_rate` |
+| `admin_api.py` | 缺少配置管理 API | 新增 `GET/POST /api/admin/settings` |
+| `control.html` | 缺少配置管理 UI | 新增权限范围和蒸馏系数配置界面 |
+| `main.py` | 启动时未加载配置 | 添加配置预热到 Redis |
+
 ---
 
 ## 离线镜像部署流程
@@ -338,7 +374,7 @@ sudo /opt/deploy_autopaperweb.sh
 1. 阅读本文档了解重构成果和修复历史
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `需要手动操作的事项.txt` 了解待完成操作
-4. 项目重构已基本完成，经过十四轮Bug修复，可进行测试
+4. 项目重构已基本完成，经过十七轮Bug修复，可进行测试
 
 ---
 

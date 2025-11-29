@@ -99,7 +99,7 @@ CREATE DATABASE paperdb
 # 创建数据库表
 python DB_tools/init_database.py
 
-# 创建管理员账户（先修改脚本中的用户名和密码）
+# 创建管理员账户（先修改scripts\create_admin.py脚本中的用户名和密码）
 python scripts/create_admin.py
 ```
 

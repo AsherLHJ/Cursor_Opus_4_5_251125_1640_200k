@@ -25,6 +25,102 @@ from ..load_data.query_dao import (
 )
 
 
+# ============================================================
+# 费用计算函数（仅限后端内部调用，前端不可访问）
+# ============================================================
+
+def _calculate_query_cost(journals: List[str], start_year: int = None,
+                          end_year: int = None, include_all: bool = True) -> Tuple[int, float]:
+    """
+    计算查询任务费用（纯Redis操作）
+    
+    安全原则: 此函数仅在后端调用，前端不可传递费用参数
+    
+    Args:
+        journals: 期刊名列表
+        start_year: 起始年份（include_all=False时有效）
+        end_year: 结束年份（include_all=False时有效）
+        include_all: 是否包含所有年份
+        
+    Returns:
+        (total_papers, total_cost) 元组
+    """
+    from ..load_data.journal_dao import get_journal_prices, get_year_number
+    
+    if not journals:
+        return 0, 0.0
+    
+    prices = get_journal_prices(journals)
+    total_count = 0
+    total_cost = 0.0
+    
+    for journal in journals:
+        year_counts = get_year_number(journal)
+        price = prices.get(journal, 1)
+        if year_counts:
+            if include_all:
+                cnt = sum(year_counts.values())
+            else:
+                cnt = sum(c for y, c in year_counts.items()
+                         if (not start_year or y >= start_year) and
+                            (not end_year or y <= end_year))
+            total_count += cnt
+            total_cost += cnt * price
+    
+    return total_count, total_cost
+
+
+def _calculate_distill_cost(uid: int, original_qid: str) -> Tuple[List[str], float]:
+    """
+    计算蒸馏任务费用（纯Redis操作，替代get_prices_by_dois）
+    
+    安全原则: 此函数仅在后端调用，从Redis直接获取期刊价格
+    
+    Args:
+        uid: 用户ID
+        original_qid: 原始查询ID
+        
+    Returns:
+        (relevant_dois, total_cost) 元组
+    """
+    from ..redis.result_cache import ResultCache
+    from ..redis.system_cache import SystemCache
+    from ..redis.paper_blocks import PaperBlocks
+    from ..redis.system_config import SystemConfig
+    
+    all_results = ResultCache.get_all_results(uid, original_qid)
+    all_prices = SystemCache.get_all_prices()
+    distill_rate = SystemConfig.get_distill_rate()  # 动态获取蒸馏系数
+    
+    relevant_dois = []
+    total_cost = 0.0
+    
+    for doi, data in all_results.items():
+        ai_result = data.get('ai_result', {})
+        # 判断是否为相关文献
+        is_relevant = False
+        if isinstance(ai_result, dict):
+            is_relevant = ai_result.get('relevant', '').upper() == 'Y'
+        elif ai_result in (True, 1, '1', 'Y', 'y'):
+            is_relevant = True
+        
+        if is_relevant:
+            relevant_dois.append(doi)
+            block_key = data.get('block_key', '')
+            if block_key:
+                parsed = PaperBlocks.parse_block_key(block_key)
+                if parsed:
+                    journal, _ = parsed
+                    price = all_prices.get(journal, 1)
+                    total_cost += price * distill_rate  # 蒸馏费率（动态配置）
+                else:
+                    total_cost += distill_rate  # 默认费用（使用蒸馏系数）
+            else:
+                total_cost += distill_rate  # 无block_key时使用蒸馏系数
+    
+    return relevant_dois, total_cost
+
+
 def handle_query_api(path: str, method: str, headers: Dict, payload: Dict) -> Tuple[int, Dict]:
     """
     处理查询任务相关的API请求
@@ -179,15 +275,16 @@ def _handle_start_search(payload: Dict) -> Tuple[int, Dict]:
             'include_all_years': include_all_years
         }
         
-        # 余额检查（使用前端传来的预估费用）
-        estimated_cost = payload.get('estimated_cost') or 0
-        try:
-            estimated_cost = float(estimated_cost)
-        except (ValueError, TypeError):
-            estimated_cost = 0
+        # 后端独立计算费用（安全原则：不信任前端传来的任何费用数据）
+        paper_count, estimated_cost = _calculate_query_cost(
+            selected_items,
+            start_year if not include_all_years else None,
+            end_year if not include_all_years else None,
+            include_all_years
+        )
         
+        # 余额检查
         if estimated_cost > 0:
-            from ..redis.user_cache import UserCache
             user_balance = UserCache.get_balance(uid)
             if user_balance is None:
                 user_balance = db_reader.get_balance(uid) or 0
@@ -196,7 +293,7 @@ def _handle_start_search(payload: Dict) -> Tuple[int, Dict]:
                 return 400, {
                     'success': False, 
                     'error': 'insufficient_balance',
-                    'message': f'余额不足'
+                    'message': f'余额不足（需要 {estimated_cost}，当前 {user_balance}）'
                 }
         
         # 调用新架构的处理函数
@@ -206,6 +303,8 @@ def _handle_start_search(payload: Dict) -> Tuple[int, Dict]:
             return 200, {
                 'success': True,
                 'query_id': result,
+                'article_count': paper_count,
+                'estimated_cost': estimated_cost,
                 'message': 'Query submitted successfully. Processing in background.'
             }
         else:
@@ -219,8 +318,7 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
     """
     处理开始蒸馏请求
     
-    新架构修复：同时支持 original_query_id 和 original_query_index 参数名，
-    使用字符串类型的query_id，修正 get_relevant_dois 调用参数
+    安全原则：使用后端 _calculate_distill_cost 函数计算费用（纯Redis操作）
     """
     try:
         question = str(payload.get('question') or '').strip()
@@ -242,24 +340,16 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
         if uid <= 0:
             return 400, {'success': False, 'error': 'invalid_uid'}
         
-        # 获取原始查询的相关DOI列表（修正：传入uid和query_id两个参数）
+        # 使用后端费用计算函数（纯Redis操作，替代get_prices_by_dois）
         try:
-            relevant_dois = db_reader.get_relevant_dois(uid, original_query_id)
+            relevant_dois, estimated_cost = _calculate_distill_cost(uid, original_query_id)
         except Exception as e:
-            return 500, {'success': False, 'error': 'get_relevant_dois_failed', 'message': str(e)}
+            return 500, {'success': False, 'error': 'calculate_cost_failed', 'message': str(e)}
         
         if not relevant_dois:
             return 400, {'success': False, 'error': 'no_relevant_papers'}
         
-        # 计算蒸馏费用（基价*0.1）并检查余额
-        try:
-            price_map = db_reader.get_prices_by_dois(relevant_dois)
-            estimated_cost = sum(float(price_map.get(doi, 1.0)) * 0.1 for doi in relevant_dois)
-        except Exception:
-            estimated_cost = len(relevant_dois) * 0.1  # 默认每篇0.1
-        
         # 获取用户余额
-        from ..redis.user_cache import UserCache
         user_balance = UserCache.get_balance(uid)
         if user_balance is None:
             user_balance = db_reader.get_balance(uid) or 0
@@ -269,7 +359,7 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
             return 400, {
                 'success': False,
                 'error': 'insufficient_balance',
-                'message': f'余额不足'
+                'message': f'余额不足（需要 {estimated_cost:.1f}，当前 {user_balance}）'
             }
         
         # 调用蒸馏处理函数
@@ -279,6 +369,8 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
             return 200, {
                 'success': True,
                 'query_id': result,
+                'doi_count': len(relevant_dois),
+                'estimated_cost': round(estimated_cost, 1),
                 'message': 'Distillation submitted successfully.'
             }
         else:
@@ -292,8 +384,7 @@ def _handle_estimate_distillation_cost(payload: Dict) -> Tuple[int, Dict]:
     """
     估算蒸馏费用
     
-    新架构修复：同时支持 original_query_id 和 original_query_index 参数名，
-    使用字符串类型的query_id，修正 get_relevant_dois 调用参数
+    安全原则：使用后端 _calculate_distill_cost 函数计算费用（纯Redis操作）
     """
     try:
         uid_raw = payload.get('uid')
@@ -313,34 +404,30 @@ def _handle_estimate_distillation_cost(payload: Dict) -> Tuple[int, Dict]:
         # 保持字符串类型（新架构格式如 Q20251127102812_74137bb4）
         original_query_id = str(original_query_id)
         
-        # 获取相关DOI（修正：传入uid和query_id两个参数）
-        relevant_dois = db_reader.get_relevant_dois(uid, original_query_id)
+        # 使用后端费用计算函数（纯Redis操作，替代get_prices_by_dois）
+        try:
+            relevant_dois, estimated_cost = _calculate_distill_cost(uid, original_query_id)
+        except Exception:
+            relevant_dois = []
+            estimated_cost = 0.0
+        
         if not relevant_dois:
             return 200, {
                 'success': True,
+                'doi_count': 0,
                 'relevant_count': 0,
                 'estimated_cost': 0,
                 'user_balance': UserCache.get_balance(uid) or 0,
                 'insufficient': False
             }
         
-        # 计算蒸馏费用（基价*0.1）
-        try:
-            price_map = db_reader.get_prices_by_dois(relevant_dois)
-            total_cost = 0.0
-            for doi in relevant_dois:
-                base = float(price_map.get(doi, 1.0))
-                total_cost += base * 0.1
-            estimated_cost = round(total_cost, 1)
-        except Exception:
-            estimated_cost = 0.0
-        
         user_balance = UserCache.get_balance(uid) or db_reader.get_balance(uid) or 0
         
         return 200, {
             'success': True,
+            'doi_count': len(relevant_dois),
             'relevant_count': len(relevant_dois),
-            'estimated_cost': estimated_cost,
+            'estimated_cost': round(estimated_cost, 1),
             'user_balance': float(user_balance),
             'insufficient': user_balance < estimated_cost
         }
@@ -480,20 +567,16 @@ def _handle_update_config(payload: Dict) -> Tuple[int, Dict]:
         except Exception:
             pass
         
-        # 统计论文数量和费用
+        # 统计论文数量和费用（使用实际期刊价格）
         try:
-            if selected_journals is not None:
-                time_range = None
-                if not include_all_years:
-                    time_range = {
-                        "start_year": start_year,
-                        "end_year": end_year,
-                        "include_all": False
-                    }
-                else:
-                    time_range = {"include_all": True}
-                count = db_reader.count_papers_by_filters(selected_journals, time_range)
-                estimated_cost = count  # 简化：每篇1点
+            if selected_items:
+                # 使用后端费用计算函数（不信任前端数据）
+                count, estimated_cost = _calculate_query_cost(
+                    selected_items,
+                    start_year if not include_all_years else None,
+                    end_year if not include_all_years else None,
+                    include_all_years
+                )
             else:
                 count = 0
                 estimated_cost = 0
@@ -747,7 +830,8 @@ def _handle_get_query_progress(payload: Dict) -> Tuple[int, Dict]:
             'total_blocks': status.get('total_blocks', 0),
             'finished_blocks': status.get('finished_blocks', 0),
             'finished_papers': status.get('finished_papers', 0),
-            'is_paused': status.get('is_paused', False)
+            'is_paused': status.get('is_paused', False),
+            'current_balance': UserCache.get_balance(uid) if uid > 0 else None
         }
     except Exception as e:
         return 500, {'success': False, 'error': 'progress_failed', 'message': str(e)}

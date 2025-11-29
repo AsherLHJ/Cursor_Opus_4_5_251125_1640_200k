@@ -369,6 +369,8 @@ def _handle_update_user_balance(payload: Dict) -> Tuple[int, Dict]:
 
 def _handle_update_user_permission(payload: Dict) -> Tuple[int, Dict]:
     """管理员更新用户权限"""
+    from ..redis.system_config import SystemConfig
+    
     try:
         uid = payload.get('uid')
         permission = payload.get('permission')
@@ -378,6 +380,12 @@ def _handle_update_user_permission(payload: Dict) -> Tuple[int, Dict]:
         
         if not isinstance(permission, int) or permission < 0:
             return 400, {'success': False, 'error': 'invalid_permission'}
+        
+        # 从配置获取权限范围（动态配置）
+        min_perm, max_perm = SystemConfig.get_permission_range()
+        if not (min_perm <= permission <= max_perm):
+            return 400, {'success': False, 'error': 'permission_out_of_range', 
+                        'message': f'权限值范围: {min_perm}-{max_perm}'}
         
         success = db_reader.update_user_permission(uid, permission)
         if success:

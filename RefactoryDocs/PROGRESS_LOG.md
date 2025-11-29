@@ -3,10 +3,10 @@
 ## 项目概述
 - **开始时间**: 2025-11-25 16:40
 - **重构完成时间**: 2025-11-25 17:50
-- **最后修复时间**: 2025-11-28
+- **最后修复时间**: 2025-11-29
 - **指导文件**: 新架构项目重构完整指导文件20251124.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 十四轮Bug修复
+- **状态**: ✅ 重构完成 + 十七轮Bug修复
 
 ---
 
@@ -330,6 +330,54 @@
   - [x] **修复14c** `docker/image-cache/README.md`: 新建离线缓存使用说明
   - [x] **修复14c** `deploy_autopaperweb.sh`: 新增 `load_image_cache()` 函数，步骤更新为9步
 
+### 修复轮次十五：费用估算安全修复+Redis数据清理 (2025-11-29)
+- **时间**: 2025-11-29
+- **问题**:
+  1. **安全漏洞**: 前端 `index.html` 的 `startSearch()` 传递 `estimated_cost` 参数到后端，后端 `_handle_start_search` 信任该值进行余额检查，恶意用户可绕过
+  2. **费用计算错误**: `_handle_update_config` 使用 `estimated_cost = count`（每篇1点），忽略了期刊实际价格
+  3. **蒸馏API低效**: `get_prices_by_dois` 函数查询 MySQL 获取期刊价格，但 `ResultCache` 已存储 `block_key`，可直接从 Redis 获取
+  4. **部署问题**: `deploy_autopaperweb.sh` 未清除 Redis 持久化数据，旧数据可能干扰新部署
+- **安全设计原则**: 前端永不计算/传递费用，所有费用计算在后端完成
+- **修复**:
+  - [x] `lib/webserver/query_api.py`: 新增 `_calculate_query_cost()` 函数（纯Redis操作）
+  - [x] `lib/webserver/query_api.py`: 新增 `_calculate_distill_cost()` 函数（纯Redis操作，替代 `get_prices_by_dois`）
+  - [x] `lib/webserver/query_api.py`: 修复 `_handle_update_config` 使用实际期刊价格
+  - [x] `lib/webserver/query_api.py`: 修复 `_handle_start_search` 移除前端费用信任，后端独立计算
+  - [x] `lib/webserver/query_api.py`: 重构 `_handle_start_distillation` 使用 `_calculate_distill_cost`
+  - [x] `lib/webserver/query_api.py`: 重构 `_handle_estimate_distillation_cost` 使用 `_calculate_distill_cost`
+  - [x] `lib/html/index.html`: 清理 `startSearch()` 删除 `estimated_cost` 参数传递
+  - [x] `lib/load_data/journal_dao.py`: 删除废弃函数 `get_prices_by_dois`
+  - [x] `lib/load_data/db_reader.py`: 移除 `get_prices_by_dois` 导入
+  - [x] `deploy_autopaperweb.sh`: 新增 `cleanup_redis_volumes()` 函数，部署步骤更新为10步
+
+### 修复轮次十六：余额实时更新功能 (2025-11-29)
+- **时间**: 2025-11-29
+- **问题**:
+  1. 任务运行期间用户余额显示不实时更新，有60秒缓存
+- **修复**:
+  - [x] `lib/webserver/query_api.py`: `/api/query_progress` 返回值新增 `current_balance` 字段
+  - [x] `lib/html/index.html`: 进度轮询回调中实时更新余额显示
+
+### 修复轮次十七：系统配置优化 (2025-11-29)
+- **时间**: 2025-11-29
+- **问题**:
+  1. `lib/webserver/auth.py` 第137-298行存在无调用者的历史遗留代码
+  2. 权限范围硬编码不一致：`admin_api.py` 限制0-10，`system_api.py` 曾限制0-100
+  3. 蒸馏价格系数硬编码为0.1，无法动态调整
+  4. 缺少系统配置持久化和缓存机制
+- **架构设计**: MySQL 持久化 + Redis 缓存，确保高性能读取
+- **修复**:
+  - [x] `lib/webserver/auth.py`: 删除第137-298行历史遗留代码（5个函数）
+  - [x] `DB_tools/lib/db_schema.py`: 新增 `system_settings` 表定义
+  - [x] `lib/redis/system_config.py`: 新建系统配置 Redis 缓存层
+  - [x] `lib/load_data/system_settings_dao.py`: 新建 MySQL + Redis 双写 DAO
+  - [x] `lib/webserver/admin_api.py`: 权限验证改为动态读取配置
+  - [x] `lib/webserver/system_api.py`: 权限验证改为动态读取配置
+  - [x] `lib/webserver/query_api.py`: 蒸馏系数改为动态获取
+  - [x] `lib/webserver/admin_api.py`: 新增配置管理 API（GET/POST `/api/admin/settings`）
+  - [x] `lib/html/admin/control.html`: 新增权限范围和蒸馏系数配置 UI
+  - [x] `main.py`: 启动时预热系统配置到 Redis
+
 ---
 
 ## 重要变更记录
@@ -360,6 +408,9 @@
 | 2025-11-27 | 修复12 | 普通用户终止任务功能+修复12c:Worker真正停止+默认permission改为2 | i18n.js, index.html, query_dao.py, auth.py |
 | 2025-11-28 | 修复13 | 文献Block缓存策略改为永不过期 | connection.py, paper_blocks.py, README.md, INTERFACE_SUMMARY.md |
 | 2025-11-28 | 修复14 | Docker镜像拉取失败修复(离线镜像缓存+加速器+重试机制) | docker-compose.yml, Dockerfile.*, deploy_autopaperweb.sh, scripts/package_images.py |
+| 2025-11-29 | 修复15 | 费用估算安全修复+Redis数据清理 | query_api.py, journal_dao.py, db_reader.py, index.html, deploy_autopaperweb.sh |
+| 2025-11-29 | 修复16 | 余额实时更新功能（复用进度轮询） | query_api.py, index.html |
+| 2025-11-29 | 修复17 | 系统配置优化(MySQL+Redis缓存/权限范围/蒸馏系数动态化) | auth.py, db_schema.py, system_config.py, system_settings_dao.py, admin_api.py, system_api.py, query_api.py, control.html, main.py |
 
 ---
 

@@ -3065,11 +3065,7 @@
     
         console.log('准备发送请求到 /api/start_search');
     
-        // 获取页面显示的预估费用（由自动更新统计计算得出）
-        // 从 costCount 元素的 data-cost-value 属性获取
-        const costCountEl = document.getElementById('costCount');
-        const estimated_cost = parseFloat(costCountEl?.getAttribute('data-cost-value')) || 0;
-
+        // 安全原则：不传递费用参数，由后端独立计算
         const payload = {
           question,
           requirements,
@@ -3077,8 +3073,7 @@
           start_year: startYear,
           end_year: endYear,
           selected_journals: selectedNames,
-          uid,
-          estimated_cost
+          uid
         };
     
         const res = await fetch('/api/start_search', {
@@ -3251,6 +3246,15 @@
 
           // 更新UI（根据暂停状态适配）
           updateProgressDisplay(progressData);
+
+          // 实时更新用户余额显示
+          if (progressData.current_balance !== undefined && progressData.current_balance !== null) {
+              userBalanceCache = progressData.current_balance;
+              const balanceEl = document.getElementById('userBalance');
+              if (balanceEl) {
+                  balanceEl.textContent = progressData.current_balance;
+              }
+          }
 
           if (progressData.completed) {
             // 任务完成

@@ -97,8 +97,8 @@ from .journal_dao import (
     get_journal_price,
     get_journal_prices,
     get_year_number,
-    count_papers_by_filters,
-    get_prices_by_dois
+    count_papers_by_filters
+    # get_prices_by_dois 已废弃，被 query_api._calculate_distill_cost 替代
 )
 
 # ============================================================

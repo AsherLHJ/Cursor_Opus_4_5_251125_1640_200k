@@ -42,6 +42,15 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[Init] Redis数据初始化失败: {e}")
     
+    # 预热系统配置到Redis（权限范围、蒸馏系数等）
+    try:
+        from lib.load_data.system_settings_dao import ensure_defaults, reload_cache
+        ensure_defaults()  # 确保MySQL中有默认配置
+        reload_cache()     # 加载配置到Redis缓存
+        print("[Init] 系统配置已加载到Redis")
+    except Exception as e:
+        print(f"[Init] 系统配置加载失败: {e}")
+    
     # 启动BillingSyncer后台线程（新架构：异步计费同步）
     try:
         from lib.process.billing_syncer import start_billing_syncer

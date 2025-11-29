@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # =====================================================
-# AutoPaperWeb 部署脚本（新架构版 v3 - 支持离线镜像）
+# AutoPaperWeb 部署脚本（新架构版 v4 - 支持Redis数据清理）
 # 作用：
 #   1) 检查并安装Nginx（如未安装）
 #   2) 停止并清理现有容器（如果有）
-#   3) 解压 /opt/AutoPaperWeb_Server.zip 到 /opt/AutoPaperWeb_Server
-#   4) 关闭 config.json 中的 local_develop_mode
-#   5) 配置Docker镜像加速器（阿里云专属）
-#   6) 加载离线镜像缓存（如果存在）
-#   7) 以 docker compose 启动所有服务（带重试机制）
-#   8) 等待Redis健康检查
-#   9) 配置并启动Nginx
+#   3) 清除Redis持久化数据（避免旧数据干扰新部署）
+#   4) 解压 /opt/AutoPaperWeb_Server.zip 到 /opt/AutoPaperWeb_Server
+#   5) 关闭 config.json 中的 local_develop_mode
+#   6) 配置Docker镜像加速器（阿里云专属）
+#   7) 加载离线镜像缓存（如果存在）
+#   8) 以 docker compose 启动所有服务（带重试机制）
+#   9) 等待Redis健康检查
+#   10) 配置并启动Nginx
 # 使用：
 #   sudo /opt/deploy_autopaperweb.sh
 # 说明：
@@ -43,7 +44,7 @@ ensure_nginx() {
 }
 
 cleanup_containers() {
-    log "[2/9] 停止并删除所有 Docker 容器（如存在）..."
+    log "[2/10] 停止并删除所有 Docker 容器（如存在）..."
     if docker ps -aq >/dev/null 2>&1; then
         ids=$(docker ps -aq)
         if [ -n "$ids" ]; then
@@ -53,8 +54,38 @@ cleanup_containers() {
     fi
 }
 
+cleanup_redis_volumes() {
+    log "[3/10] 清除 Redis 持久化数据..."
+    
+    # 重要：清除旧版 Redis 持久化数据，避免对新部署产生干扰
+    # 参考 README.md 中 Redis 数据清理说明
+    
+    # 查找并删除包含 "redis_data" 的 volumes
+    redis_volumes=$(docker volume ls -q 2>/dev/null | grep -E "redis_data|redis-data" || true)
+    
+    if [ -n "$redis_volumes" ]; then
+        log "  - 发现 Redis volume(s): $redis_volumes"
+        for vol in $redis_volumes; do
+            log "  - 删除 volume: $vol"
+            docker volume rm "$vol" 2>/dev/null || true
+        done
+        log "  - Redis 持久化数据已清除"
+    else
+        log "  - 未发现 Redis volume，跳过清理"
+    fi
+    
+    # 也清理项目特定的 volume（带项目名前缀）
+    project_volumes=$(docker volume ls -q 2>/dev/null | grep -E "autopaperweb.*redis|apw.*redis" || true)
+    if [ -n "$project_volumes" ]; then
+        for vol in $project_volumes; do
+            log "  - 删除项目 volume: $vol"
+            docker volume rm "$vol" 2>/dev/null || true
+        done
+    fi
+}
+
 unpack_release() {
-    log "[3/9] 解压更新包到 /opt/AutoPaperWeb_Server ..."
+    log "[4/10] 解压更新包到 /opt/AutoPaperWeb_Server ..."
     cd /opt/
     rm -rf /opt/AutoPaperWeb_Server
     require_cmd unzip
@@ -65,7 +96,7 @@ unpack_release() {
 }
 
 patch_config() {
-    log "[4/9] 配置：设置为云端模式..."
+    log "[5/10] 配置：设置为云端模式..."
     cd /opt/AutoPaperWeb_Server
     
     # 强制设置为云端模式
@@ -88,7 +119,7 @@ patch_config() {
 }
 
 setup_docker_mirror() {
-    log "[5/9] 配置Docker镜像加速器..."
+    log "[6/10] 配置Docker镜像加速器..."
     
     DAEMON_JSON="/etc/docker/daemon.json"
     
@@ -131,7 +162,7 @@ EOF
 }
 
 load_image_cache() {
-    log "[6/9] 加载离线镜像缓存..."
+    log "[7/10] 加载离线镜像缓存..."
     
     CACHE_DIR="/opt/AutoPaperWeb_Server/docker/image-cache"
     
@@ -177,7 +208,7 @@ load_image_cache() {
 }
 
 compose_up() {
-    log "[7/9] 检查docker与compose..."
+    log "[8/10] 检查docker与compose..."
     require_cmd docker
     
     # 支持 docker compose 或 docker-compose
@@ -189,7 +220,7 @@ compose_up() {
         err "未找到docker compose（或docker-compose）。请安装Docker Compose。"; exit 1
     fi
 
-    log "[7/9] 构建并启动容器（带重试机制）..."
+    log "[8/10] 构建并启动容器（带重试机制）..."
     cd /opt/AutoPaperWeb_Server
     
     MAX_RETRIES=3
@@ -225,7 +256,7 @@ compose_up() {
 }
 
 wait_redis_healthy() {
-    log "[8/9] 等待Redis服务就绪..."
+    log "[9/10] 等待Redis服务就绪..."
     for i in {1..30}; do
         if docker exec apw-redis redis-cli ping 2>/dev/null | grep -q PONG; then
             log "  Redis已就绪"
@@ -238,7 +269,7 @@ wait_redis_healthy() {
 }
 
 setup_nginx() {
-    log "[9/9] 配置Nginx..."
+    log "[10/10] 配置Nginx..."
     
     # 复制Nginx配置文件
     if [ -f /opt/AutoPaperWeb_Server/deploy/autopaperweb.conf ]; then
@@ -268,15 +299,16 @@ setup_nginx() {
 main() {
     trap 'err "脚本执行失败（行号：$LINENO）"' ERR
     
-    ensure_nginx          # [1/9]
-    cleanup_containers    # [2/9]
-    unpack_release        # [3/9]
-    patch_config          # [4/9]
-    setup_docker_mirror   # [5/9] 配置镜像加速器（备用）
-    load_image_cache      # [6/9] 加载离线镜像（主要方式）
-    compose_up            # [7/9] 构建并启动容器
-    wait_redis_healthy    # [8/9]
-    setup_nginx           # [9/9]
+    ensure_nginx           # [1/10]
+    cleanup_containers     # [2/10]
+    cleanup_redis_volumes  # [3/10] 清除Redis持久化数据，避免旧数据干扰
+    unpack_release         # [4/10]
+    patch_config           # [5/10]
+    setup_docker_mirror    # [6/10] 配置镜像加速器（备用）
+    load_image_cache       # [7/10] 加载离线镜像（主要方式）
+    compose_up             # [8/10] 构建并启动容器
+    wait_redis_healthy     # [9/10]
+    setup_nginx            # [10/10]
     
     log "=============================================="
     log "部署完成！"

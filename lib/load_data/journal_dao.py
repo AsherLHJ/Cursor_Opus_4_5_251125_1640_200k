@@ -416,55 +416,6 @@ def count_papers_by_filters(selected_names: List[str],
     return total
 
 
-def get_prices_by_dois(doi_list: List[str]) -> Dict[str, float]:
-    """
-    根据 DOI 列表返回价格映射
-    
-    新架构: 从 paperinfo.Bib 中解析期刊名，再查价格
-    """
-    if not doi_list:
-        return {}
-    
-    # 这个函数在新架构中较少使用，因为 Worker 直接从 Block 获取期刊信息
-    # 保留用于兼容性
-    
-    valid_dois = [d for d in doi_list if d and str(d).strip()]
-    if not valid_dois:
-        return {}
-    
-    conn = _get_connection()
-    try:
-        cursor = conn.cursor()
-        placeholders = ", ".join(["%s"] * len(valid_dois))
-        
-        # 新架构的 paperinfo 只有 DOI 和 Bib 两列
-        # 需要从 Bib JSON 中提取期刊名
-        cursor.execute(
-            f"SELECT DOI, Bib FROM paperinfo WHERE DOI IN ({placeholders})",
-            valid_dois
-        )
-        
-        import json
-        result = {}
-        all_prices = SystemCache.get_all_prices() if redis_ping() else {}
-        
-        for doi, bib_data in cursor.fetchall():
-            try:
-                if isinstance(bib_data, str):
-                    bib_obj = json.loads(bib_data)
-                else:
-                    bib_obj = bib_data
-                
-                journal_name = bib_obj.get('name', '')
-                if journal_name:
-                    price = all_prices.get(journal_name, 1)
-                else:
-                    price = 1
-                result[str(doi)] = float(price)
-            except Exception:
-                result[str(doi)] = 1.0
-        
-        cursor.close()
-        return result
-    finally:
-        conn.close()
+# 注意：get_prices_by_dois 函数已废弃并删除
+# 新架构使用 query_api.py 中的 _calculate_distill_cost 函数替代
+# 该函数直接从 Redis 的 ResultCache 和 SystemCache 获取数据，无需查询 MySQL
