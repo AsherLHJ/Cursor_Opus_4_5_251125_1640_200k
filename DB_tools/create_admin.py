@@ -7,7 +7,7 @@
 
 使用方法：
     1. 修改下方的 ADMIN_USERNAME 和 ADMIN_PASSWORD 变量
-    2. 运行: python scripts/create_admin.py
+    2. 运行: python DB_tools/create_admin.py
 
 注意：
     - 密码会自动使用bcrypt加密

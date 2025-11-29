@@ -18,7 +18,6 @@
     "api_timeout": 60,
 
     "unit_test_mode": false,
-    "enable_debug_website_console": true,
     "local_develop_mode": true,
 
     "TOKENS_PER_REQ": 400,

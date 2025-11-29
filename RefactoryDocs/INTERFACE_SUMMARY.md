@@ -6,7 +6,7 @@
 
 **最后更新**: 2025-11-29  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 十七轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 二十轮Bug修复
 
 ---
 
@@ -343,6 +343,39 @@ distill_qid = create_distill_task(uid, parent_qid)
 | `control.html` | 缺少配置管理 UI | 新增权限范围和蒸馏系数配置界面 |
 | `main.py` | 启动时未加载配置 | 添加配置预热到 Redis |
 
+### 修复18: 蒸馏按钮JS错误与注册页面风格统一 (2025-11-29)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `index.html` | 蒸馏onclick属性中queryIndex未加引号 | 4处添加引号：`'${queryIndex}'` |
+| `register.html` | 紫色渐变浅色主题与login不统一 | 改为深色主题(#0a0a0a/#1a1a1a/#4a90d9) |
+
+### 修复19: 调试页面整合与配置迁移 (2025-11-29)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `前端重构设计文档20251129.md` | 新建 | 前端重构完整规划文档（Vue.js方案） |
+| `admin/debug.html` | 新建 | 调试日志页面（管理员风格） |
+| `system_settings_dao.py` | 缺少调试控制台配置 | 新增 `debug_console_enabled` 配置和便捷方法 |
+| `system_api.py` | 调试日志使用config.json配置 | 改为从Redis读取配置（MISS则回源MySQL），删除旧架构兼容 |
+| `admin_api.py` | 配置接口未返回调试控制台状态 | 新增 `debug_console_enabled` 返回值 |
+| `control.html` | 缺少调试日志开关 | 新增调试日志控制台开关界面 |
+| `server.py` | 包含旧页面路由 | 移除 `/debugLog.html`、`/history.html`、`/distill.html` 路由 |
+| `config.json` | 包含已迁移的配置项 | 删除 `enable_debug_website_console` |
+| `config_loader.py` | 包含已迁移的配置代码 | 清理 `enable_debug_website_console` 相关代码 |
+| `debugLog.html` | 旧的调试页面 | 删除（功能已迁移到admin/debug.html） |
+| `distill.html` | 冗余页面 | 删除（功能已整合到index.html） |
+| `history.html` | 冗余页面 | 删除（功能已整合到index.html） |
+| `db_schema.py` | 缺少调试控制台默认配置 | 添加 `debug_console_enabled` 到 `SYSTEM_SETTINGS_DEFAULTS` |
+| 所有admin页面 | 导航栏缺少调试日志入口 | 添加"调试日志"导航链接 |
+
+### 修复20: 回滚index.html重构 (2025-11-29)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `index.html` | CSS/JS提取导致严重BUG（登录失败、用户名显示错误、按钮无响应） | 选择性回退到commit 9a431c2原始版本（5202行） |
+| `static/css/index.css` | 重构产物，已不需要 | 删除 |
+| `static/js/index.js` | 重构产物，已不需要 | 删除 |
+
+**注**: index.html代码优化任务暂时搁置，需要更谨慎的重构方案（如采用Vue.js渐进式迁移）
+
 ---
 
 ## 离线镜像部署流程
@@ -373,8 +406,9 @@ sudo /opt/deploy_autopaperweb.sh
 如果你是新的Agent会话，请：
 1. 阅读本文档了解重构成果和修复历史
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
-3. 查看 `需要手动操作的事项.txt` 了解待完成操作
-4. 项目重构已基本完成，经过十七轮Bug修复，可进行测试
+3. 查看 `RefactoryDocs/前端重构设计文档20251129.md` 了解前端重构规划
+4. 查看 `需要手动操作的事项.txt` 了解待完成操作
+5. 项目重构已基本完成，经过二十轮Bug修复，可进行测试
 
 ---
 

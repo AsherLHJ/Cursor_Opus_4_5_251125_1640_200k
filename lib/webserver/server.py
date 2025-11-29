@@ -16,6 +16,7 @@ from urllib.parse import urlparse, parse_qs
 
 from ..config import config_loader as config
 from ..log import debug_console
+from ..load_data import system_settings_dao
 
 # API 处理模块
 from .user_api import handle_user_api
@@ -86,18 +87,12 @@ class RequestHandler(BaseHTTPRequestHandler):
             '/index.html': 'index.html',
             '/login.html': 'login.html',
             '/register.html': 'register.html',
-            '/history.html': 'history.html',
-            '/distill.html': 'distill.html',
             '/billing.html': 'billing.html',
-            '/debugLog.html': 'debugLog.html',
         }
         
         if path in html_pages:
-            # 调试日志页面权限检查
-            if path == '/debugLog.html':
-                if not getattr(config, 'enable_debug_website_console', False):
-                    return self._send_text(403, 'text/plain; charset=utf-8', 'Debug console disabled')
             return self._serve_file(os.path.join(HTML_DIR, html_pages[path]), 'text/html; charset=utf-8')
+        
         
         # 管理员页面
         if path.startswith('/admin/'):

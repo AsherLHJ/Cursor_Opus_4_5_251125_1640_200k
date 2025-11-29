@@ -19,7 +19,7 @@ python init_database.py --config ../config.json
 ```bash
 # 1. 先编辑脚本，修改用户名和密码
 # 2. 运行脚本
-python scripts/create_admin.py
+python DB_tools/create_admin.py
 ```
 
 ---
@@ -198,7 +198,7 @@ python scripts/autopaper_scraper.py --start-id 1 --end-id 10 --headless
 
 ## 八、新增脚本说明
 
-### 8.1 scripts/create_admin.py
+### 8.1 DB_tools/create_admin.py
 创建管理员账户，修改脚本开头的变量后运行。
 
 ### 8.2 scripts/clear_redis_data.py

@@ -202,6 +202,7 @@
             <li><a href="users.html">用户管理</a></li>
             <li><a href="tasks.html">任务管理</a></li>
             <li><a href="control.html" class="active">系统控制</a></li>
+            <li><a href="debug.html">调试日志</a></li>
         </ul>
     </nav>
     
@@ -219,6 +220,21 @@
                     <span id="regLoading" class="loading-spinner hidden"></span>
                     <label class="toggle">
                         <input type="checkbox" id="regToggle" checked onchange="toggleRegistration()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="switch-row">
+                <div class="switch-info">
+                    <h3>调试日志控制台</h3>
+                    <p>控制是否允许访问容器调试日志。开启后，管理员可在"调试日志"页面查看系统实时日志。</p>
+                </div>
+                <div class="switch-control">
+                    <span id="debugStatusBadge" class="status-badge status-off">已关闭</span>
+                    <span id="debugLoading" class="loading-spinner hidden"></span>
+                    <label class="toggle">
+                        <input type="checkbox" id="debugToggle" onchange="toggleDebugConsole()">
                         <span class="slider"></span>
                     </label>
                 </div>
@@ -425,9 +441,72 @@
             }
         }
         
+        // ============================================================
+        // 调试日志控制台开关
+        // ============================================================
+        
+        async function loadDebugConsoleStatus() {
+            try {
+                const response = await fetchWithAuth('/api/admin/settings');
+                const data = await response.json();
+                
+                if (data.success && data.current_values) {
+                    const enabled = data.current_values.debug_console_enabled === 'true';
+                    updateDebugConsoleUI(enabled);
+                }
+            } catch (error) {
+                console.error('获取调试日志状态失败:', error);
+            }
+        }
+        
+        function updateDebugConsoleUI(enabled) {
+            const toggle = document.getElementById('debugToggle');
+            const badge = document.getElementById('debugStatusBadge');
+            
+            toggle.checked = enabled;
+            badge.textContent = enabled ? '已开启' : '已关闭';
+            badge.className = 'status-badge ' + (enabled ? 'status-on' : 'status-off');
+        }
+        
+        async function toggleDebugConsole() {
+            const toggle = document.getElementById('debugToggle');
+            const loading = document.getElementById('debugLoading');
+            const newValue = toggle.checked;
+            
+            toggle.disabled = true;
+            loading.classList.remove('hidden');
+            
+            try {
+                const response = await fetchWithAuth('/api/admin/settings', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        settings: {
+                            debug_console_enabled: newValue ? 'true' : 'false'
+                        }
+                    })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateDebugConsoleUI(newValue);
+                } else {
+                    // 恢复原状态
+                    toggle.checked = !newValue;
+                    alert('操作失败: ' + (data.message || '未知错误'));
+                }
+            } catch (error) {
+                toggle.checked = !newValue;
+                alert('操作失败: ' + error.message);
+            } finally {
+                toggle.disabled = false;
+                loading.classList.add('hidden');
+            }
+        }
+        
         // 初始加载
         loadRegistrationStatus();
         loadSettings();
+        loadDebugConsoleStatus();
     </script>
 </body>
 </html>

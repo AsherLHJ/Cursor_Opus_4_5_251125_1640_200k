@@ -99,8 +99,8 @@ CREATE DATABASE paperdb
 # 创建数据库表
 python DB_tools/init_database.py
 
-# 创建管理员账户（先修改scripts\create_admin.py脚本中的用户名和密码）
-python scripts/create_admin.py
+# 创建管理员账户（先修改DB_tools/create_admin.py脚本中的用户名和密码）
+python DB_tools/create_admin.py
 ```
 
 ### 如果是开发测试且需要清理Redis数据，则要在启动服务之前清除Redis持久化数据：
@@ -263,11 +263,11 @@ python scripts/clear_redis_data.py
 
 ### 创建管理员
 
-1. 编辑 `scripts/create_admin.py`，修改用户名和密码
+1. 编辑 `DB_tools/create_admin.py`，修改用户名和密码
 2. 运行脚本：
 
 ```bash
-python scripts/create_admin.py
+python DB_tools/create_admin.py
 ```
 
 ### 压力测试
@@ -298,6 +298,7 @@ python scripts/autopaper_scraper.py --start-id 1 --end-id 10 --headless
 ├── docker-compose.yml       # Docker编排文件
 ├── deploy_autopaperweb.sh   # 部署脚本
 ├── DB_tools/                # 数据库工具
+│   ├── create_admin.py      # 创建管理员
 │   ├── init_database.py     # 数据库初始化入口
 │   └── lib/                 # 数据库模块
 ├── lib/                     # 核心库
@@ -307,7 +308,6 @@ python scripts/autopaper_scraper.py --start-id 1 --end-id 10 --headless
 │   ├── process/             # 业务处理
 │   └── webserver/           # Web服务
 ├── scripts/                 # 运维脚本
-│   ├── create_admin.py      # 创建管理员
 │   ├── clear_redis_data.py  # 清理Redis数据
 │   └── autopaper_scraper.py # 压力测试工具
 ├── tests/                   # 测试脚本

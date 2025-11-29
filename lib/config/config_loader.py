@@ -32,7 +32,6 @@ DB_USER = ''
 DB_PASSWORD = ''
 DB_NAME = ''
 unit_test_mode = False
-enable_debug_website_console = False
 TOKENS_PER_REQ = 400
 USE_REDIS_QUEUE = True
 USE_REDIS_RATELIMITER = True
@@ -73,7 +72,7 @@ def load_config():
     global ResearchQuestion, Requirements, system_prompt
     global model_name, api_base_url, api_timeout, API_KEYS
     global DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
-    global unit_test_mode, local_develop_mode, enable_debug_website_console
+    global unit_test_mode, local_develop_mode
     global TOKENS_PER_REQ
     global USE_REDIS_QUEUE, USE_REDIS_RATELIMITER, REDIS_URL
     try:
@@ -158,7 +157,6 @@ def load_config():
             REDIS_URL = redis_cfg.get('cloud_url', '')
 
         unit_test_mode = _to_bool(config.get('unit_test_mode', False))
-        enable_debug_website_console = _to_bool(config.get('enable_debug_website_console', False))
 
         # 本地开发模式下，容器内访问宿主机 MySQL 的友好映射
         if local_develop_mode and _in_container() and str(DB_HOST).strip().lower() in ('127.0.0.1', 'localhost'):
@@ -212,8 +210,8 @@ def save_config():
         'api_base_url': api_base_url,
         'api_timeout': api_timeout,
         'unit_test_mode': unit_test_mode,
-        'enable_debug_website_console': enable_debug_website_console,
         'local_develop_mode': local_develop_mode,
+        # enable_debug_website_console 已迁移到数据库管理
     # 固定开关无需写回
         'TOKENS_PER_REQ': TOKENS_PER_REQ,
     # 已取消单 Leader 策略：不再写回 PROGRESS_LEADER

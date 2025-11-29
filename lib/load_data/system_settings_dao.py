@@ -209,6 +209,7 @@ def ensure_defaults() -> bool:
         'permission_min': ('1', '用户权限最小值'),
         'permission_max': ('10', '用户权限最大值'),
         'distill_rate': ('0.1', '蒸馏任务价格系数（相对于查询任务）'),
+        'debug_console_enabled': ('false', '是否启用调试日志控制台'),
     }
     
     conn = _get_connection()
@@ -289,5 +290,23 @@ def set_distill_rate(rate: float) -> bool:
     if rate < 0 or rate > 1:
         return False
     return set_setting('distill_rate', str(rate), '蒸馏任务价格系数（相对于查询任务）')
+
+
+def get_bool_setting(key: str, default: bool = False) -> bool:
+    """获取布尔类型配置"""
+    value = get_setting(key)
+    if value is None:
+        return default
+    return value.lower() in ('true', '1', 'yes', 'on')
+
+
+def is_debug_console_enabled() -> bool:
+    """获取调试日志控制台是否启用"""
+    return get_bool_setting('debug_console_enabled', False)
+
+
+def set_debug_console_enabled(enabled: bool) -> bool:
+    """设置调试日志控制台是否启用"""
+    return set_setting('debug_console_enabled', 'true' if enabled else 'false', '是否启用调试日志控制台')
 
 

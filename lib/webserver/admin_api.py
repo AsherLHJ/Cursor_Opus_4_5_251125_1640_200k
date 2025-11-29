@@ -356,7 +356,10 @@ def _get_total_billing_queue_size() -> int:
 
 def _handle_get_settings() -> Tuple[int, Dict]:
     """获取所有系统配置"""
-    from ..load_data.system_settings_dao import get_all_settings, get_permission_range, get_distill_rate
+    from ..load_data.system_settings_dao import (
+        get_all_settings, get_permission_range, get_distill_rate,
+        is_debug_console_enabled
+    )
     
     try:
         # 获取所有配置（从 MySQL）
@@ -365,6 +368,7 @@ def _handle_get_settings() -> Tuple[int, Dict]:
         # 也返回当前生效的关键配置值（可能来自 Redis 缓存）
         min_perm, max_perm = get_permission_range()
         distill_rate = get_distill_rate()
+        debug_console = is_debug_console_enabled()
         
         return 200, {
             'success': True,
@@ -372,7 +376,8 @@ def _handle_get_settings() -> Tuple[int, Dict]:
             'current_values': {
                 'permission_min': min_perm,
                 'permission_max': max_perm,
-                'distill_rate': distill_rate
+                'distill_rate': distill_rate,
+                'debug_console_enabled': 'true' if debug_console else 'false'
             }
         }
     except Exception as e:

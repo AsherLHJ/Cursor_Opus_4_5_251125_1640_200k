@@ -10,6 +10,7 @@ from typing import Dict, Tuple, Any
 from ..config import config_loader as config
 from ..log import debug_console
 from ..load_data import db_reader
+from ..load_data import system_settings_dao
 from ..redis.system_cache import SystemCache
 from ..redis.connection import redis_ping, get_redis_client
 
@@ -172,7 +173,8 @@ def _handle_system_status() -> Tuple[int, Dict]:
 def _handle_debug_log() -> Tuple[int, Dict]:
     """获取调试日志内容"""
     try:
-        if not getattr(config, 'enable_debug_website_console', False):
+        # 从 Redis 读取配置（MISS 则回源 MySQL）
+        if not system_settings_dao.is_debug_console_enabled():
             return 403, {'success': False, 'error': 'debug_console_disabled'}
         
         log_path = debug_console.get_debug_log_path()

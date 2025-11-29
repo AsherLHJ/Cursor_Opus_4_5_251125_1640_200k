@@ -156,6 +156,7 @@ SYSTEM_SETTINGS_DEFAULTS = {
     'permission_min': ('1', '用户权限最小值'),
     'permission_max': ('10', '用户权限最大值'),
     'distill_rate': ('0.1', '蒸馏任务价格系数（相对于查询任务）'),
+    'debug_console_enabled': ('false', '是否启用调试日志控制台'),
 }
 
 

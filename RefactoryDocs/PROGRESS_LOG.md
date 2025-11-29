@@ -6,7 +6,7 @@
 - **最后修复时间**: 2025-11-29
 - **指导文件**: 新架构项目重构完整指导文件20251124.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 十七轮Bug修复
+- **状态**: ✅ 重构完成 + 二十轮Bug修复
 
 ---
 
@@ -378,6 +378,75 @@
   - [x] `lib/html/admin/control.html`: 新增权限范围和蒸馏系数配置 UI
   - [x] `main.py`: 启动时预热系统配置到 Redis
 
+### 修复轮次十八：蒸馏按钮JS错误与注册页面风格统一 (2025-11-29)
+- **时间**: 2025-11-29
+- **问题**:
+  1. 蒸馏功能"开始蒸馏"按钮灰色不可点击：onclick属性中的queryIndex是字符串类型但未加引号，导致JavaScript将其当作变量名而非字符串字面量
+  2. 注册页面风格与登录页面不统一：`register.html`使用紫色渐变浅色主题，`login.html`已改为深色主题
+- **根因分析**: 新架构中`query_id`为字符串格式（如`Q20251127102812_74137bb4`），在模板字符串中未加引号会被当作未定义变量
+- **修复**:
+  - [x] `lib/html/index.html`: 修复4处onclick属性中的queryIndex参数添加引号
+    - 第4718行: `startDistillation('${cardId}', ${queryIndex})` → `'${queryIndex}'`
+    - 第5067行: `downloadDistillationCSV(${queryIndex})` → `'${queryIndex}'`
+    - 第5070行: `downloadDistillationBIB(${queryIndex})` → `'${queryIndex}'`
+    - 第5073行: `createDistillInputCard(${queryIndex})` → `'${queryIndex}'`
+  - [x] `lib/html/register.html`: 样式改为深色主题匹配login.html
+    - 背景色: `#0a0a0a`
+    - 容器背景: `#1a1a1a`
+    - 输入框背景: `#2a2a2a`
+    - 强调色: `#4a90d9`
+
+### 修复轮次十九：安全审计、代码优化与调试页面整合 (2025-11-29)
+- **时间**: 2025-11-29
+- **任务**:
+  1. 创建前端重构设计文档
+  2. 代码臃肿问题短期优化（提取CSS/JS）
+  3. debugLog.html整合到管理员系统
+  4. 调试控制台配置迁移到数据库
+  5. 清理旧架构代码和冗余文件
+- **完成项**:
+  - [x] 创建 `RefactoryDocs/前端重构设计文档20251129.md` - 前端重构完整规划文档
+  - [x] 提取 `index.html` 的CSS到 `lib/html/static/css/index.css` (~1700行)
+  - [x] 提取 `index.html` 的JavaScript到 `lib/html/static/js/index.js` (~3150行)
+  - [x] `index.html` 从4774行缩减到330行 (减少93%)
+  - [x] 创建 `lib/html/admin/debug.html` - 管理员调试日志页面（统一管理员风格）
+  - [x] 所有管理员页面导航栏添加"调试日志"链接
+  - [x] `lib/load_data/system_settings_dao.py` 添加 `debug_console_enabled` 配置和便捷方法
+  - [x] `lib/webserver/system_api.py` 修改使用Redis读取配置（MISS则回源MySQL），删除旧架构兼容逻辑
+  - [x] `lib/webserver/admin_api.py` 更新返回 `debug_console_enabled` 当前值
+  - [x] `lib/html/admin/control.html` 添加调试日志开关控制界面
+  - [x] `lib/webserver/server.py` 移除 `/debugLog.html`、`/history.html`、`/distill.html` 旧路由
+  - [x] 从 `config.json` 删除 `enable_debug_website_console` 配置
+  - [x] 从 `lib/config/config_loader.py` 清理相关代码
+  - [x] 删除旧的 `lib/html/debugLog.html` 文件
+  - [x] 删除冗余的 `lib/html/distill.html` 文件（功能已整合到index.html）
+  - [x] 删除冗余的 `lib/html/history.html` 文件（功能已整合到index.html）
+  - [x] `DB_tools/lib/db_schema.py` 添加 `debug_console_enabled` 到 `SYSTEM_SETTINGS_DEFAULTS`
+- **代码行数变化**:
+  | 文件 | 变化 |
+  |------|------|
+  | distill.html | 删除（功能已整合） |
+  | history.html | 删除（功能已整合） |
+  | admin/debug.html | 新建（管理员调试页面） |
+
+---
+
+## 修复轮次二十：回滚index.html重构 (2025-11-29)
+
+- **时间**: 2025-11-29
+- **背景**: 修复轮次十九中尝试将 index.html 的CSS/JS提取到独立文件以减少代码臃肿，但导致严重BUG：
+  - 未登录时不跳转到登录页面
+  - 登录后显示"游客"，用户名显示为 `{username}`
+  - 退出登录按钮无响应
+  - i18n 翻译失效
+- **根本原因**: 提取过程中代码结构被破坏，编码问题导致大量乱码，checkLogin() 执行位置错误
+- **解决方案**: 选择性回退 index.html 到原始版本 (commit 9a431c2)，删除新建的 CSS/JS 文件
+- **操作**:
+  - [x] `git checkout 9a431c2 -- lib/html/index.html` 恢复原始版本（5202行）
+  - [x] 删除 `lib/html/static/css/index.css`
+  - [x] 删除 `lib/html/static/js/index.js`
+- **结论**: index.html 代码优化任务暂时搁置，需要更谨慎的重构方案
+
 ---
 
 ## 重要变更记录
@@ -411,6 +480,9 @@
 | 2025-11-29 | 修复15 | 费用估算安全修复+Redis数据清理 | query_api.py, journal_dao.py, db_reader.py, index.html, deploy_autopaperweb.sh |
 | 2025-11-29 | 修复16 | 余额实时更新功能（复用进度轮询） | query_api.py, index.html |
 | 2025-11-29 | 修复17 | 系统配置优化(MySQL+Redis缓存/权限范围/蒸馏系数动态化) | auth.py, db_schema.py, system_config.py, system_settings_dao.py, admin_api.py, system_api.py, query_api.py, control.html, main.py |
+| 2025-11-29 | 修复18 | 蒸馏按钮JS错误(queryIndex加引号)+注册页面深色主题 | index.html, register.html |
+| 2025-11-29 | 修复19 | 调试页面整合+配置迁移+删除冗余页面 | admin/debug.html, system_settings_dao.py, control.html, server.py, config.json, db_schema.py, distill.html(删), history.html(删) |
+|| 2025-11-29 | 修复20 | 回滚index.html重构(CSS/JS提取导致严重BUG) | index.html(恢复), index.css(删), index.js(删) |
 
 ---
 
