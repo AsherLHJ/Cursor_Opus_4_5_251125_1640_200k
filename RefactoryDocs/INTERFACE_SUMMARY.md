@@ -4,9 +4,9 @@
 
 ## 当前进度
 
-**最后更新**: 2025-11-29  
+**最后更新**: 2025-11-30  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 二十轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 二十一轮Bug修复
 
 ---
 
@@ -146,6 +146,12 @@ lib/html/
 ### 计费
 - `billing_queue:{uid}` (List)
 
+### 下载队列（修复21新增）
+- `download_queue` (List) - 全局下载任务队列
+- `download:{task_id}:status` (Hash) - 任务状态 {state, uid, qid, type, created_at}
+  - state: PENDING/PROCESSING/READY/FAILED
+- `download:{task_id}:file` (String, TTL 5min) - 生成的文件内容
+
 ### 管理员
 - `admin:session:{token}` (String, 24h)
 
@@ -196,6 +202,39 @@ AdminSession.destroy_session(token)  # 销毁会话
 ```python
 from lib.process.distill import create_distill_task
 distill_qid = create_distill_task(uid, parent_qid)
+```
+
+### 异步下载（修复21新增）
+```python
+from lib.redis.download import DownloadQueue
+from lib.process.download_worker import start_download_workers
+
+# 启动下载Worker池（main.py中调用）
+start_download_workers(pool_size=10)
+
+# 创建下载任务（返回task_id）
+task_id = DownloadQueue.create_task(uid, qid, download_type='csv')
+
+# 查询任务状态
+status = DownloadQueue.get_task_status(task_id)
+# 返回: {state: 'PENDING'|'PROCESSING'|'READY'|'FAILED', uid, qid, type, error}
+
+# 获取文件内容（状态为READY后）
+content = DownloadQueue.get_file_content(task_id)
+```
+
+### 批量获取文献数据（修复21新增）
+```python
+from lib.redis.paper_blocks import PaperBlocks
+
+# 批量获取指定DOI的Bib数据（Pipeline优化）
+block_dois = {'meta:NATURE:2024': ['doi1', 'doi2'], 'meta:SCIENCE:2023': ['doi3']}
+all_bibs = PaperBlocks.batch_get_papers(block_dois)
+# 返回: {doi: bib_str}
+
+# 批量获取整个Block数据
+blocks = PaperBlocks.batch_get_blocks(['meta:NATURE:2024', 'meta:SCIENCE:2023'])
+# 返回: {block_key: {doi: bib_str}}
 ```
 
 ---
@@ -375,6 +414,22 @@ distill_qid = create_distill_task(uid, parent_qid)
 | `static/js/index.js` | 重构产物，已不需要 | 删除 |
 
 **注**: index.html代码优化任务暂时搁置，需要更谨慎的重构方案（如采用Vue.js渐进式迁移）
+
+### 修复21: 下载系统重构与计费同步优化 (2025-11-30)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `新架构指导文件` | 第9章下载设计过于简略 | 重写第9章，新增异步队列、Pipeline批量获取、高并发分析 |
+| `新架构端到端时序图` | 第7节下载流程不完整 | 重写下载流程，展示异步队列模式 |
+| `新架构数据库关联图` | 缺少下载相关Redis Key | 新增DownloadTaskStatus和DownloadTaskFile |
+| `lib/redis/download.py` | DownloadQueue功能不完整 | 扩展：create_task、任务状态管理、文件存储 |
+| `lib/process/download_worker.py` | 不存在 | 新建：DownloadWorker和DownloadWorkerPool(10 Workers) |
+| `lib/redis/paper_blocks.py` | 缺少批量获取方法 | 新增batch_get_papers和batch_get_blocks(Pipeline优化) |
+| `lib/load_data/search_dao.py` | fetch_results逐个获取Bib | 重构使用Pipeline批量获取(O(n)→O(1)) |
+| `lib/webserver/server.py` | 缺少异步下载API | 新增/api/download/create、status、file端点 |
+| `main.py` | 未启动DownloadWorkerPool | 添加start_download_workers(10)调用 |
+| `lib/html/static/js/i18n.js` | 缺少下载相关翻译 | 新增download_generating等6个翻译(中英文) |
+| `lib/html/index.html` | 下载按钮同步阻塞 | 重构所有下载按钮为异步轮询模式，添加spinner样式 |
+| `lib/process/billing_syncer.py` | 同步参数(5秒/100条)导致积压 | 优化为1秒/2000条 |
 
 ---
 

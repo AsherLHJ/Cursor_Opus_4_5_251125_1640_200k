@@ -179,7 +179,19 @@ classDiagram
         class DownloadQueue {
             Key: download_queue
             Type: List
-            Value: (uid, qid, type)
+            Value: (task_id, uid, qid, type, timestamp)
+        }
+        class DownloadTaskStatus {
+            Key: download:<task_id>:status
+            Type: Hash
+            Fields: state, uid, qid, type, created_at
+            Note: state=PENDING/PROCESSING/READY/FAILED
+        }
+        class DownloadTaskFile {
+            Key: download:<task_id>:file
+            Type: String
+            Value: Generated_File_Content
+            TTL: 5min
         }
     }
 
@@ -213,7 +225,12 @@ classDiagram
     QueryResultCache ..> SearchResult : Archiver Thread\n(Async Archive DONE)
     QueryStatus ..> QueryLog : Archiver Thread\n(Update Status)
 
-    %% 6. Foreign Keys / Logical Links
+    %% 6. Download Flow (Async Queue)
+    DownloadQueue ..> DownloadTaskStatus : DownloadWorker\n(Update Status)
+    QueryResultCache ..> DownloadTaskFile : DownloadWorker\n(Generate File)
+    PaperBlock ..> DownloadTaskFile : DownloadWorker\n(Pipeline Batch Get)
+
+    %% 7. Foreign Keys / Logical Links
     InfoPaperWithTag --> ContentList : FK Name
     InfoPaperWithTag --> InfoTag : FK Tag
     SearchResult --> UserInfo : FK uid

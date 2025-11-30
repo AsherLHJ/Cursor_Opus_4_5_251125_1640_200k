@@ -59,6 +59,14 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[Init] BillingSyncer启动失败: {e}")
     
+    # 启动DownloadWorkerPool后台线程（新架构：异步下载处理）
+    try:
+        from lib.process.download_worker import start_download_workers
+        start_download_workers(pool_size=10)  # 10个Worker处理下载任务
+        print("[Init] DownloadWorkerPool已启动 (10个Worker)")
+    except Exception as e:
+        print(f"[Init] DownloadWorkerPool启动失败: {e}")
+    
     # 启动后端 Web 服务：
     # - 本地开发者模式：仅监听本机 127.0.0.1
     # - 生产/容器环境：监听 0.0.0.0（容器可暴露端口）

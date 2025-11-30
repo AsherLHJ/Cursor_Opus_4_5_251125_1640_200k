@@ -192,6 +192,8 @@ def fetch_results_with_paperinfo(uid: int, query_id: str,
     """
     获取查询结果及对应的文献信息（扁平化结构）
     
+    使用 Redis Pipeline 批量获取优化，将 O(n) 次网络往返优化为 O(1) 次
+    
     用于下载 CSV/Bib 文件
     
     Args:
@@ -217,7 +219,12 @@ def fetch_results_with_paperinfo(uid: int, query_id: str,
     if not results:
         return []
     
-    output = []
+    # ========================================
+    # 第一遍：收集所有 block_key -> [dois] 映射
+    # ========================================
+    block_dois: Dict[str, List[str]] = {}  # {block_key: [doi1, doi2, ...]}
+    doi_metadata: Dict[str, Dict] = {}     # {doi: {ai_result, block_key, source, year, ...}}
+    
     for doi, data in results.items():
         ai_result = data.get('ai_result', {})
         
@@ -236,26 +243,51 @@ def fetch_results_with_paperinfo(uid: int, query_id: str,
         if only_relevant and search_result != 'Y':
             continue
         
-        # 获取文献信息
+        # 收集 block_key
         block_key = data.get('block_key', '')
         source = ''
         year = ''
-        bib_str = ''
         
-        # 优先从 Block 获取
-        if block_key and redis_ping():
+        if block_key:
             parsed = PaperBlocks.parse_block_key(block_key)
             if parsed:
                 source, year = parsed
-                bib_str = PaperBlocks.get_block(source, year).get(doi, '')
+                # 添加到 block_dois 映射
+                if block_key not in block_dois:
+                    block_dois[block_key] = []
+                block_dois[block_key].append(doi)
         
-        # 回退到数据库
+        # 保存元数据
+        doi_metadata[doi] = {
+            'search_result': search_result,
+            'reason': reason,
+            'source': str(source),
+            'year': str(year),
+            'block_key': block_key,
+        }
+    
+    # ========================================
+    # 批量获取所有 Bib 数据 (Pipeline优化)
+    # ========================================
+    all_bibs: Dict[str, str] = {}
+    
+    if block_dois and redis_ping():
+        # 使用 Pipeline 批量获取
+        all_bibs = PaperBlocks.batch_get_papers(block_dois)
+    
+    # ========================================
+    # 第二遍：组装结果
+    # ========================================
+    output = []
+    missing_dois = []  # 需要从数据库回退的DOI
+    
+    for doi, meta in doi_metadata.items():
+        bib_str = all_bibs.get(doi, '')
+        
         if not bib_str:
-            paper_info = get_paper_by_doi(doi)
-            if paper_info:
-                source = paper_info.get('name', '') or paper_info.get('source', '')
-                year = paper_info.get('year', '')
-                bib_str = paper_info.get('bib', '')
+            # 记录需要从数据库获取的DOI
+            missing_dois.append(doi)
+            continue
         
         # 从bib解析title和url
         bib_fields = _parse_bib_fields(bib_str)
@@ -268,8 +300,44 @@ def fetch_results_with_paperinfo(uid: int, query_id: str,
         
         output.append({
             'doi': doi,
-            'search_result': search_result,
-            'reason': reason,
+            'search_result': meta['search_result'],
+            'reason': meta['reason'],
+            'source': meta['source'],
+            'year': meta['year'],
+            'title': title,
+            'bib': bib_str,
+            'paper_url': paper_url,
+        })
+    
+    # ========================================
+    # 处理需要从数据库回退的DOI
+    # ========================================
+    for doi in missing_dois:
+        meta = doi_metadata[doi]
+        paper_info = get_paper_by_doi(doi)
+        
+        if paper_info:
+            source = paper_info.get('name', '') or paper_info.get('source', '') or meta['source']
+            year = paper_info.get('year', '') or meta['year']
+            bib_str = paper_info.get('bib', '')
+        else:
+            source = meta['source']
+            year = meta['year']
+            bib_str = ''
+        
+        # 从bib解析title和url
+        bib_fields = _parse_bib_fields(bib_str)
+        title = bib_fields.get('title', '')
+        paper_url = bib_fields.get('url', '')
+        
+        # 如果没有url，从doi生成
+        if not paper_url and doi:
+            paper_url = f"https://doi.org/{doi}"
+        
+        output.append({
+            'doi': doi,
+            'search_result': meta['search_result'],
+            'reason': meta['reason'],
             'source': source,
             'year': year,
             'title': title,

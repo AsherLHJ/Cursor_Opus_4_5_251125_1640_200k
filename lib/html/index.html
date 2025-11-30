@@ -1222,6 +1222,23 @@
       color: #e5e5e5;
     }
 
+    /* 下载按钮loading spinner（修复21） */
+    .spinner-small {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 1s linear infinite;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
     .stat-value {
       font-size: 16px;
       font-weight: 600;
@@ -3478,55 +3495,91 @@
       loadHistory();
     }
 
+    // 通用异步下载函数（使用新的异步队列API）
+    async function downloadWithAsyncQueue(btn, queryId, downloadType) {
+      const uid = localStorage.getItem('userId');
+      if (!uid) {
+        showError(i18n.t('index.login_required'));
+        return;
+      }
+      
+      const originalHtml = btn.innerHTML;
+      const originalDisabled = btn.disabled;
+      
+      try {
+        // 显示loading状态
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-small"></span> ${i18n.t('index.download_generating')}`;
+        
+        // 创建下载任务
+        const createResp = await fetch('/api/download/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query_id: queryId,
+            type: downloadType,
+            uid: parseInt(uid)
+          })
+        });
+        
+        const createData = await createResp.json();
+        if (!createData.success || !createData.task_id) {
+          throw new Error(createData.error || 'Failed to create download task');
+        }
+        
+        const taskId = createData.task_id;
+        
+        // 轮询任务状态
+        let attempts = 0;
+        const maxAttempts = 120; // 最多等待2分钟
+        
+        while (attempts < maxAttempts) {
+          const statusResp = await fetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
+          const status = await statusResp.json();
+          
+          if (status.state === 'READY') {
+            // 文件已就绪，触发下载
+            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}`;
+            showSuccess(i18n.t('index.download_success'));
+            break;
+          } else if (status.state === 'FAILED') {
+            throw new Error(status.error || 'Download generation failed');
+          } else {
+            // 继续等待
+            btn.innerHTML = `<span class="spinner-small"></span> ${i18n.t('index.download_processing')}`;
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            attempts++;
+          }
+        }
+        
+        if (attempts >= maxAttempts) {
+          throw new Error('Download timeout');
+        }
+        
+      } catch (error) {
+        console.error('Download error:', error);
+        showError(i18n.t('index.download_failed') + ': ' + error.message);
+      } finally {
+        // 恢复按钮状态
+        btn.disabled = originalDisabled;
+        btn.innerHTML = originalHtml;
+      }
+    }
+
     // 设置完成后的按钮事件
     function setupCompletionButtons(queryIndex, progressData) {
       const downloadCsvBtn = document.getElementById('downloadCsvBtn');
       const downloadBibBtn = document.getElementById('downloadBibBtn');
       const distillBtn = document.getElementById('distillBtn');
       
-      // 生成时间戳用于文件名
-      const timestamp = formatTimestampForFilename(currentStartTime || new Date());
-      
-      // 下载CSV按钮
-      downloadCsvBtn.onclick = async () => {
-        try {
-          const response = await fetch(`/api/download_csv?query_id=${encodeURIComponent(queryIndex)}`);
-          if (!response.ok) throw new Error('Download failed');
-          
-          const blob = await response.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `Overall_${timestamp}.csv`;
-          a.click();
-          URL.revokeObjectURL(url);
-          
-          showSuccess(i18n.t('index.download_success'));
-        } catch (error) {
-          console.error('CSV download error:', error);
-          showError(i18n.t('index.download_failed') + ': ' + error.message);
-        }
+      // 下载CSV按钮（使用异步队列）
+      downloadCsvBtn.onclick = () => {
+        downloadWithAsyncQueue(downloadCsvBtn, queryIndex, 'csv');
       };
       
-      // 下载BIB按钮
-      downloadBibBtn.onclick = async () => {
-        try {
-          const response = await fetch(`/api/download_bib?query_id=${encodeURIComponent(queryIndex)}`);
-          if (!response.ok) throw new Error('Download failed');
-          
-          const blob = await response.blob();
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `Overall_${timestamp}.bib`;
-          a.click();
-          URL.revokeObjectURL(url);
-          
-          showSuccess(i18n.t('index.download_success'));
-        } catch (error) {
-          console.error('BIB download error:', error);
-          showError(i18n.t('index.download_failed') + ': ' + error.message);
-        }
+      // 下载BIB按钮（使用异步队列）
+      downloadBibBtn.onclick = () => {
+        downloadWithAsyncQueue(downloadBibBtn, queryIndex, 'bib');
       };
       
       // 蒸馏按钮
@@ -3659,42 +3712,118 @@
       `;
     }
     
-    // 下载历史任务CSV（修复12b）
+    // 下载历史任务CSV（使用异步队列API）
     window.downloadHistoryCsv = async function(queryIndex, timestamp) {
+      const uid = localStorage.getItem('userId');
+      if (!uid) {
+        showError(i18n.t('index.login_required'));
+        return;
+      }
+      
+      // 显示全局loading提示
+      showInfo(i18n.t('index.download_generating'));
+      
       try {
-        const response = await fetch(`/api/download_csv?query_id=${encodeURIComponent(queryIndex)}`);
-        if (!response.ok) throw new Error('Download failed');
+        // 创建下载任务
+        const createResp = await fetch('/api/download/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query_id: queryIndex,
+            type: 'csv',
+            uid: parseInt(uid)
+          })
+        });
         
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Overall_${timestamp}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const createData = await createResp.json();
+        if (!createData.success || !createData.task_id) {
+          throw new Error(createData.error || 'Failed to create download task');
+        }
         
-        showSuccess(i18n.t('index.download_success'));
+        const taskId = createData.task_id;
+        
+        // 轮询任务状态
+        let attempts = 0;
+        const maxAttempts = 120;
+        
+        while (attempts < maxAttempts) {
+          const statusResp = await fetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
+          const status = await statusResp.json();
+          
+          if (status.state === 'READY') {
+            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}`;
+            showSuccess(i18n.t('index.download_success'));
+            break;
+          } else if (status.state === 'FAILED') {
+            throw new Error(status.error || 'Download generation failed');
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            attempts++;
+          }
+        }
+        
+        if (attempts >= maxAttempts) {
+          throw new Error('Download timeout');
+        }
       } catch (error) {
         console.error('CSV download error:', error);
         showError(i18n.t('index.download_failed') + ': ' + error.message);
       }
     };
     
-    // 下载历史任务BIB（修复12b）
+    // 下载历史任务BIB（使用异步队列API）
     window.downloadHistoryBib = async function(queryIndex, timestamp) {
+      const uid = localStorage.getItem('userId');
+      if (!uid) {
+        showError(i18n.t('index.login_required'));
+        return;
+      }
+      
+      // 显示全局loading提示
+      showInfo(i18n.t('index.download_generating'));
+      
       try {
-        const response = await fetch(`/api/download_bib?query_id=${encodeURIComponent(queryIndex)}`);
-        if (!response.ok) throw new Error('Download failed');
+        // 创建下载任务
+        const createResp = await fetch('/api/download/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query_id: queryIndex,
+            type: 'bib',
+            uid: parseInt(uid)
+          })
+        });
         
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Overall_${timestamp}.bib`;
-        a.click();
-        URL.revokeObjectURL(url);
+        const createData = await createResp.json();
+        if (!createData.success || !createData.task_id) {
+          throw new Error(createData.error || 'Failed to create download task');
+        }
         
-        showSuccess(i18n.t('index.download_success'));
+        const taskId = createData.task_id;
+        
+        // 轮询任务状态
+        let attempts = 0;
+        const maxAttempts = 120;
+        
+        while (attempts < maxAttempts) {
+          const statusResp = await fetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
+          const status = await statusResp.json();
+          
+          if (status.state === 'READY') {
+            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}`;
+            showSuccess(i18n.t('index.download_success'));
+            break;
+          } else if (status.state === 'FAILED') {
+            throw new Error(status.error || 'Download generation failed');
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            attempts++;
+          }
+        }
+        
+        if (attempts >= maxAttempts) {
+          throw new Error('Download timeout');
+        }
       } catch (error) {
         console.error('BIB download error:', error);
         showError(i18n.t('index.download_failed') + ': ' + error.message);
@@ -5082,68 +5211,120 @@
       loadHistory();
     }
 
-    // 下载蒸馏结果 - CSV
-    window.downloadDistillationCSV = function(queryIndex) {
+    // 下载蒸馏结果 - CSV（使用异步队列API）
+    window.downloadDistillationCSV = async function(queryIndex) {
       const uid = localStorage.getItem('userId');
       if (!uid) {
         showError(i18n.t('index.login_required'));
         return;
       }
       
-      // 生成时间戳用于文件名
-      const timestamp = formatTimestampForFilename(new Date());
+      showInfo(i18n.t('index.download_generating'));
       
-      // 使用与普通检索相同的CSV下载端点
-      fetch(`/api/download_csv?query_id=${encodeURIComponent(queryIndex)}`)
-        .then(response => {
-          if (!response.ok) throw new Error('Download failed');
-          return response.blob();
-        })
-        .then(blob => {
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `Distillation_${timestamp}.csv`;
-          a.click();
-          URL.revokeObjectURL(url);
-          showSuccess(i18n.t('index.download_success'));
-        })
-        .catch(error => {
-          console.error('CSV download error:', error);
-          showError(i18n.t('index.download_failed') + ': ' + error.message);
+      try {
+        // 创建下载任务
+        const createResp = await fetch('/api/download/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query_id: queryIndex,
+            type: 'csv',
+            uid: parseInt(uid)
+          })
         });
+        
+        const createData = await createResp.json();
+        if (!createData.success || !createData.task_id) {
+          throw new Error(createData.error || 'Failed to create download task');
+        }
+        
+        const taskId = createData.task_id;
+        
+        // 轮询任务状态
+        let attempts = 0;
+        const maxAttempts = 120;
+        
+        while (attempts < maxAttempts) {
+          const statusResp = await fetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
+          const status = await statusResp.json();
+          
+          if (status.state === 'READY') {
+            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}`;
+            showSuccess(i18n.t('index.download_success'));
+            break;
+          } else if (status.state === 'FAILED') {
+            throw new Error(status.error || 'Download generation failed');
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            attempts++;
+          }
+        }
+        
+        if (attempts >= maxAttempts) {
+          throw new Error('Download timeout');
+        }
+      } catch (error) {
+        console.error('CSV download error:', error);
+        showError(i18n.t('index.download_failed') + ': ' + error.message);
+      }
     };
 
-    // 下载蒸馏结果 - BIB
-    window.downloadDistillationBIB = function(queryIndex) {
+    // 下载蒸馏结果 - BIB（使用异步队列API）
+    window.downloadDistillationBIB = async function(queryIndex) {
       const uid = localStorage.getItem('userId');
       if (!uid) {
         showError(i18n.t('index.login_required'));
         return;
       }
       
-      // 生成时间戳用于文件名
-      const timestamp = formatTimestampForFilename(new Date());
+      showInfo(i18n.t('index.download_generating'));
       
-      // 使用与普通检索相同的BIB下载端点
-      fetch(`/api/download_bib?query_id=${encodeURIComponent(queryIndex)}`)
-        .then(response => {
-          if (!response.ok) throw new Error('Download failed');
-          return response.blob();
-        })
-        .then(blob => {
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = `Distillation_${timestamp}.bib`;
-          a.click();
-          URL.revokeObjectURL(url);
-          showSuccess(i18n.t('index.download_success'));
-        })
-        .catch(error => {
-          console.error('BIB download error:', error);
-          showError(i18n.t('index.download_failed') + ': ' + error.message);
+      try {
+        // 创建下载任务
+        const createResp = await fetch('/api/download/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            query_id: queryIndex,
+            type: 'bib',
+            uid: parseInt(uid)
+          })
         });
+        
+        const createData = await createResp.json();
+        if (!createData.success || !createData.task_id) {
+          throw new Error(createData.error || 'Failed to create download task');
+        }
+        
+        const taskId = createData.task_id;
+        
+        // 轮询任务状态
+        let attempts = 0;
+        const maxAttempts = 120;
+        
+        while (attempts < maxAttempts) {
+          const statusResp = await fetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
+          const status = await statusResp.json();
+          
+          if (status.state === 'READY') {
+            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}`;
+            showSuccess(i18n.t('index.download_success'));
+            break;
+          } else if (status.state === 'FAILED') {
+            throw new Error(status.error || 'Download generation failed');
+          } else {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            attempts++;
+          }
+        }
+        
+        if (attempts >= maxAttempts) {
+          throw new Error('Download timeout');
+        }
+      } catch (error) {
+        console.error('BIB download error:', error);
+        showError(i18n.t('index.download_failed') + ': ' + error.message);
+      }
     };
 
     // 页面初始化（放到 DOMContentLoaded，确保先执行 i18n.applyI18n 再设置欢迎语，避免被覆盖）

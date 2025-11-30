@@ -115,14 +115,33 @@ sequenceDiagram
         Server->>Redis: 存结果 + 扣费 (0.1倍费率)
     end
 
-    Note over User, Server: === 7. 结果下载 ===
-    User->>Server: 点击"下载全部分析结果" / "下载相符Bib"
-    Server->>Redis: RPUSH download_queue (加入下载队列)
+    Note over User, Server: === 7. 结果下载 (异步队列模式) ===
+    User->>Server: 点击"下载CSV" / "下载Bib"
+    Server->>Redis: 创建任务 HSET download:{task_id}:status (state=PENDING)
+    Server->>Redis: RPUSH download_queue {task_id, uid, qid, type}
+    Server-->>User: 立即返回 task_id (<100ms)
     
-    loop Download Worker
-        Server->>Redis: LPOP download_queue
-        Server->>Redis: HGETALL result:{uid}:{qid} (获取AI结果)
-        Server->>Redis: HGETALL {BlockKey} (获取原始Bib信息, 无需查MySQL)
-        Server->>Server: 内存生成 CSV / Bib 文件
-        Server-->>User: 返回文件流 (Stream Response)
+    par 前端轮询状态
+        loop 每秒轮询
+            User->>Server: GET /api/download/status?task_id=xxx
+            Server->>Redis: HGET download:{task_id}:status
+            Redis-->>Server: 返回状态 (PENDING/PROCESSING/READY)
+            Server-->>User: 返回当前状态
+        end
+    and DownloadWorker处理 (10个Worker并发)
+        loop DownloadWorker Pool
+            Server->>Redis: LPOP download_queue (抢占任务)
+            Server->>Redis: HSET download:{task_id}:status state=PROCESSING
+            Server->>Redis: HGETALL result:{uid}:{qid} (获取AI结果)
+            Note right of Server: Pipeline批量获取优化
+            Server->>Redis: Pipeline HGETALL {BlockKey1}, HGETALL {BlockKey2}... (批量获取Bib)
+            Redis-->>Server: 返回所有Bib数据 (O(1)网络往返)
+            Server->>Server: 内存生成 CSV / Bib 文件
+            Server->>Redis: SET download:{task_id}:file (存储文件, TTL 5分钟)
+            Server->>Redis: HSET download:{task_id}:status state=READY
+        end
     end
+    
+    User->>Server: GET /api/download/file?task_id=xxx (状态为READY后)
+    Server->>Redis: GET download:{task_id}:file
+    Server-->>User: 返回文件流 (Content-Disposition)

@@ -25,11 +25,17 @@ class BillingSyncer:
     负责将Redis中的消费流水批量同步到MySQL
     """
     
-    def __init__(self, sync_interval: float = 5.0, batch_size: int = 100):
+    def __init__(self, sync_interval: float = 1.0, batch_size: int = 2000):
         """
         Args:
-            sync_interval: 同步间隔（秒），默认5秒
-            batch_size: 每批处理的最大记录数，默认100
+            sync_interval: 同步间隔（秒），默认1秒
+            batch_size: 每批处理的最大记录数，默认2000
+            
+        优化说明(修复21):
+            - 原默认值: sync_interval=5秒, batch_size=100
+            - 新默认值: sync_interval=1秒, batch_size=2000
+            - 效果: 将计费队列积压清空时间从约100秒降低到约1秒
+            - MySQL IOPS影响: 仍然很低，约1次UPDATE/秒
         """
         self.sync_interval = sync_interval
         self.batch_size = batch_size

@@ -240,19 +240,52 @@ MySQL的表paperinfo需要被重构，DB_tools目录下构建表paperinfo的工�
 ++++++以block为最小查询任务的取用单位的提议（结束）++++++
 ===9. 任务结果的持久化与下载流程===
 1）**持久化策略**：
-- **异步归档**：只有当 R6 规则判定 Query 状态变为 `DONE` 时，才启动一个独立的“归档线程”（或复用 Worker 最后一步），将 Redis 中的 `result:query:{qid}` (Hash) 批量写入 MySQL 的 `search_result` 表（新表结构，不再分日期，而是大宽表或分区分表）。
+- **异步归档**：只有当 R6 规则判定 Query 状态变为 `DONE` 时，才启动一个独立的"归档线程"（或复用 Worker 最后一步），将 Redis 中的 `result:{uid}:{qid}` (Hash) 批量写入 MySQL 的 `search_result` 表（新表结构，不再分日期，而是大宽表或分区分表）。
 - **MySQL 角色**：MySQL 仅作为冷数据备份和审计查询，不参与实时业务，避免 IOPS 瓶颈。
 2）**下载任务的消息队列**：
-- **背景**：下载任务是 IO 密集型（读 Redis -> 写文件 -> 发送），与 CPU/GPU 密集型的 AI 查询任务性质不同。
-- **设计**：建立独立的 `download_queue`（Redis List），以及独立的 `DownloadWorker` 线程池。
-- **流程**：
-a. 用户请求下载 CSV 或 Bib -> 请求入队 `download_queue`。
-b. `DownloadWorker` 领取任务 -> 从 Redis 读取 `result:query:{qid}` 和 Block 中的 Bib 数据。
-c. 内存中生成文件 -> 上传到临时存储/直接流式返回给用户。
+- **背景**：下载任务是 IO 密集型（读 Redis -> 写文件 -> 发送），与 CPU/GPU 密集型的 AI 查询任务性质不同。高并发场景下（如100个用户同时下载），同步处理会导致线程池耗尽和请求超时。
+- **设计**：建立独立的 `download_queue`（Redis List），以及独立的 `DownloadWorker` 线程池（默认10个Worker）。
+3）**下载流程详解**：
+a. **用户请求**：点击"下载CSV"或"下载Bib" -> API 创建下载任务 -> 立即返回 `task_id`。
+b. **任务入队**：`RPUSH download_queue {task_id, uid, qid, type, timestamp}`。
+c. **前端轮询**：每秒调用 `GET /api/download/status?task_id=xxx` 查询任务状态。
+d. **Worker处理**：`DownloadWorker` 从队列 `LPOP` 任务，执行以下操作：
+   - 更新任务状态为 `PROCESSING`。
+   - **使用 Redis Pipeline 批量获取**：收集所有 block_key，一次性获取所有 Bib 数据。
+   - 在内存中生成 CSV 或 Bib 文件。
+   - 将文件内容存入 Redis 临时缓存 `download:{task_id}:file`（TTL 5分钟）。
+   - 更新任务状态为 `READY`。
+e. **文件下载**：前端检测到状态为 `READY` 后，调用 `GET /api/download/file?task_id=xxx` 获取文件内容。
+4）**Redis Key 设计**：
+- **下载队列**: `download_queue` (List) - 全局下载任务队列。
+- **任务状态**: `download:{task_id}:status` (Hash) - 字段包括 {state, uid, qid, type, created_at}。
+  - state 取值: `PENDING`（待处理）、`PROCESSING`（处理中）、`READY`（已就绪）、`FAILED`（失败）。
+- **文件内容**: `download:{task_id}:file` (String) - 生成的文件内容，TTL 5分钟。
+5）**性能优化：批量获取**：
+- **核心优化**：使用 Redis Pipeline 批量获取 Block 数据，将 O(n) 次网络往返优化为 O(1) 次。
+- **实现方式**：Worker 先遍历所有结果收集 block_key 列表，然后使用 Pipeline 执行批量 HGETALL，最后组装结果。
+- **性能对比**（1000篇文献，每次Redis往返10ms）：
+  - 逐个获取：1000 × 10ms = 10秒
+  - Pipeline批量获取：1次 × 50ms ≈ 50毫秒
+6）**高并发场景分析**：
+- **DownloadWorker池大小**：默认10个Worker。
+- **100用户并发下载**（每人1000篇）：
+  - 请求响应：立即返回 task_id（<100ms）。
+  - 平均等待：(100/10) × 2秒 / 2 = 10秒。
+  - 最长等待：(100/10) × 2秒 = 20秒。
 - **优势**：
-- **数据源**：优先从 Redis 下载，速度极快。
-- **并发控制**：独立队列可限制最大并发下载数，保护网络带宽和 Redis IOPS，避免影响实时查询业务。
-- **Bib 获取**：由于 Redis Block 直接存储了原始 Bib，下载 Bib 文件时无需回源 MySQL，直接读取 Redis 即可。
+  - **用户请求不阻塞**：立即返回任务ID，不占用Web Server线程。
+  - **并发控制**：Worker池限制最大并发，保护 Redis IOPS 和网络带宽。
+  - **资源隔离**：下载任务与查询/蒸馏任务使用独立的 Worker 池。
+7）**API接口设计**：
+- `POST /api/download/create` - 创建下载任务
+  - 请求：`{query_id, type: "csv"|"bib"}`
+  - 响应：`{success: true, task_id: "..."}`
+- `GET /api/download/status?task_id=xxx` - 查询任务状态
+  - 响应：`{state: "PENDING"|"PROCESSING"|"READY"|"FAILED", progress: 0-100}`
+- `GET /api/download/file?task_id=xxx` - 下载文件
+  - 响应：文件内容（Content-Disposition 头）
+- **兼容旧API**：保留 `/api/download_csv` 和 `/api/download_bib`，内部调用新机制并同步等待。
 ===10. 安全与多用户隔离设计（安全修正案）===
 为了防止多用户环境下的数据串扰（如用户 B 下载用户 A 的结果），必须强制执行以下隔离规范：
 1）**Redis Key 命名空间隔离**：

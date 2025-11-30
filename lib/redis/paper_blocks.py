@@ -249,4 +249,118 @@ class PaperBlocks:
             return None
         except Exception:
             return None
+    
+    # ============================================================
+    # 批量获取方法 (Pipeline优化，用于下载等场景)
+    # ============================================================
+    
+    @classmethod
+    def batch_get_papers(cls, block_dois: Dict[str, List[str]]) -> Dict[str, str]:
+        """
+        批量获取多个Block中指定DOI的Bib数据
+        
+        使用Redis Pipeline一次性获取所有数据，将O(n)次网络往返优化为O(1)次
+        
+        Args:
+            block_dois: {block_key: [doi1, doi2, ...]} 字典
+            
+        Returns:
+            {doi: bib_str} 字典
+        """
+        client = get_redis_client()
+        if not client or not block_dois:
+            return {}
+        
+        try:
+            # 构建Pipeline命令
+            pipe = client.pipeline()
+            
+            # 记录每个命令对应的(block_key, doi)
+            command_mapping: List[Tuple[str, str]] = []  # [(block_key, doi), ...]
+            
+            for block_key, dois in block_dois.items():
+                for doi in dois:
+                    pipe.hget(block_key, doi)
+                    command_mapping.append((block_key, doi))
+            
+            # 执行所有命令
+            results = pipe.execute()
+            
+            # 组装结果
+            output: Dict[str, str] = {}
+            for i, data in enumerate(results):
+                if data:
+                    block_key, doi = command_mapping[i]
+                    output[doi] = cls._decompress_bib(data)
+            
+            return output
+        except Exception as e:
+            print(f"[PaperBlocks] batch_get_papers 失败: {e}")
+            return {}
+    
+    @classmethod
+    def batch_get_blocks(cls, block_keys: List[str]) -> Dict[str, Dict[str, str]]:
+        """
+        批量获取多个Block的所有数据
+        
+        使用Redis Pipeline一次性获取所有Block
+        
+        Args:
+            block_keys: Block Key列表，如 ["meta:NATURE:2024", "meta:SCIENCE:2023"]
+            
+        Returns:
+            {block_key: {doi: bib_str}} 嵌套字典
+        """
+        client = get_redis_client()
+        if not client or not block_keys:
+            return {}
+        
+        try:
+            # 构建Pipeline命令
+            pipe = client.pipeline()
+            for block_key in block_keys:
+                pipe.hgetall(block_key)
+            
+            # 执行所有命令
+            results = pipe.execute()
+            
+            # 组装结果
+            output: Dict[str, Dict[str, str]] = {}
+            for i, data in enumerate(results):
+                if data:
+                    block_key = block_keys[i]
+                    output[block_key] = {
+                        doi: cls._decompress_bib(bib) 
+                        for doi, bib in data.items()
+                    }
+            
+            return output
+        except Exception as e:
+            print(f"[PaperBlocks] batch_get_blocks 失败: {e}")
+            return {}
+    
+    @classmethod
+    def batch_get_papers_flat(cls, block_keys: List[str], 
+                              filter_dois: List[str] = None) -> Dict[str, str]:
+        """
+        批量获取多个Block的数据，返回扁平化的DOI->Bib映射
+        
+        Args:
+            block_keys: Block Key列表
+            filter_dois: 可选，只返回这些DOI的数据
+            
+        Returns:
+            {doi: bib_str} 字典
+        """
+        blocks = cls.batch_get_blocks(block_keys)
+        
+        output: Dict[str, str] = {}
+        filter_set = set(filter_dois) if filter_dois else None
+        
+        for block_key, papers in blocks.items():
+            for doi, bib in papers.items():
+                if filter_set is None or doi in filter_set:
+                    output[doi] = bib
+        
+        return output
 

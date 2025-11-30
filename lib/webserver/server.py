@@ -71,11 +71,17 @@ class RequestHandler(BaseHTTPRequestHandler):
         if path in ('/api/query_history', '/api/query_progress', '/api/query_status',
                     '/api/tags', '/api/journals', '/api/get_query_info',
                     '/api/download_csv', '/api/download_bib'):
-            # 下载接口需要特殊处理
+            # 旧版下载接口需要特殊处理（同步等待模式，兼容保留）
             if path in ('/api/download_csv', '/api/download_bib'):
                 return self._handle_download(path, payload)
             status, response = handle_query_api(path, 'GET', headers_dict, payload)
             return self._send_json(status, response)
+        
+        # 新版下载 API（异步队列模式）
+        if path == '/api/download/status':
+            return self._handle_download_status(payload)
+        if path == '/api/download/file':
+            return self._handle_download_file(payload)
         
         # ============================================================
         # 静态文件服务
@@ -164,6 +170,10 @@ class RequestHandler(BaseHTTPRequestHandler):
                     '/api/journals', '/api/count_papers'):
             status, response = handle_query_api(path, 'POST', headers_dict, payload)
             return self._send_json(status, response)
+        
+        # 新版下载 API（异步队列模式）
+        if path == '/api/download/create':
+            return self._handle_download_create(payload)
         
         # 系统 API
         if path == '/api/admin/config':
@@ -377,6 +387,151 @@ class RequestHandler(BaseHTTPRequestHandler):
         data = "\n".join(content_parts).encode('utf-8')
         filename = f'Result_{query_id}.bib'
         return self._send_bytes(200, 'application/x-bibtex; charset=utf-8', data, {
+            'Content-Disposition': f'attachment; filename="{filename}"'
+        })
+
+    # ============================================================
+    # 新版下载 API 处理方法（异步队列模式）
+    # ============================================================
+    
+    def _handle_download_create(self, payload: dict):
+        """
+        创建下载任务
+        
+        POST /api/download/create
+        请求：{query_id, type: "csv"|"bib"}
+        响应：{success: true, task_id: "..."}
+        """
+        from ..redis.download import DownloadQueue
+        
+        query_id = payload.get('query_id') or payload.get('query_index')
+        download_type = payload.get('type', 'csv')
+        uid = payload.get('uid')
+        
+        if not query_id:
+            return self._send_json(400, {
+                'success': False, 
+                'error': 'missing_query_id'
+            })
+        
+        if not uid:
+            return self._send_json(400, {
+                'success': False, 
+                'error': 'missing_uid'
+            })
+        
+        try:
+            uid = int(uid)
+        except (TypeError, ValueError):
+            return self._send_json(400, {
+                'success': False, 
+                'error': 'invalid_uid'
+            })
+        
+        # 创建下载任务
+        task_id = DownloadQueue.create_task(uid, str(query_id), download_type)
+        
+        if task_id:
+            return self._send_json(200, {
+                'success': True,
+                'task_id': task_id,
+                'message': 'Download task created'
+            })
+        else:
+            return self._send_json(500, {
+                'success': False,
+                'error': 'create_task_failed'
+            })
+    
+    def _handle_download_status(self, payload: dict):
+        """
+        查询下载任务状态
+        
+        GET /api/download/status?task_id=xxx
+        响应：{success: true, state: "PENDING"|"PROCESSING"|"READY"|"FAILED", ...}
+        """
+        from ..redis.download import DownloadQueue
+        
+        task_id = payload.get('task_id')
+        
+        if not task_id:
+            return self._send_json(400, {
+                'success': False,
+                'error': 'missing_task_id'
+            })
+        
+        status = DownloadQueue.get_task_status(task_id)
+        
+        if status:
+            return self._send_json(200, {
+                'success': True,
+                'state': status.get('state', 'UNKNOWN'),
+                'uid': status.get('uid'),
+                'qid': status.get('qid'),
+                'type': status.get('type'),
+                'error': status.get('error', ''),
+            })
+        else:
+            return self._send_json(404, {
+                'success': False,
+                'error': 'task_not_found'
+            })
+    
+    def _handle_download_file(self, payload: dict):
+        """
+        下载已生成的文件
+        
+        GET /api/download/file?task_id=xxx
+        响应：文件内容（带 Content-Disposition 头）
+        """
+        from ..redis.download import DownloadQueue, DOWNLOAD_STATE_READY
+        
+        task_id = payload.get('task_id')
+        
+        if not task_id:
+            return self._send_json(400, {
+                'success': False,
+                'error': 'missing_task_id'
+            })
+        
+        # 检查任务状态
+        status = DownloadQueue.get_task_status(task_id)
+        
+        if not status:
+            return self._send_json(404, {
+                'success': False,
+                'error': 'task_not_found'
+            })
+        
+        if status.get('state') != DOWNLOAD_STATE_READY:
+            return self._send_json(400, {
+                'success': False,
+                'error': 'file_not_ready',
+                'state': status.get('state')
+            })
+        
+        # 获取文件内容
+        content = DownloadQueue.get_file_content(task_id)
+        
+        if not content:
+            return self._send_json(404, {
+                'success': False,
+                'error': 'file_not_found'
+            })
+        
+        # 确定文件类型和名称
+        download_type = status.get('type', 'csv')
+        qid = status.get('qid', 'download')
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        if download_type == 'bib':
+            content_type = 'application/x-bibtex; charset=utf-8'
+            filename = f'Result_{qid}_{timestamp}.bib'
+        else:
+            content_type = 'text/csv; charset=utf-8'
+            filename = f'Overall_{qid}_{timestamp}.csv'
+        
+        return self._send_bytes(200, content_type, content, {
             'Content-Disposition': f'attachment; filename="{filename}"'
         })
 
