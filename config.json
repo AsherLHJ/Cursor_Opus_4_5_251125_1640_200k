@@ -17,7 +17,7 @@
     "api_base_url": "https://ark.cn-beijing.volces.com/api/v3",
     "api_timeout": 60,
 
-    "unit_test_mode": false,
+    "unit_test_mode": true,
     "local_develop_mode": true,
 
     "TOKENS_PER_REQ": 400,
@@ -34,7 +34,7 @@
             "port": 3306,
             "user": "user_20251028",
             "password": "PaperUser2025",
-            "name": "paperdb_20251128"
+            "name": "paperdb_20251130"
         }
     },
     "redis": {

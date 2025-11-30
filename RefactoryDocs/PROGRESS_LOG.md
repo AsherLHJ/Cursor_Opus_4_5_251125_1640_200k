@@ -4,9 +4,9 @@
 - **开始时间**: 2025-11-25 16:40
 - **重构完成时间**: 2025-11-25 17:50
 - **最后修复时间**: 2025-11-30
-- **指导文件**: 新架构项目重构完整指导文件20251124.txt
+- **指导文件**: 新架构项目重构完整指导文件20251130.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 二十一轮Bug修复
+- **状态**: ✅ 重构完成 + 二十三轮Bug修复
 
 ---
 
@@ -227,7 +227,7 @@
   - [x] `lib/webserver/server.py`: `_download_bib` 适配新的 'Y'/'N' 判断条件
   - [x] `lib/process/scheduler.py`: `_start_query_workers` 实际Worker数=min(permission, blocks)
   - [x] `lib/process/distill.py`: `spawn_distill_workers` 添加同样的Worker数量限制
-  - [x] `新架构项目重构完整指导文件20251124.txt`: 规则R2后补充Worker数量优化说明
+  - [x] `新架构项目重构完整指导文件20251130.txt`: 规则R2后补充Worker数量优化说明
 
 ### 修复轮次八：暂停/终止功能与蒸馏API修复 (2025-11-27)
 - **时间**: 2025-11-27
@@ -487,6 +487,72 @@
 
 ---
 
+## 修复轮次二十二：高并发测试脚本重构 (2025-11-30)
+
+- **时间**: 2025-11-30
+- **问题**:
+  1. **Selenium效率低**: 使用浏览器模拟，50并发需要50个Chrome实例，资源消耗大
+  2. **无法设置用户权限和余额**: 缺少管理员API调用功能
+  3. **顺序执行无并发**: 一个账号完成后才处理下一个，无法测试高并发
+  4. **测试流程不符合需求**: 需要分阶段执行（前50查询完成 → 后50查询 + 前50下载）
+- **解决方案**:
+  - 完全重写脚本，从 Selenium 改为 HTTP API 直接调用
+  - 使用 `requests` 库进行 HTTP 调用
+  - 使用 `concurrent.futures.ThreadPoolExecutor` 实现并发
+  - 通过管理员API设置用户权限和余额
+- **实现的功能**:
+  - **APIClient类**: 封装所有API调用（管理员登录、用户注册/登录、查询、异步下载）
+  - **TestAccount类**: 测试账户状态管理
+  - **ConcurrencyTest类**: 并发测试控制器
+    - 阶段0: 初始化100个账户，设置权限=2，余额=30000
+    - 阶段1: 前50用户同时发起查询，等待全部完成
+    - 阶段2: 后50用户查询 + 前50用户下载（并行执行）
+  - **命令行参数**: --base-url, --production, --start-id, --end-id, --download-dir
+  - **测试报告**: test_report.csv 详细记录每个账户的测试结果
+- **修复**:
+  - [x] `scripts/autopaper_scraper.py`: 完全重写，从426行Selenium代码改为~900行HTTP API代码
+  - [x] 新增 `APIClient` 类，封装15+个API方法
+  - [x] 新增 `ConcurrencyTest` 类，实现分阶段测试逻辑
+  - [x] 支持异步下载API（create_task/poll_status/download_file）
+  - [x] 兼容旧版同步下载API作为备选
+- **测试配置**:
+  - 管理员账号: admin / Paper2025
+  - 测试用户: autoTest1 ~ autoTest100
+  - 用户权限: 2, 余额: 30000
+  - 查询参数: "人机交互相关的任何研究", ANNU REV NEUROSCI/TRENDS NEUROSCI/ISMAR, 2020-2025
+  - 下载目录: C:\Users\Asher\Downloads\testDownloadFile
+
+---
+
+## 修复轮次二十三：Result缓存TTL优化 (2025-11-30)
+
+- **时间**: 2025-11-30
+- **背景**:
+  - 并发测试后发现 `result:*` 缓存占用 34.8MB（101个查询）
+  - 当前设计无过期时间，随查询累积会无限占用 Redis 内存
+  - 业务场景：每日70,000篇查询量、16GB内存、500万文献
+- **分析**:
+  - 每个查询结果平均占用 ~345KB
+  - 不设置TTL时，143天后内存占满
+  - 蒸馏功能需要读取父查询的 result:* 数据
+- **解决方案**:
+  - `result:*` 设置 7天 TTL，稳态占用 ~341MB
+  - 蒸馏时若 Redis MISS，从 MySQL `search_result` 表回源
+- **修复**:
+  - [x] `lib/redis/connection.py`: TTL_RESULT 常量已存在（7天）
+  - [x] `lib/redis/result_cache.py`: set_result/batch_set_results 已添加 TTL
+  - [x] `lib/load_data/search_dao.py`: get_relevant_dois_from_mysql 方法已存在
+  - [x] `lib/process/distill.py`: estimate_distill_cost 添加 MySQL 回源逻辑
+- **预期效果**:
+  | 指标 | 优化前 | 优化后 |
+  |------|--------|--------|
+  | result:* TTL | 无限 | 7天 |
+  | 稳态内存占用 | 持续增长 | ~341MB |
+  | 蒸馏7天后 | 正常 | 回源MySQL |
+  | 内存安全 | 143天后占满 | 永不占满 |
+
+---
+
 ## 重要变更记录
 
 | 日期 | 阶段 | 变更内容 | 影响范围 |
@@ -522,6 +588,8 @@
 | 2025-11-29 | 修复19 | 调试页面整合+配置迁移+删除冗余页面 | admin/debug.html, system_settings_dao.py, control.html, server.py, config.json, db_schema.py, distill.html(删), history.html(删) |
 || 2025-11-29 | 修复20 | 回滚index.html重构(CSS/JS提取导致严重BUG) | index.html(恢复), index.css(删), index.js(删) |
 || 2025-11-30 | 修复21 | 下载系统重构(异步队列+Pipeline)+计费同步优化 | download.py, download_worker.py(新), paper_blocks.py, search_dao.py, server.py, main.py, i18n.js, index.html, billing_syncer.py, 新架构指导文件, 时序图, 数据库图 |
+|| 2025-11-30 | 修复22 | 高并发测试脚本重构(Selenium→HTTP API/50并发/分阶段测试) | scripts/autopaper_scraper.py(完全重写) |
+|| 2025-11-30 | 修复23 | Result缓存TTL优化(7天TTL+蒸馏MySQL回源) | connection.py, result_cache.py, search_dao.py, distill.py, 新架构指导文件, 数据库关联图 |
 
 ---
 

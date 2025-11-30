@@ -242,6 +242,11 @@ MySQL的表paperinfo需要被重构，DB_tools目录下构建表paperinfo的工�
 1）**持久化策略**：
 - **异步归档**：只有当 R6 规则判定 Query 状态变为 `DONE` 时，才启动一个独立的"归档线程"（或复用 Worker 最后一步），将 Redis 中的 `result:{uid}:{qid}` (Hash) 批量写入 MySQL 的 `search_result` 表（新表结构，不再分日期，而是大宽表或分区分表）。
 - **MySQL 角色**：MySQL 仅作为冷数据备份和审计查询，不参与实时业务，避免 IOPS 瓶颈。
+- **Result缓存TTL策略（2025-11-30新增）**：
+  - `result:{uid}:{qid}` 设置 7天 TTL，防止 Redis 内存无限增长。
+  - 按每日70,000篇查询量估算，稳态内存占用约 341MB。
+  - 蒸馏功能若 Redis MISS（超过7天），自动从 MySQL `search_result` 表回源。
+  - 回源方法：`get_relevant_dois_from_mysql(uid, query_id)` 位于 `lib/load_data/search_dao.py`。
 2）**下载任务的消息队列**：
 - **背景**：下载任务是 IO 密集型（读 Redis -> 写文件 -> 发送），与 CPU/GPU 密集型的 AI 查询任务性质不同。高并发场景下（如100个用户同时下载），同步处理会导致线程池耗尽和请求超时。
 - **设计**：建立独立的 `download_queue`（Redis List），以及独立的 `DownloadWorker` 线程池（默认10个Worker）。

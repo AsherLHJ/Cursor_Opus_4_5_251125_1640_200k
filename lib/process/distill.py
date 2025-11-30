@@ -39,11 +39,18 @@ def create_distill_task(uid: int, parent_qid: str,
     Returns:
         蒸馏任务的query_id，或None（创建失败）
     """
-    # 1. 获取父任务的相关DOI列表
+    # 1. 获取父任务的相关DOI列表（优先Redis，MISS则回源MySQL）
     relevant_dois = ResultCache.get_relevant_dois(uid, parent_qid)
     
     if not relevant_dois:
-        print(f"[Distill] 父任务 {parent_qid} 没有相关结果")
+        # Redis MISS（可能因为7天TTL过期），尝试从MySQL回源
+        from ..load_data.search_dao import get_relevant_dois_from_mysql
+        relevant_dois = get_relevant_dois_from_mysql(uid, parent_qid)
+        if relevant_dois:
+            print(f"[Distill] Redis MISS，从MySQL回源获取 {len(relevant_dois)} 个相关文献")
+    
+    if not relevant_dois:
+        print(f"[Distill] 父任务 {parent_qid} 没有相关结果（Redis和MySQL均无数据）")
         return None
     
     print(f"[Distill] 父任务 {parent_qid} 有 {len(relevant_dois)} 个相关文献")
@@ -189,6 +196,12 @@ def estimate_distill_cost(uid: int, parent_qid: str) -> Dict:
         {relevant_count, estimated_cost, distill_rate}
     """
     relevant_dois = ResultCache.get_relevant_dois(uid, parent_qid)
+    
+    # Redis MISS时回源MySQL（可能因为7天TTL过期）
+    if not relevant_dois:
+        from ..load_data.search_dao import get_relevant_dois_from_mysql
+        relevant_dois = get_relevant_dois_from_mysql(uid, parent_qid)
+    
     count = len(relevant_dois)
     
     return {

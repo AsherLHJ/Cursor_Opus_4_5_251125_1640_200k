@@ -118,6 +118,56 @@ def get_relevant_dois(uid: int, query_id: str) -> List[str]:
     return ResultCache.get_relevant_dois(uid, query_id)
 
 
+def get_relevant_dois_from_mysql(uid: int, query_id: str) -> List[str]:
+    """
+    从 MySQL 获取相关 DOI 列表（Redis MISS时的回源方法）
+    
+    用于蒸馏功能：当父查询的 result:* 缓存已过期（超过7天TTL）时，
+    从 MySQL search_result 表回源获取相关文献列表。
+    
+    Args:
+        uid: 用户ID
+        query_id: 查询ID
+        
+    Returns:
+        相关文献的 DOI 列表
+    """
+    conn = _get_connection()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT doi, ai_result
+            FROM search_result 
+            WHERE uid = %s AND query_id = %s
+        """, (uid, query_id))
+        
+        relevant = []
+        for row in cursor.fetchall():
+            doi = row['doi']
+            ai_result = row['ai_result']
+            if isinstance(ai_result, str):
+                try:
+                    ai_result = json.loads(ai_result)
+                except Exception:
+                    pass
+            
+            # 判断是否相关
+            if isinstance(ai_result, dict):
+                if ai_result.get('relevant', '').upper() == 'Y':
+                    relevant.append(doi)
+            elif ai_result in (True, 1, '1', 'Y', 'y'):
+                relevant.append(doi)
+        
+        cursor.close()
+        print(f"[SearchDAO] 从MySQL回源获取 {len(relevant)} 个相关DOI (query_id={query_id})")
+        return relevant
+    except Exception as e:
+        print(f"[SearchDAO] 从MySQL获取relevant DOIs失败: {e}")
+        return []
+    finally:
+        conn.close()
+
+
 def get_result_count(uid: int, query_id: str) -> int:
     """获取结果数量"""
     if redis_ping():

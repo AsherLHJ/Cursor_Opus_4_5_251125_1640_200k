@@ -102,7 +102,13 @@ sequenceDiagram
     Note over User, AI: === 6. 蒸馏任务 (Distillation) ===
     User->>Server: 对任务QID发起"蒸馏" (Distill)
     Server->>Redis: HGETALL result:{uid}:{parent_qid} (读取父任务结果)
-    Server->>Server: 筛选"相符"文献 -> 生成 Chunk Keys
+    alt Redis缓存命中
+        Server->>Server: 筛选"相符"文献 -> 生成 Chunk Keys
+    else Redis MISS (超过7天TTL)
+        Server->>MySQL: SELECT doi, ai_result FROM search_result (回源MySQL)
+        MySQL-->>Server: 返回归档的结果数据
+        Server->>Server: 筛选"相符"文献 -> 生成 Chunk Keys
+    end
     Server->>Redis: RPUSH task:{uid}:{new_qid}:pending_blocks (推入新任务队列)
     Server->>Server: 启动 Worker
     

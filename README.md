@@ -1,6 +1,6 @@
 # AutoPaperWeb 新架构
 
-> 最后更新时间：2025-11-26
+> 最后更新时间：2025-11-30
 
 ## 访问地址
 
@@ -10,17 +10,16 @@
 
 | 页面 | URL | 说明 |
 |------|-----|------|
-| 首页 | http://localhost:18080/ | 主搜索页面 |
+| 首页 | http://localhost:18080/ | 主搜索页面（含历史记录、蒸馏功能） |
 | 用户登录 | http://localhost:18080/login.html | 普通用户登录 |
 | 用户注册 | http://localhost:18080/register.html | 新用户注册 |
-| 查询历史 | http://localhost:18080/history.html | 查看历史查询记录 |
 | 账单记录 | http://localhost:18080/billing.html | 查看消费明细 |
-| 蒸馏任务 | http://localhost:18080/distill.html | 对已完成查询进行蒸馏 |
 | **管理员登录** | http://localhost:18080/admin/login.html | 管理员入口 |
 | 管理员仪表板 | http://localhost:18080/admin/dashboard.html | 系统监控 |
 | 用户管理 | http://localhost:18080/admin/users.html | 管理用户账户 |
 | 任务管理 | http://localhost:18080/admin/tasks.html | 管理查询任务 |
 | 系统控制 | http://localhost:18080/admin/control.html | 管理系统设置 |
+| 调试日志 | http://localhost:18080/admin/debug.html | 查看调试日志 |
 
 
 ### 服务器部署环境
@@ -46,6 +45,8 @@ AutoPaperWeb 是一个基于AI的学术论文相关性筛选系统。用户输�
 - **任务池模式**：Worker预抢占任务，提高并发效率
 - **滑动窗口限流**：TPM/RPM精确控制，避免API超限
 - **管理员系统**：独立的后台管理界面
+- **异步下载**：大文件下载采用任务队列模式，避免阻塞
+- **智能TTL**：查询结果7天自动过期，蒸馏时MySQL回源
 
 ## 环境要求
 
@@ -272,24 +273,42 @@ python DB_tools/create_admin.py
 
 ### 压力测试
 
-使用Selenium自动化测试工具：
+使用高并发压力测试工具（HTTP API模式，非Selenium）：
 
 ```bash
-# 本地测试
-python scripts/autopaper_scraper.py --base-url http://localhost:18080 --start-id 1 --end-id 5
+# 本地测试 (默认100用户，50并发)
+python scripts/autopaper_scraper.py
 
-# 生产测试
-python scripts/autopaper_scraper.py --start-id 1 --end-id 10 --headless
+# 生产环境测试
+python scripts/autopaper_scraper.py --production
+
+# 只测试前10个用户
+python scripts/autopaper_scraper.py --start-id 1 --end-id 10
+
+# 自定义下载目录
+python scripts/autopaper_scraper.py --download-dir "D:\Downloads\test"
+
+# 指定服务器地址
+python scripts/autopaper_scraper.py --base-url "http://192.168.1.100:18080"
 ```
+
+**测试流程**：
+1. 注册100个用户（autoTest1~100）
+2. 设置用户权限=2、余额=30000
+3. 前50用户并发查询
+4. 查询完成后：后50用户继续查询 + 前50用户并发下载CSV/BIB
+5. 生成测试报告 `test_results.csv`
 
 ### Redis数据过期策略
 
-| 数据类型 | 过期时间 | 说明 |
-|----------|----------|------|
-| 用户信息 | 8小时 | `user:{uid}:info` |
-| 用户余额 | 8小时 | `user:{uid}:balance` |
-| 管理员会话 | 24小时 | `admin:session:{token}` |
-| 文献Block | 永不过期 | `meta:{Journal}:{Year}` |
+| 数据类型 | 过期时间 | Key格式 | 说明 |
+|----------|----------|---------|------|
+| 用户信息 | 8小时 | `user:{uid}:info` | MySQL回源 |
+| 用户余额 | 8小时 | `user:{uid}:balance` | MySQL回源 |
+| 管理员会话 | 24小时 | `admin:session:{token}` | 登录超时需重新认证 |
+| 查询结果 | **7天** | `result:{uid}:{qid}` | 过期后蒸馏自动回源MySQL |
+| 下载文件 | 5分钟 | `download:{task_id}:file` | 临时文件，下载后自动清理 |
+| 文献Block | 永不过期 | `meta:{Journal}:{Year}` | 核心数据，常驻内存 |
 
 ## 目录结构
 
@@ -309,7 +328,8 @@ python scripts/autopaper_scraper.py --start-id 1 --end-id 10 --headless
 │   └── webserver/           # Web服务
 ├── scripts/                 # 运维脚本
 │   ├── clear_redis_data.py  # 清理Redis数据
-│   └── autopaper_scraper.py # 压力测试工具
+│   ├── autopaper_scraper.py # 高并发压力测试工具
+│   └── package_images.py    # 离线镜像打包工具
 ├── tests/                   # 测试脚本
 │   └── FullTest_*.py        # 综合测试
 ├── deploy/                  # 部署配置

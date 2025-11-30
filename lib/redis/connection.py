@@ -126,5 +126,6 @@ def execute_lua_script(script: str, keys: list, args: list) -> Optional[any]:
 TTL_USER_INFO = 8 * 3600        # 用户信息缓存: 8小时
 TTL_USER_BALANCE = 8 * 3600     # 用户余额缓存: 8小时
 TTL_ADMIN_SESSION = 24 * 3600   # 管理员会话: 24小时
+TTL_RESULT = 7 * 24 * 3600      # 查询结果缓存: 7天
 # 文献Block: 永不过期（已移除TTL_PAPER_BLOCK常量）
 

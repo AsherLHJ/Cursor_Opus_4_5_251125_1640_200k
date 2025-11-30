@@ -11,7 +11,7 @@ Key设计:
 import json
 from typing import Optional, Dict, List, Any
 
-from .connection import get_redis_client
+from .connection import get_redis_client, TTL_RESULT
 
 
 class ResultCache:
@@ -43,11 +43,14 @@ class ResultCache:
                 'ai_result': ai_result,
                 'block_key': block_key or '',
             }
+            key = cls._key_result(uid, qid)
             client.hset(
-                cls._key_result(uid, qid),
+                key,
                 doi,
                 json.dumps(value, ensure_ascii=False)
             )
+            # 设置 7 天过期时间
+            client.expire(key, TTL_RESULT)
             return True
         except Exception:
             return False
@@ -165,6 +168,8 @@ class ResultCache:
                 for doi, val in results.items()
             }
             client.hset(key, mapping=mapping)
+            # 设置 7 天过期时间
+            client.expire(key, TTL_RESULT)
             return True
         except Exception:
             return False

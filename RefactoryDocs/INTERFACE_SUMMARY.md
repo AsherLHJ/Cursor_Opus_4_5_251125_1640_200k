@@ -6,7 +6,7 @@
 
 **最后更新**: 2025-11-30  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 二十一轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 二十三轮Bug修复
 
 ---
 
@@ -141,7 +141,7 @@ lib/html/
 - `query:{uid}:{qid}:status` (Hash)
 - `query:{uid}:{qid}:pause_signal` (String) - 暂停信号
 - `query:{uid}:{qid}:terminate_signal` (String) - 终止信号（新增）
-- `result:{uid}:{qid}` (Hash)
+- `result:{uid}:{qid}` (Hash, **TTL 7天**) - 查询结果缓存（修复23）
 
 ### 计费
 - `billing_queue:{uid}` (List)
@@ -334,16 +334,16 @@ blocks = PaperBlocks.batch_get_blocks(['meta:NATURE:2024', 'meta:SCIENCE:2023'])
 | `index.html` | 历史卡片缺少查找属性 | 创建卡片时添加`data-history-qid`属性 |
 
 ### 修复12: 普通用户终止任务功能 (2025-11-27)
-|| 文件 | 问题 | 修复 |
-||------|------|------|
-|| `i18n.js` | 缺少终止相关翻译 | 添加terminate/terminate_confirm/terminate_success/terminate_fail/terminate_complete翻译 |
-|| `index.html` | 普通用户无法主动终止任务 | 主进度区域和历史详情卡片添加终止按钮(.btn-danger) |
-|| `index.html` | 缺少终止处理函数 | 添加handleTerminate和terminateHistoryTask函数 |
-|| `index.html` | 终止后页面不显示下载界面 | 添加showTerminatedSection和updateHistoryCardAsTerminated函数 |
-|| `index.html` | 终止后历史卡片不更新 | 添加downloadHistoryCsv和downloadHistoryBib辅助函数 |
-|| `query_dao.py` | cancel_query使用pause_signal | 改用terminate_signal以区分暂停和终止 |
-|| `query_dao.py` | **修复12c** cancel_query未停止Worker线程 | 添加stop_workers_for_query调用，确保Worker线程真正停止 |
-|| `auth.py` | 新用户默认permission过高(50) | 修改register_user默认permission为2 |
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `i18n.js` | 缺少终止相关翻译 | 添加terminate/terminate_confirm/terminate_success/terminate_fail/terminate_complete翻译 |
+| `index.html` | 普通用户无法主动终止任务 | 主进度区域和历史详情卡片添加终止按钮(.btn-danger) |
+| `index.html` | 缺少终止处理函数 | 添加handleTerminate和terminateHistoryTask函数 |
+| `index.html` | 终止后页面不显示下载界面 | 添加showTerminatedSection和updateHistoryCardAsTerminated函数 |
+| `index.html` | 终止后历史卡片不更新 | 添加downloadHistoryCsv和downloadHistoryBib辅助函数 |
+| `query_dao.py` | cancel_query使用pause_signal | 改用terminate_signal以区分暂停和终止 |
+| `query_dao.py` | **修复12c** cancel_query未停止Worker线程 | 添加stop_workers_for_query调用，确保Worker线程真正停止 |
+| `auth.py` | 新用户默认permission过高(50) | 修改register_user默认permission为2 |
 
 ### 修复14: Docker镜像拉取失败修复 (2025-11-28)
 | 文件 | 问题 | 修复 |
@@ -431,6 +431,59 @@ blocks = PaperBlocks.batch_get_blocks(['meta:NATURE:2024', 'meta:SCIENCE:2023'])
 | `lib/html/index.html` | 下载按钮同步阻塞 | 重构所有下载按钮为异步轮询模式，添加spinner样式 |
 | `lib/process/billing_syncer.py` | 同步参数(5秒/100条)导致积压 | 优化为1秒/2000条 |
 
+### 修复22: 高并发测试脚本重构 (2025-11-30)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `scripts/autopaper_scraper.py` | 使用Selenium效率低 | 完全重写为HTTP API直接调用模式 |
+| `scripts/autopaper_scraper.py` | 无法设置用户权限和余额 | 新增管理员API调用(admin_login/update_balance/update_permission) |
+| `scripts/autopaper_scraper.py` | 顺序执行无并发 | 使用ThreadPoolExecutor实现50并发查询/下载 |
+| `scripts/autopaper_scraper.py` | 测试流程不符合需求 | 实现分阶段测试(前50查询→后50查询+前50下载) |
+| `scripts/autopaper_scraper.py` | 无异步下载支持 | 集成异步下载API(create_task/poll_status/download_file) |
+
+### 修复23: Result缓存TTL优化 (2025-11-30)
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `lib/redis/connection.py` | result:*无过期时间 | 新增TTL_RESULT常量(7天) |
+| `lib/redis/result_cache.py` | 缓存无限增长导致内存占满 | set_result/batch_set_results添加7天TTL |
+| `lib/load_data/search_dao.py` | 蒸馏7天后无法获取父查询结果 | 新增get_relevant_dois_from_mysql回源方法 |
+| `lib/process/distill.py` | 蒸馏功能依赖Redis不支持回源 | create_distill_task/estimate_distill_cost支持MySQL回源 |
+
+---
+
+## 高并发测试脚本
+
+### 使用方法
+```bash
+# 本地测试 (默认端口18080)
+python scripts/autopaper_scraper.py
+
+# 指定服务器地址
+python scripts/autopaper_scraper.py --base-url http://localhost:18080
+
+# 生产环境测试
+python scripts/autopaper_scraper.py --production
+
+# 测试部分用户 (只测试前10个)
+python scripts/autopaper_scraper.py --start-id 1 --end-id 10
+
+# 自定义下载目录
+python scripts/autopaper_scraper.py --download-dir "D:\\Downloads\\test"
+```
+
+### 测试流程
+1. **阶段0**: 初始化100个账户(autoTest1~100)，设置权限=2，余额=30000
+2. **阶段1**: 前50用户(1~50)同时发起查询，等待全部完成
+3. **阶段2**: 后50用户(51~100)开始查询 + 前50用户同时下载CSV/BIB
+
+### 查询参数
+- 研究问题: 人机交互相关的任何研究
+- 数据源: ANNU REV NEUROSCI, TRENDS NEUROSCI, ISMAR
+- 年份范围: 2020-2025
+
+### 输出文件
+- `test_report.csv`: 详细测试报告
+- `C:\Users\Asher\Downloads\testDownloadFile\`: 下载的CSV/BIB文件
+
 ---
 
 ## 离线镜像部署流程
@@ -463,12 +516,12 @@ sudo /opt/deploy_autopaperweb.sh
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `RefactoryDocs/前端重构设计文档20251129.md` 了解前端重构规划
 4. 查看 `需要手动操作的事项.txt` 了解待完成操作
-5. 项目重构已基本完成，经过二十轮Bug修复，可进行测试
+5. 项目重构已基本完成，经过二十三轮Bug修复，可进行测试
 
 ---
 
 ## 关键参考文件
 
-- `新架构项目重构完整指导文件20251124.txt` - 完整设计指导
+- `新架构项目重构完整指导文件20251130.txt` - 完整设计指导
 - `RefactoryDocs/PROGRESS_LOG.md` - 进度日志
 - `需要手动操作的事项.txt` - 人工操作清单
