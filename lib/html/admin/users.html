@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>用户管理 - AutoPaperWeb Admin</title>
+    <title data-i18n="admin.nav_users">用户管理 - AutoPaperWeb Admin</title>
+    <script src="/static/js/i18n.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f5f7fa; min-height: 100vh; }
@@ -39,38 +40,39 @@
 </head>
 <body>
     <div class="header">
-        <h1>📊 AutoPaperWeb 管理后台</h1>
+        <h1>📊 AutoPaperWeb <span data-i18n="admin.header_title">管理后台</span></h1>
         <div class="header-actions">
-            <span id="adminName">管理员</span>
-            <button onclick="logout()">退出登录</button>
+            <span id="langToggle" style="cursor:pointer;margin-right:10px;">🌐 EN/中</span>
+            <span id="adminName" data-i18n="admin.administrator">管理员</span>
+            <button onclick="logout()" data-i18n="admin.nav_logout">退出登录</button>
         </div>
     </div>
     
     <nav class="nav">
         <ul>
-            <li><a href="dashboard.html">监控大盘</a></li>
-            <li><a href="users.html" class="active">用户管理</a></li>
-            <li><a href="tasks.html">任务管理</a></li>
-            <li><a href="control.html">系统控制</a></li>
-            <li><a href="debug.html">调试日志</a></li>
+            <li><a href="dashboard.html" data-i18n="admin.nav_dashboard">监控大盘</a></li>
+            <li><a href="users.html" class="active" data-i18n="admin.nav_users">用户管理</a></li>
+            <li><a href="tasks.html" data-i18n="admin.nav_tasks">任务管理</a></li>
+            <li><a href="control.html" data-i18n="admin.nav_control">系统控制</a></li>
+            <li><a href="debug.html" data-i18n="admin.nav_debug">调试日志</a></li>
         </ul>
     </nav>
     
     <div class="container">
         <div class="panel">
-            <h2>👥 用户列表</h2>
+            <h2>👥 <span data-i18n="admin.users_title">用户列表</span></h2>
             <table>
                 <thead>
                     <tr>
-                        <th>UID</th>
-                        <th>用户名</th>
-                        <th>余额</th>
-                        <th>权限</th>
-                        <th>操作</th>
+                        <th data-i18n="admin.user_uid">UID</th>
+                        <th data-i18n="admin.user_username">用户名</th>
+                        <th data-i18n="admin.user_balance">余额</th>
+                        <th data-i18n="admin.user_permission">权限</th>
+                        <th data-i18n="admin.user_actions">操作</th>
                     </tr>
                 </thead>
                 <tbody id="userList">
-                    <tr><td colspan="5" style="text-align:center;color:#999;">加载中...</td></tr>
+                    <tr><td colspan="5" style="text-align:center;color:#999;" data-i18n="admin.loading">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -78,38 +80,38 @@
     
     <div class="modal" id="balanceModal">
         <div class="modal-content">
-            <h3>💰 调整余额</h3>
+            <h3>💰 <span data-i18n="admin.user_adjust_balance">调整余额</span></h3>
             <input type="hidden" id="balanceUid">
             <div class="form-group">
-                <label>当前余额</label>
+                <label data-i18n="admin.user_current_balance">当前余额</label>
                 <input type="text" id="currentBalance" readonly>
             </div>
             <div class="form-group">
-                <label>新余额</label>
+                <label data-i18n="admin.user_new_balance">新余额</label>
                 <input type="number" id="newBalance" step="0.01" min="0">
             </div>
             <div class="modal-actions">
-                <button class="btn" onclick="closeModal('balanceModal')">取消</button>
-                <button class="btn btn-primary" onclick="saveBalance()">保存</button>
+                <button class="btn" onclick="closeModal('balanceModal')" data-i18n="admin.user_cancel">取消</button>
+                <button class="btn btn-primary" onclick="saveBalance()" data-i18n="admin.user_save">保存</button>
             </div>
         </div>
     </div>
     
     <div class="modal" id="permissionModal">
         <div class="modal-content">
-            <h3>⚙️ 调整权限</h3>
+            <h3>⚙️ <span data-i18n="admin.user_adjust_permission">调整权限</span></h3>
             <input type="hidden" id="permUid">
             <div class="form-group">
-                <label>当前权限（并发数）</label>
+                <label data-i18n="admin.user_current_permission">当前权限（并发数）</label>
                 <input type="text" id="currentPerm" readonly>
             </div>
             <div class="form-group">
-                <label>新权限</label>
+                <label data-i18n="admin.user_new_permission">新权限</label>
                 <input type="number" id="newPerm" min="0" max="10">
             </div>
             <div class="modal-actions">
-                <button class="btn" onclick="closeModal('permissionModal')">取消</button>
-                <button class="btn btn-primary" onclick="savePermission()">保存</button>
+                <button class="btn" onclick="closeModal('permissionModal')" data-i18n="admin.user_cancel">取消</button>
+                <button class="btn btn-primary" onclick="savePermission()" data-i18n="admin.user_save">保存</button>
             </div>
         </div>
     </div>
@@ -117,7 +119,18 @@
     <script>
         const adminToken = localStorage.getItem('adminToken');
         if (!adminToken) window.location.href = '/admin/login.html';
-        document.getElementById('adminName').textContent = localStorage.getItem('adminUsername') || '管理员';
+        document.getElementById('adminName').textContent = localStorage.getItem('adminUsername') || i18n.t('admin.administrator');
+        
+        // 语言切换
+        document.getElementById('langToggle').onclick = function() {
+            const newLang = i18n.lang === 'zh' ? 'en' : 'zh';
+            i18n.setLang(newLang);
+        };
+        
+        // 语言切换回调
+        window.apw_afterLangChange = function(lang) {
+            loadUsers();
+        };
         
         async function fetchWithAuth(url, options = {}) {
             return fetch(url, { ...options, headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken, ...(options.headers || {}) }});
@@ -134,11 +147,11 @@
                         <tr>
                             <td>${u.uid}</td>
                             <td>${u.username}</td>
-                            <td>¥${parseFloat(u.balance || 0).toFixed(2)}</td>
+                            <td>${parseFloat(u.balance || 0).toFixed(2)}</td>
                             <td>${u.permission || 0}</td>
                             <td>
-                                <button class="btn btn-success" onclick="openBalanceModal(${u.uid}, ${u.balance || 0})">调整余额</button>
-                                <button class="btn btn-warning" onclick="openPermModal(${u.uid}, ${u.permission || 0})">调整权限</button>
+                                <button class="btn btn-success" onclick="openBalanceModal(${u.uid}, ${u.balance || 0})">${i18n.t('admin.user_adjust_balance')}</button>
+                                <button class="btn btn-warning" onclick="openPermModal(${u.uid}, ${u.permission || 0})">${i18n.t('admin.user_adjust_permission')}</button>
                             </td>
                         </tr>
                     `).join('');
@@ -176,11 +189,11 @@
                     body: JSON.stringify({ uid: parseInt(uid), balance: newBalance })
                 });
                 const data = await response.json();
-                alert(data.message || (data.success ? '更新成功' : '更新失败'));
+                alert(data.message || (data.success ? i18n.t('admin.user_update_success') : i18n.t('admin.user_update_failed')));
                 closeModal('balanceModal');
                 loadUsers();
             } catch (error) {
-                alert('操作失败: ' + error.message);
+                alert(i18n.t('admin.operation_failed') + ': ' + error.message);
             }
         }
         
@@ -194,11 +207,11 @@
                     body: JSON.stringify({ uid: parseInt(uid), permission: newPerm })
                 });
                 const data = await response.json();
-                alert(data.message || (data.success ? '更新成功' : '更新失败'));
+                alert(data.message || (data.success ? i18n.t('admin.user_update_success') : i18n.t('admin.user_update_failed')));
                 closeModal('permissionModal');
                 loadUsers();
             } catch (error) {
-                alert('操作失败: ' + error.message);
+                alert(i18n.t('admin.operation_failed') + ': ' + error.message);
             }
         }
         

@@ -6,7 +6,7 @@
 - **最后修复时间**: 2025-11-30
 - **指导文件**: 新架构项目重构完整指导文件20251130.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 二十三轮Bug修复
+- **状态**: ✅ 重构完成 + 二十五轮Bug修复
 
 ---
 
@@ -590,6 +590,563 @@
 || 2025-11-30 | 修复21 | 下载系统重构(异步队列+Pipeline)+计费同步优化 | download.py, download_worker.py(新), paper_blocks.py, search_dao.py, server.py, main.py, i18n.js, index.html, billing_syncer.py, 新架构指导文件, 时序图, 数据库图 |
 || 2025-11-30 | 修复22 | 高并发测试脚本重构(Selenium→HTTP API/50并发/分阶段测试) | scripts/autopaper_scraper.py(完全重写) |
 || 2025-11-30 | 修复23 | Result缓存TTL优化(7天TTL+蒸馏MySQL回源) | connection.py, result_cache.py, search_dao.py, distill.py, 新架构指导文件, 数据库关联图 |
+|| 2025-11-30 | 修复24 | 前端功能增强与Bug修复（8项） | query_api.py, search_dao.py, user_dao.py, index.html, billing.html, i18n.js, data-table.js(新), data-table.css(新), admin/*.html |
+|| 2025-11-30 | 修复30 | 蒸馏功能深度修复（代码清理+研究问题传递+is_distillation修复+前端显示） | distill.py, paper_processor.py, query_api.py, index.html, i18n.js |
+|| 2025-11-30 | 修复31 | 蒸馏功能深度修复（API字段补全+扣费IOPS优化+颜色改橙色） | query_api.py, paper_processor.py, distill.py, index.html, i18n.js |
+
+---
+
+## 修复轮次二十四：前端功能增强与Bug修复 (2025-11-30)
+
+### 问题清单
+1. 蒸馏功能点击"开始蒸馏"后无反应
+2. billing.html 账单显示为空
+3. admin/users.html 余额显示人民币符号
+4. 多个列表页面需添加分页/排序/搜索/筛选
+5. admin/dashboard.html 版块顺序调整
+6. 管理员页面添加中英文切换
+7. index.html 显示 "{count}" bug
+8. index.html 中英文切换不完整（标签）
+
+### 修复内容
+
+#### 24a: 蒸馏功能 MySQL 回源
+- **问题**: `_calculate_distill_cost` 函数在 Redis 缓存过期时返回空数据
+- **修复**: 
+  - `query_api.py`: 添加 MySQL 回源逻辑
+  - `search_dao.py`: 新增 `get_all_results_from_mysql` 函数
+  - `index.html`: 增强错误提示（no_relevant_papers）
+  - `i18n.js`: 添加 `distill_no_relevant_papers` 翻译
+
+#### 24b: billing.html 账单显示
+- **问题**: 后端返回字段与前端期望不匹配
+- **修复**: `user_dao.py` 修改 `get_billing_records_by_uid`，返回 `query_time`, `is_distillation`, `total_papers_count`, `actual_cost`
+
+#### 24c: 余额符号修复
+- **问题**: 显示人民币符号 ¥，但余额单位是"检索点"
+- **修复**: `admin/users.html` 删除 ¥ 符号
+
+#### 24d: 版块顺序调整
+- **修复**: `admin/dashboard.html` 将"系统健康状态"移到"活跃任务队列"上方
+
+#### 24e: 选择文章数显示 bug
+- **问题**: 显示 `{count}` 占位符未被替换
+- **修复**: `index.html` 移除 `data-i18n` 属性，由 JS 动态更新
+
+#### 24f: 标签中英文切换
+- **修复**: 
+  - `i18n.js`: 添加 `tags` 翻译映射 + `translateTag` 函数 + `clear_tags` 英文翻译
+  - `index.html`: 标签渲染使用 `i18n.translateTag()`，语言切换时更新标签
+
+#### 24g: DataTable 组件
+- **新建文件**:
+  - `lib/html/static/js/data-table.js`: 可复用数据表格组件（分页/排序/搜索/筛选）
+  - `lib/html/static/css/data-table.css`: 组件样式
+- **应用**: `billing.html` 集成 DataTable
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 7 |
+| 新增 | 2 |
+
+---
+
+## 修复轮次二十五：前端功能增强与Bug修复 - 第三轮 (2025-11-30)
+
+### 问题清单
+1. 蒸馏功能报错 `Unknown column 'block_key'`
+2. billing.html 深色主题样式问题
+3. Major/Minor Category 标签翻译不完整
+4. 管理员页面中英文切换支持
+5. 管理员页面 DataTable 集成
+
+### 修复内容
+
+#### 25a: 蒸馏功能 block_key 修复
+- **问题**: MySQL `search_result` 表不存在 `block_key` 列
+- **修复**: 
+  - `search_dao.py`: `get_all_results_from_mysql` 函数移除 `block_key` 查询
+  - 使用 `PaperBlocks.get_paper_by_doi(doi)` 从 Redis 获取 block_key
+  - 文献Block永不过期，所以总能找到
+
+#### 25b: billing.html 深色主题
+- **问题**: 表格背景深黑、表头刺眼、下拉菜单白底白字
+- **修复**: 
+  - `billing.html`: body 添加 `class="dark-theme"`
+  - `data-table.css`: 完善深色主题样式（搜索框、下拉菜单、表格、分页按钮）
+
+#### 25c: 标签翻译补全
+- **问题**: 12个 Major Category 和所有 Minor Category 未翻译
+- **修复**: 
+  - `i18n.js`: 添加 12 个大类学科英文翻译
+  - `i18n.js`: 添加 282 个二级分类（Minor Category）英文翻译
+
+#### 25d: 管理员页面多语言支持
+- **修复的页面**:
+  - `admin/login.html`
+  - `admin/dashboard.html`
+  - `admin/users.html`
+  - `admin/tasks.html`
+  - `admin/control.html`
+  - `admin/debug.html`
+- **修改内容**:
+  - 引入 `i18n.js`
+  - 为所有静态文本添加 `data-i18n` 属性
+  - 添加语言切换按钮（🌐 EN/中）
+  - 添加 `apw_afterLangChange` 回调刷新动态内容
+  - 语言偏好通过 localStorage 跨页面保持
+- **新增翻译词条**:
+  - `i18n.js`: 添加完整的 `admin` 命名空间翻译（中英文）
+  - 包含：导航、登录、仪表板、用户管理、任务管理、系统控制、调试日志等
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 9 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `lib/load_data/search_dao.py` - 修复 block_key 查询
+- `lib/html/billing.html` - 添加 dark-theme class
+- `lib/html/static/css/data-table.css` - 完善深色主题样式
+- `lib/html/static/js/i18n.js` - 添加标签翻译 + 管理员页面翻译
+- `lib/html/admin/login.html` - 多语言支持
+- `lib/html/admin/dashboard.html` - 多语言支持
+- `lib/html/admin/users.html` - 多语言支持
+- `lib/html/admin/tasks.html` - 多语言支持
+- `lib/html/admin/control.html` - 多语言支持
+- `lib/html/admin/debug.html` - 多语言支持
+
+---
+
+## 修复轮次二十六：蒸馏功能超时与管理员登录Bug (2025-11-30)
+
+### 问题清单
+1. 蒸馏功能点击后长期显示"加载中..."，最终变成"获取失败"（504超时）
+2. 管理员登录页面有两个语言切换按钮
+3. 管理员登录后URL变成`?username=admin&password=Paper2025`暴露密码
+4. INTERFACE_SUMMARY.md 和 PROGRESS_LOG.md 标号不统一
+
+### 问题分析
+
+#### 26a: 蒸馏功能超时
+- **根因**: `get_all_results_from_mysql` 对每个DOI调用 `PaperBlocks.get_paper_by_doi(doi)`
+- **性能瓶颈**: `get_paper_by_doi` 遍历所有Block（约数百个）查找一个DOI，复杂度O(n*m)
+- **表现**: 当需要查询数百个相关DOI时，请求超时（>5分钟）
+
+#### 26b: 管理员登录页面Bug
+- **Bug1**: `admin/login.html` 手动添加了语言按钮，`i18n.js` 又自动创建了一个
+- **Bug2**: `<form>` 标签无 `action` 和 `method` 属性，JS执行失败时表单以GET方式提交
+
+### 修复内容
+
+#### 26a: DOI反向索引与批量查询优化
+- **新增Redis Key**: `idx:doi_to_block` (Hash) - DOI反向索引
+  - Field: DOI
+  - Value: block_key (如 "meta:NATURE:2024")
+- **paper_blocks.py 修改**:
+  - 新增 `KEY_DOI_INDEX = "idx:doi_to_block"` 常量
+  - 修改 `set_paper()`: 写入文献时同步更新反向索引
+  - 修改 `set_block()`: 批量写入时同步更新反向索引
+  - 优化 `get_paper_by_doi()`: 优先查反向索引(O(1))，不存在时才回退遍历
+  - 新增 `get_block_key_by_doi()`: O(1)获取单个DOI的block_key
+  - 新增 `batch_get_block_keys()`: Pipeline批量获取多个DOI的block_key
+  - 新增 `build_doi_index()`: 为所有已有数据构建反向索引
+  - 新增 `get_doi_index_size()`: 获取索引大小
+- **init_loader.py 修改**:
+  - 阶段3后新增阶段3.5：调用 `build_doi_index()` 构建DOI索引
+  - `check_redis_data_loaded()` 新增 `doi_index_loaded` 检查
+- **search_dao.py 修改**:
+  - 重构 `get_all_results_from_mysql()`: 使用 `batch_get_block_keys()` 批量查询
+  - 复杂度从O(n*m)优化到O(n)
+
+#### 26b: 管理员登录页面修复
+- **删除重复按钮**: 移除 `login-container` 内的手动语言按钮
+- **修复表单提交**: 添加 `action="javascript:void(0)" method="POST"`
+- **清理代码**: 移除手动按钮事件监听器，使用 `apw_afterLangChange` 回调
+
+#### 26c: 文档同步
+- **INTERFACE_SUMMARY.md**: 补充修复25内容，新增修复26
+- **PROGRESS_LOG.md**: 新增修复轮次二十六
+
+### 性能对比
+| 场景 | 优化前 | 优化后 |
+|------|--------|--------|
+| 单DOI查询 | O(m) 遍历所有Block | O(1) 索引查找 |
+| n个DOI批量查询 | O(n*m) 逐个遍历 | O(n) Pipeline批量 |
+| 蒸馏费用估算 | >5分钟超时 | <1秒响应 |
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 5 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `lib/redis/paper_blocks.py` - DOI反向索引支持
+- `lib/redis/init_loader.py` - 启动时构建DOI索引
+- `lib/load_data/search_dao.py` - 批量查询优化
+- `lib/html/admin/login.html` - 修复登录页面Bug
+- `RefactoryDocs/INTERFACE_SUMMARY.md` - 补充修复25和26
+- `RefactoryDocs/PROGRESS_LOG.md` - 添加修复轮次二十六
+
+---
+
+## 修复轮次二十七：蒸馏功能前端Bug修复 (2025-11-30)
+
+### 问题清单
+1. 点击"开始蒸馏"按钮没有任何反应或反馈
+2. 在蒸馏研究问题输入框中每输入一个字符，后端就会打印一次"从MySQL回源获取5864条结果"日志
+
+### 问题分析
+
+#### 27a: 点击"开始蒸馏"按钮无反应
+- **根因**: `index.html` 第4868行的onclick属性：
+  ```javascript
+  onclick="startDistillation('${cardId}', ${queryIndex})"
+  ```
+- **问题**: `queryIndex` 是字符串类型（如 "Q20251130073938_411822a1"），但没有被引号包裹
+- **结果**: JavaScript将其解析为变量名而非字符串字面量，触发 `ReferenceError: Q20251130073938_411822a1 is not defined`
+- **受影响位置**: 共4处onclick属性
+
+#### 27b: input事件导致API频繁调用
+- **根因**: 第4886-4894行的input事件监听器每次输入都调用 `estimateDistillationCost()`
+- **问题**: 蒸馏费用只取决于父查询的"相关"论文数量和价格，与用户输入的研究问题无关
+- **结果**: 每输入一个字符就发送一次HTTP请求，后端每次都从MySQL回源获取数千条结果
+
+### 修复内容
+
+#### 27a: onclick属性添加引号
+修复4处动态生成的onclick属性中的queryIndex参数：
+- 第4868行: `startDistillation('${cardId}', '${queryIndex}')`
+- 第5224行: `downloadDistillationCSV('${queryIndex}')`
+- 第5227行: `downloadDistillationBIB('${queryIndex}')`
+- 第5230行: `createDistillInputCard('${queryIndex}')`
+
+#### 27b: 重构input事件处理
+1. 修改 `estimateDistillationCost` 函数：
+   - 获取费用数据后，将其缓存到 `activeDistillCards.get(cardId).costData`
+2. 修改 input 事件监听器：
+   - 移除 `estimateDistillationCost` 调用
+   - 改为从缓存中读取费用数据，仅做本地状态检查
+3. 效果：费用估算API只在卡片创建时调用一次，用户输入时不再发送任何HTTP请求
+
+### 性能对比
+| 场景 | 优化前 | 优化后 |
+|------|--------|--------|
+| 输入10个字符 | 10次API调用，10次MySQL回源 | 0次API调用 |
+| 后端负载 | 每字符触发数千条记录查询 | 无额外负载 |
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 1 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `lib/html/index.html` - 修复4处onclick引号 + 重构input事件处理
+
+---
+
+## 修复轮次二十八：蒸馏计费Bug修复 (2025-11-30)
+
+### 问题清单
+1. 蒸馏任务计费使用正常费率（1倍）而非蒸馏费率（0.1倍）
+
+### 问题分析
+
+#### 28a: 蒸馏计费Bug
+- **现象**: 用户余额600，预计消耗527.6（2943篇×0.1倍），但Worker报告"余额不足"
+- **实际**: 仅处理388条记录后余额清零
+- **日志证据**: `[Worker-32] 余额不足，跳过 10.1145/3706598.3713476`
+
+#### 根因追踪
+1. **蒸馏费率定义正确**: `distill.py` 第23行 `DISTILL_RATE = 0.1`
+2. **DistillWorker实现正确**: `distill.py` 第234行使用 `price * DISTILL_RATE`
+3. **问题在Scheduler**: `scheduler.py` 第182行：
+   ```python
+   workers = spawn_workers(uid, qid, actual_workers, ai_processor)
+   ```
+   始终使用普通 `BlockWorker`，无论任务是否为蒸馏任务
+
+4. **费用计算差异**:
+   - 预计费用（正确）: 2943 × 平均1.79 × 0.1 ≈ 527.6
+   - 实际扣费（错误）: 每篇按正常费率扣费，约1.79/篇
+   - 结果: 600 ÷ 1.79 ≈ 335篇后余额耗尽
+
+### 修复内容
+
+#### 28a: 新增 get_query_by_id 函数
+- **文件**: `lib/load_data/query_dao.py`
+- **功能**: 根据 query_id 获取查询信息（包含 search_params）
+- **用途**: 供 Scheduler 判断任务类型
+
+#### 28b: 修改 _start_query_workers 函数
+- **文件**: `lib/process/scheduler.py`
+- **修改**:
+  1. 从 `query_dao.get_query_by_id(qid)` 获取查询信息
+  2. 解析 `search_params.is_distillation` 判断任务类型
+  3. 蒸馏任务调用 `spawn_distill_workers()` 使用 `DistillWorker`
+  4. 普通查询调用 `spawn_workers()` 使用 `BlockWorker`
+
+### 修改后的流程
+```
+蒸馏任务提交 -> Scheduler检测is_distillation=True 
+  -> spawn_distill_workers() -> DistillWorker (0.1倍费率)
+普通查询提交 -> Scheduler检测is_distillation=False
+  -> spawn_workers() -> BlockWorker (正常费率)
+```
+
+### 预期效果
+- 蒸馏任务使用 `DistillWorker`，每篇扣费 = 基础价格 × 0.1
+- 2943篇文献，预计费用527.6，用户余额600足够完成
+- 任务正常完成，不再出现"余额不足"
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 2 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `lib/load_data/query_dao.py` - 新增 `get_query_by_id()` 函数
+- `lib/process/scheduler.py` - 修改 `_start_query_workers()` 区分任务类型
+
+---
+
+## 修复轮次二十九：蒸馏任务Scheduler异常与超额计费修复 (2025-11-30)
+
+### 问题清单
+1. Scheduler循环异常: `'DistillWorker' object has no attribute '_running'`
+2. 蒸馏超额计费: 预估527.6（2943篇），实际扣费530.0（3272篇）
+
+### 问题分析
+
+#### 29a: Scheduler异常
+- **现象**: 日志持续报错 `[Scheduler] 循环异常: 'DistillWorker' object has no attribute '_running'`
+- **位置**: `scheduler.py` 第236行访问 `w._running`
+- **根因**: `DistillWorker` 类没有暴露 `_running` 和 `_thread` 属性，它们在 `_inner_worker` 中
+
+#### 29b: 蒸馏超额计费
+- **现象**: 
+  - 预估费用: 527.6（2943篇 × 0.1倍费率）
+  - 实际费用: 530.0（全部余额）
+  - 归档记录: 3272条（而非2943条）
+- **日志证据**: 
+  ```
+  [BillingSyncer] 同步 uid=1: 2000 条记录, 金额 304.30
+  [BillingSyncer] 同步 uid=1: 1272 条记录, 金额 225.70
+  [SearchDAO] 归档完成: Q20251130111112_6aa7cf00 -> 3272 条记录
+  ```
+- **根因**: `distillation_producer` 入队的是 `meta:JOURNAL:YEAR` 格式的完整Block，Worker处理时会处理整个Block中的所有论文（3272篇），而非仅相关DOI（2943篇）
+
+### 修复方案
+
+#### 29a修复: DistillWorker属性代理
+在 `DistillWorker` 类中添加 `@property` 方法代理 `_inner_worker` 属性：
+```python
+@property
+def _running(self):
+    return self._inner_worker._running
+
+@property
+def _thread(self):
+    return self._inner_worker._thread
+```
+
+#### 29b修复: 蒸馏专用Block
+重构 `distillation_producer` 函数：
+1. 不再直接入队 `meta:` 格式的完整Block
+2. 创建 `distill:{uid}:{qid}:{index}` 格式的蒸馏专用Block
+3. 蒸馏Block只包含相关DOI的Bib数据（精确到2943篇）
+4. 修改 `get_block_by_key` 支持 `distill:` 前缀的Block
+
+### 新增Redis Key格式
+- `distill:{uid}:{qid}:{block_index}` (Hash, TTL 7天)
+  - Field: DOI
+  - Value: Bib字符串
+  - 每个Block最多100个DOI
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 3 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `lib/process/distill.py` - DistillWorker添加 `_running` 和 `_thread` 属性代理
+- `lib/process/paper_processor.py` - `distillation_producer` 创建蒸馏专用Block
+- `lib/redis/paper_blocks.py` - `get_block_by_key` 支持 `distill:` 前缀
+
+### 预期效果
+1. Scheduler不再报 `_running` 属性错误
+2. 蒸馏任务只处理相关DOI（2943篇），费用约527.6
+3. 任务完成后余额 = 530 - 527.6 = 2.4
+
+---
+
+## 修复轮次三十：蒸馏功能深度修复 (2025-11-30)
+
+### 问题清单
+1. `distill.py` 包含5个未被调用的函数，与 `paper_processor.py` 和 `query_api.py` 功能重复
+2. 蒸馏任务创建时 `research_question=""` 没有传递用户输入的蒸馏研究问题
+3. 历史记录的 `is_distillation` 从不存在的数据库列获取，应从 `search_params` JSON 获取
+4. 前端蒸馏任务无法与普通查询区分，不显示父任务信息
+
+### 问题分析
+
+#### 30a: 代码重复
+- **根因**: 早期修复时在 `distill.py` 创建了独立的蒸馏处理函数，后续在 `paper_processor.py` 又实现了一套
+- **实际调用链**: `query_api` → `paper_processor.process_papers_for_distillation` → `distillation_producer`
+- **未使用代码**: `create_distill_task`, `_create_distill_blocks`, `get_distill_block`, `calculate_distill_cost`, `estimate_distill_cost`
+
+#### 30b: 研究问题空白
+- **根因**: `process_papers_for_distillation` 函数签名不包含研究问题参数
+- **代码位置**: 第182行设置 `"research_question": ""`
+- **调用位置**: `query_api._handle_start_distillation` 获取了 `question` 但未传递
+
+#### 30c: is_distillation 获取错误
+- **根因**: `_handle_get_query_history` 使用 `r.get('is_distillation')` 获取
+- **问题**: `query_log` 表无 `is_distillation` 列，该字段在 `search_params` JSON 中
+- **同样问题**: `_handle_get_query_info` 也缺少 `is_distillation` 和 `original_query_id` 返回
+
+#### 30d: 前端显示问题
+- **现象**: 蒸馏任务与普通查询在历史记录中无法区分，详情卡片不显示父任务
+- **根因**: 后端返回的数据缺少字段，前端也未处理
+
+### 修复内容
+
+#### 30a: 清理 distill.py
+- **删除函数**: create_distill_task, _create_distill_blocks, get_distill_block, calculate_distill_cost, estimate_distill_cost
+- **保留代码**: DISTILL_RATE, DISTILL_BLOCK_SIZE, DistillWorker, spawn_distill_workers
+- **代码减少**: ~200行 → ~110行
+
+#### 30b: 修复研究问题传递
+- **paper_processor.py**: 添加 `research_question: str = ""`, `requirements: str = ""` 参数
+- **query_api.py**: `_handle_start_distillation` 调用时传递 `question`, `requirements`
+
+#### 30c: 修复 is_distillation 获取
+- **_handle_get_query_history**: 
+  - 从 `search_params` 获取 `is_distillation`
+  - 新增 `original_query_id` 返回字段
+- **_handle_get_query_info**:
+  - 新增 `is_distillation` 返回字段
+  - 新增 `original_query_id` 返回字段
+
+#### 30d: 前端显示优化
+- **createHistoryItem**: 蒸馏任务标题添加 `🔬` 前缀
+- **updateHistoryDescriptionCard**: 蒸馏任务显示"基于任务 XXX"信息
+- **i18n.js**: 添加 `distill_prefix`, `distill_based_on` 中英文翻译
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 6 |
+| 新增 | 0 |
+| 删除 | 0 |
+
+### 修改文件清单
+- `lib/process/distill.py` - 清理5个未使用函数（~90行删除），蒸馏费率动态化
+- `lib/process/paper_processor.py` - process_papers_for_distillation 添加参数，费率动态化
+- `lib/process/scheduler.py` - 更新注释（动态蒸馏费率）
+- `lib/webserver/query_api.py` - 修复3处蒸馏相关逻辑
+- `lib/html/index.html` - 蒸馏任务显示优化
+- `lib/html/static/js/i18n.js` - 添加蒸馏翻译词条
+
+### 补充：蒸馏费率动态化（遵循修复17原则）
+
+#### 问题
+以下位置硬编码了蒸馏费率 0.1，违反修复17确立的"动态获取蒸馏系数"原则：
+- `distill.py` 第22-23行: `DISTILL_RATE = 0.1`
+- `paper_processor.py` 第199行: `estimated_cost=float(paper_count) * 0.1`
+- `scheduler.py` 第167、204行: 注释中写死"0.1倍费率"
+
+#### 修复内容
+| 文件 | 问题 | 修复 |
+|------|------|------|
+| `distill.py` | DISTILL_RATE=0.1 硬编码常量 | 删除常量，使用 `SystemConfig.get_distill_rate()` |
+| `paper_processor.py` | estimated_cost * 0.1 | 改为 `* SystemConfig.get_distill_rate()` |
+| `scheduler.py` | 注释硬编码"0.1倍费率" | 更新为"动态蒸馏费率" |
+
+---
+
+## 修复轮次三十一：蒸馏功能深度修复 (2025-11-30)
+
+### 问题清单
+1. 查询任务刷新后"文章总数"和"预计花费"消失
+2. 蒸馏任务扣费错误（按1点/篇而非实际价格×蒸馏系数）
+3. 蒸馏任务刷新后"相关论文数量"、"开销"、"开始时间"消失
+4. 蒸馏任务颜色需从深紫色改为低饱和度橙色
+
+### 问题分析
+
+#### 31a: API返回字段缺失
+- **根因**: `_handle_get_query_info` 和 `_handle_get_query_history` 返回数据缺少 `total_papers_count` 和 `estimated_cost` 字段
+- **修复**: 从 `search_params` 和 `query_log` 表中提取这些字段并返回
+
+#### 31b: 蒸馏任务扣费错误
+- **根因**: 蒸馏Block格式是 `distill:{uid}:{qid}:{index}`，但 `parse_block_key` 只能解析 `meta:` 前缀，导致价格默认为1
+- **根因2**: 预估阶段计算的价格信息未传递给Worker
+- **IOPS分析**: 预估阶段已是O(1)级别（3次Redis调用），问题在于价格信息未传递
+
+#### 31c: 颜色修改
+- **需求**: 将深紫色（#8b5cf6等）改为低饱和度橙色（#b87333等）
+
+### 修复内容
+
+#### 31a: API返回字段修复
+- `_handle_get_query_info`: 新增 `total_papers_count` 和 `estimated_cost` 返回字段
+- `_handle_get_query_history`: 新增 `estimated_cost` 返回字段
+
+#### 31b: 蒸馏扣费修复（IOPS优化版）
+核心思路：让价格信息从预估阶段传递到Worker，避免Worker重复查询
+
+| 步骤 | 文件 | 修改内容 |
+|------|------|----------|
+| B1 | `query_api.py` | `_calculate_distill_cost` 返回三元组 `(dois, cost, doi_prices)` |
+| B2 | `query_api.py` | `_handle_start_distillation` 传递 `doi_prices` |
+| B3 | `paper_processor.py` | `process_papers_for_distillation` 新增 `doi_prices` 参数 |
+| B4 | `paper_processor.py` | `distillation_producer` 存储格式改为 `{"bib": bib, "price": price}` |
+| B5 | `distill.py` | `DistillWorker.__init__` 缓存蒸馏费率 |
+| B6 | `distill.py` | `_process_paper_with_distill_rate` 从Block解析价格JSON |
+
+**IOPS效果**:
+| 阶段 | Redis调用 |
+|------|----------|
+| 预估阶段 | 3次（get_all_results + get_all_prices + get_distill_rate） |
+| Worker阶段 | 0次额外调用（从Block读取价格） |
+| 蒸馏费率 | 1次（Worker初始化时缓存） |
+
+#### 31c: 前端显示修复
+- `updateHistoryDescriptionCard`: 显示文章总数和开销
+- `i18n.js`: 添加 `actual_cost`("开销") 和 `relevant_papers_count`("相关论文数量") 翻译
+
+#### 31d: CSS颜色修复
+配色方案：
+- 主色: `#b87333` (古铜色)
+- 浅色: `#c9a06a` (沙金色)
+- 深色: `#8b6914` (暗金色)
+- 背景渐变: `#2a2016` → `#1e1e1e`
+
+修改的选择器：
+- `.history-item.distill-type` 及其 `:hover` / `.active` 状态
+- `.history-item.distill-type .history-item-title`
+- `.history-item.distill-type .history-item-meta`
+- `.history-description-card.distill-type` 及其子元素
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 5 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `lib/webserver/query_api.py` - API返回字段 + _calculate_distill_cost返回doi_prices
+- `lib/process/paper_processor.py` - 传递doi_prices参数，distillation_producer存储价格JSON
+- `lib/process/distill.py` - 缓存费率，从Block解析价格JSON
+- `lib/html/index.html` - 前端显示+CSS颜色修改
+- `lib/html/static/js/i18n.js` - 翻译词条
 
 ---
 

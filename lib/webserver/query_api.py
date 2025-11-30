@@ -70,18 +70,23 @@ def _calculate_query_cost(journals: List[str], start_year: int = None,
     return total_count, total_cost
 
 
-def _calculate_distill_cost(uid: int, original_qid: str) -> Tuple[List[str], float]:
+def _calculate_distill_cost(uid: int, original_qid: str) -> Tuple[List[str], float, Dict[str, int]]:
     """
-    计算蒸馏任务费用（纯Redis操作，替代get_prices_by_dois）
+    计算蒸馏任务费用（优先Redis，MISS时回源MySQL）
     
     安全原则: 此函数仅在后端调用，从Redis直接获取期刊价格
+    
+    修复31优化: 返回doi_prices映射，供后续Worker使用，避免重复查询（0额外IOPS）
     
     Args:
         uid: 用户ID
         original_qid: 原始查询ID
         
     Returns:
-        (relevant_dois, total_cost) 元组
+        (relevant_dois, total_cost, doi_prices) 三元组
+        - relevant_dois: 相关DOI列表
+        - total_cost: 总费用（已乘以蒸馏系数）
+        - doi_prices: {doi: actual_price} 映射（未乘蒸馏系数的原始价格）
     """
     from ..redis.result_cache import ResultCache
     from ..redis.system_cache import SystemCache
@@ -89,11 +94,20 @@ def _calculate_distill_cost(uid: int, original_qid: str) -> Tuple[List[str], flo
     from ..redis.system_config import SystemConfig
     
     all_results = ResultCache.get_all_results(uid, original_qid)
+    
+    # Redis MISS时从MySQL回源（可能因为7天TTL过期）
+    if not all_results:
+        from ..load_data.search_dao import get_all_results_from_mysql
+        all_results = get_all_results_from_mysql(uid, original_qid)
+        if all_results:
+            print(f"[DistillCost] Redis MISS，从MySQL回源获取 {len(all_results)} 条结果")
+    
     all_prices = SystemCache.get_all_prices()
     distill_rate = SystemConfig.get_distill_rate()  # 动态获取蒸馏系数
     
     relevant_dois = []
     total_cost = 0.0
+    doi_prices = {}  # 修复31: 收集每个DOI的原始价格
     
     for doi, data in all_results.items():
         ai_result = data.get('ai_result', {})
@@ -112,13 +126,16 @@ def _calculate_distill_cost(uid: int, original_qid: str) -> Tuple[List[str], flo
                 if parsed:
                     journal, _ = parsed
                     price = all_prices.get(journal, 1)
+                    doi_prices[doi] = price  # 存储原始价格（未乘系数）
                     total_cost += price * distill_rate  # 蒸馏费率（动态配置）
                 else:
+                    doi_prices[doi] = 1  # 默认价格
                     total_cost += distill_rate  # 默认费用（使用蒸馏系数）
             else:
+                doi_prices[doi] = 1  # 无block_key时默认价格
                 total_cost += distill_rate  # 无block_key时使用蒸馏系数
     
-    return relevant_dois, total_cost
+    return relevant_dois, total_cost, doi_prices
 
 
 def handle_query_api(path: str, method: str, headers: Dict, payload: Dict) -> Tuple[int, Dict]:
@@ -296,8 +313,8 @@ def _handle_start_search(payload: Dict) -> Tuple[int, Dict]:
                     'message': f'余额不足（需要 {estimated_cost}，当前 {user_balance}）'
                 }
         
-        # 调用新架构的处理函数
-        success, result = process_papers(uid, search_params)
+        # 调用新架构的处理函数（修复31c：传递正确的estimated_cost）
+        success, result = process_papers(uid, search_params, estimated_cost=estimated_cost)
         
         if success:
             return 200, {
@@ -341,8 +358,9 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
             return 400, {'success': False, 'error': 'invalid_uid'}
         
         # 使用后端费用计算函数（纯Redis操作，替代get_prices_by_dois）
+        # 修复31: 返回doi_prices，传递给Worker避免重复查询
         try:
-            relevant_dois, estimated_cost = _calculate_distill_cost(uid, original_query_id)
+            relevant_dois, estimated_cost, doi_prices = _calculate_distill_cost(uid, original_query_id)
         except Exception as e:
             return 500, {'success': False, 'error': 'calculate_cost_failed', 'message': str(e)}
         
@@ -362,8 +380,14 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
                 'message': f'余额不足（需要 {estimated_cost:.1f}，当前 {user_balance}）'
             }
         
-        # 调用蒸馏处理函数
-        success, result = process_papers_for_distillation(uid, original_query_id, relevant_dois)
+        # 调用蒸馏处理函数（修复31b：传递doi_prices和正确的estimated_cost）
+        success, result = process_papers_for_distillation(
+            uid, original_query_id, relevant_dois,
+            research_question=question,
+            requirements=requirements,
+            doi_prices=doi_prices,
+            estimated_cost=estimated_cost  # 传递正确的预估费用（考虑实际期刊价格）
+        )
         
         if success:
             return 200, {
@@ -405,8 +429,9 @@ def _handle_estimate_distillation_cost(payload: Dict) -> Tuple[int, Dict]:
         original_query_id = str(original_query_id)
         
         # 使用后端费用计算函数（纯Redis操作，替代get_prices_by_dois）
+        # 修复31: _calculate_distill_cost 现在返回三元组，这里只使用前两个
         try:
-            relevant_dois, estimated_cost = _calculate_distill_cost(uid, original_query_id)
+            relevant_dois, estimated_cost, _ = _calculate_distill_cost(uid, original_query_id)
         except Exception:
             relevant_dois = []
             estimated_cost = 0.0
@@ -782,6 +807,10 @@ def _handle_get_query_history(payload: Dict) -> Tuple[int, Dict]:
                 except Exception:
                     sp = {}
             
+            # 修复30：从 search_params 获取 is_distillation 和 original_query_id
+            is_distillation = bool(sp.get('is_distillation'))
+            original_query_id = sp.get('original_query_id', '')
+            
             formatted_logs.append({
                 'query_id': r.get('query_id') or r.get('query_index'),
                 'uid': r.get('uid'),
@@ -794,8 +823,10 @@ def _handle_get_query_history(payload: Dict) -> Tuple[int, Dict]:
                 'start_time': fmt_time(r.get('start_time')),
                 'end_time': fmt_time(r.get('end_time')),
                 'completed': bool(r.get('end_time') or r.get('status') == 'COMPLETED' or r.get('status') == 'DONE'),
-                'total_papers_count': r.get('total_papers_count') or sp.get('max_papers') or 0,
-                'is_distillation': bool(r.get('is_distillation')),
+                'total_papers_count': r.get('total_papers_count') or sp.get('max_papers') or sp.get('doi_count') or 0,
+                'estimated_cost': r.get('estimated_cost') or r.get('total_cost') or 0,  # 修复31: 添加开销
+                'is_distillation': is_distillation,
+                'original_query_id': original_query_id,
                 'is_visible': r.get('is_visible', True),
                 'should_pause': bool(r.get('should_pause')),
             })
@@ -878,6 +909,10 @@ def _handle_get_query_info(payload: Dict) -> Tuple[int, Dict]:
             except Exception:
                 sp = {}
         
+        # 修复30：从 search_params 获取 is_distillation 和 original_query_id
+        is_distillation = bool(sp.get('is_distillation'))
+        original_query_id = sp.get('original_query_id', '')
+        
         return 200, {
             'success': True,
             'query_info': {
@@ -892,7 +927,11 @@ def _handle_get_query_info(payload: Dict) -> Tuple[int, Dict]:
                 'start_time': fmt_time(row.get('start_time')),
                 'end_time': fmt_time(row.get('end_time')),
                 'completed': bool(row.get('end_time') or row.get('status') == 'COMPLETED' or row.get('status') == 'DONE'),
-                'should_pause': bool(row.get('should_pause'))  # 修复10: 添加暂停状态字段
+                'should_pause': bool(row.get('should_pause')),  # 修复10: 添加暂停状态字段
+                'is_distillation': is_distillation,  # 修复30: 添加蒸馏标识
+                'original_query_id': original_query_id,  # 修复30: 添加父任务ID
+                'total_papers_count': sp.get('max_papers') or sp.get('doi_count') or 0,  # 修复31: 添加文章总数
+                'estimated_cost': row.get('estimated_cost') or row.get('total_cost') or 0,  # 修复31: 添加开销
             }
         }
     except Exception as e:

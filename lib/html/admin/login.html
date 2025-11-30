@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>管理员登录 - AutoPaperWeb</title>
+    <title data-i18n="admin.login_title">管理员登录 - AutoPaperWeb</title>
+    <script src="/static/js/i18n.js"></script>
     <style>
         * {
             margin: 0;
@@ -123,35 +124,58 @@
 </head>
 <body>
     <div class="login-container">
+        <!-- 语言切换按钮由i18n.js自动创建，放在页面右上角 -->
         <div class="login-header">
-            <h1>🔐 管理员登录</h1>
-            <p>AutoPaperWeb 后台管理系统</p>
+            <h1 data-i18n="admin.login_title">🔐 管理员登录</h1>
+            <p data-i18n="admin.login_subtitle">AutoPaperWeb 后台管理系统</p>
         </div>
         
         <div class="error-message" id="errorMsg"></div>
         
-        <form id="loginForm">
+        <!-- 修复26: 添加 action 防止JS失败时表单GET提交暴露密码 -->
+        <form id="loginForm" action="javascript:void(0)" method="POST">
             <div class="form-group">
-                <label for="username">用户名</label>
+                <label for="username" data-i18n="admin.login_username">用户名</label>
                 <input type="text" id="username" name="username" required 
-                       autocomplete="username" placeholder="请输入管理员用户名">
+                       autocomplete="username" data-i18n-placeholder="admin.login_username_ph" placeholder="请输入管理员用户名">
             </div>
             
             <div class="form-group">
-                <label for="password">密码</label>
+                <label for="password" data-i18n="admin.login_password">密码</label>
                 <input type="password" id="password" name="password" required 
-                       autocomplete="current-password" placeholder="请输入密码">
+                       autocomplete="current-password" data-i18n-placeholder="admin.login_password_ph" placeholder="请输入密码">
             </div>
             
-            <button type="submit" class="btn-login">登 录</button>
+            <button type="submit" class="btn-login" data-i18n="admin.login_submit">登 录</button>
         </form>
         
         <div class="back-link">
-            <a href="/">← 返回首页</a>
+            <a href="/" data-i18n="admin.login_back">← 返回首页</a>
         </div>
     </div>
     
     <script>
+        // 应用 placeholder 翻译
+        function applyPlaceholders() {
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+                const key = el.getAttribute('data-i18n-placeholder');
+                if (window.i18n) {
+                    el.placeholder = i18n.t(key);
+                }
+            });
+        }
+        
+        // i18n.js 语言切换后的回调（用于刷新placeholder）
+        window.apw_afterLangChange = function() {
+            applyPlaceholders();
+        };
+        
+        // 初始化时应用
+        if (window.i18n) {
+            i18n.applyI18n();
+            applyPlaceholders();
+        }
+        
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -175,11 +199,11 @@
                     localStorage.setItem('adminUsername', username);
                     window.location.href = '/admin/dashboard.html';
                 } else {
-                    errorMsg.textContent = data.message || '登录失败';
+                    errorMsg.textContent = data.message || (window.i18n ? i18n.t('admin.login_error') : '登录失败');
                     errorMsg.style.display = 'block';
                 }
             } catch (error) {
-                errorMsg.textContent = '网络错误，请稍后重试';
+                errorMsg.textContent = window.i18n ? i18n.t('admin.login_network_error') : '网络错误，请稍后重试';
                 errorMsg.style.display = 'block';
             }
         });

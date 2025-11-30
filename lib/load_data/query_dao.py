@@ -296,6 +296,34 @@ def get_active_queries() -> List[Dict]:
         conn.close()
 
 
+def get_query_by_id(query_id: str) -> Optional[Dict]:
+    """
+    根据 query_id 获取查询信息（修复28新增）
+    
+    Args:
+        query_id: 查询ID
+        
+    Returns:
+        查询信息字典，包含 search_params 等字段
+    """
+    if not query_id:
+        return None
+    
+    conn = _get_connection()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT query_id, uid, search_params, start_time, status
+            FROM query_log 
+            WHERE query_id = %s
+        """, (query_id,))
+        result = cursor.fetchone()
+        cursor.close()
+        return result
+    finally:
+        conn.close()
+
+
 def get_query_progress(uid: int, query_id: str) -> Optional[Dict]:
     """
     获取查询进度

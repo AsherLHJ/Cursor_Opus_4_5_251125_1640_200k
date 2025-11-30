@@ -321,23 +321,53 @@ def sync_balance_to_mysql(uid: int, balance: float) -> bool:
 
 
 def get_billing_records_by_uid(uid: int, limit: int = 100) -> List[Dict]:
-    """获取用户账单记录（从 query_log 表）"""
+    """
+    获取用户账单记录（从 query_log 表）
+    
+    返回前端期望的字段：
+    - query_time: 查询时间
+    - is_distillation: 是否为蒸馏检索
+    - total_papers_count: 检索文章数
+    - actual_cost: 实际花费
+    """
     if not uid or uid <= 0:
         return []
     
     conn = _get_connection()
     try:
         cursor = conn.cursor(dictionary=True)
+        # 使用 JSON_EXTRACT 提取 is_distillation，并联查 search_result 统计文章数
         cursor.execute("""
-            SELECT query_id, start_time, status, total_cost
-            FROM query_log 
-            WHERE uid = %s 
-              AND total_cost > 0
-            ORDER BY start_time DESC 
+            SELECT 
+                q.query_id,
+                q.start_time as query_time,
+                COALESCE(JSON_UNQUOTE(JSON_EXTRACT(q.search_params, '$.is_distillation')), 'false') as is_distillation_str,
+                q.total_cost as actual_cost,
+                COUNT(sr.id) as total_papers_count
+            FROM query_log q
+            LEFT JOIN search_result sr ON q.query_id = sr.query_id AND q.uid = sr.uid
+            WHERE q.uid = %s 
+              AND q.total_cost > 0
+            GROUP BY q.query_id, q.start_time, q.search_params, q.total_cost
+            ORDER BY q.start_time DESC 
             LIMIT %s
         """, (uid, limit))
-        result = cursor.fetchall()
+        rows = cursor.fetchall()
         cursor.close()
-        return result or []
+        
+        # 转换 is_distillation 为布尔值
+        result = []
+        for row in rows:
+            is_distill_str = str(row.get('is_distillation_str', 'false')).lower()
+            is_distillation = is_distill_str in ('true', '1', 'yes')
+            result.append({
+                'query_id': row.get('query_id'),
+                'query_time': row.get('query_time'),
+                'is_distillation': is_distillation,
+                'total_papers_count': row.get('total_papers_count', 0),
+                'actual_cost': float(row.get('actual_cost', 0))
+            })
+        
+        return result
     finally:
         conn.close()

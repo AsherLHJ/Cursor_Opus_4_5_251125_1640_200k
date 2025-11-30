@@ -6,6 +6,9 @@ Key设计:
 - meta:{JournalName}:{Year} (Hash) - 文献Block
   - Field: DOI
   - Value: 压缩后的Bib字符串
+- idx:doi_to_block (Hash) - DOI反向索引
+  - Field: DOI
+  - Value: block_key (如 "meta:NATURE:2024")
 """
 
 import json
@@ -13,6 +16,10 @@ import zlib
 from typing import Optional, Dict, List, Tuple
 
 from .connection import get_redis_client
+
+
+# DOI反向索引Key（用于O(1)查询DOI对应的block_key）
+KEY_DOI_INDEX = "idx:doi_to_block"
 
 
 class PaperBlocks:
@@ -111,8 +118,23 @@ class PaperBlocks:
         根据Block Key获取所有文献
         
         Args:
-            block_key: 如 "meta:NATURE:2024"
+            block_key: 如 "meta:NATURE:2024" 或 "distill:uid:qid:index"
+            
+        修复29：支持 distill: 前缀的蒸馏专用Block
         """
+        # 修复29：蒸馏专用Block直接从Redis获取
+        if block_key and block_key.startswith("distill:"):
+            client = get_redis_client()
+            if not client:
+                return {}
+            try:
+                data = client.hgetall(block_key) or {}
+                # distill block 存储的是原始 bib，不需要解压
+                return {doi: bib for doi, bib in data.items()}
+            except Exception:
+                return {}
+        
+        # meta: 格式的普通Block
         parsed = cls.parse_block_key(block_key)
         if not parsed:
             return {}
@@ -144,8 +166,18 @@ class PaperBlocks:
     
     @classmethod
     def set_paper(cls, journal: str, year: int, doi: str, bib: str,
-                  compress: bool = True) -> bool:
-        """设置单篇文献"""
+                  compress: bool = True, update_index: bool = True) -> bool:
+        """
+        设置单篇文献
+        
+        Args:
+            journal: 期刊名
+            year: 年份
+            doi: 文献DOI
+            bib: Bib字符串
+            compress: 是否压缩Bib
+            update_index: 是否更新DOI反向索引
+        """
         client = get_redis_client()
         if not client or not journal or not year or not doi or not bib:
             return False
@@ -153,7 +185,13 @@ class PaperBlocks:
         try:
             key = cls._key_block(journal, year)
             value = cls._compress_bib(bib) if compress else bib
-            client.hset(key, doi, value)
+            
+            # 使用pipeline同时设置文献和更新索引
+            pipe = client.pipeline()
+            pipe.hset(key, doi, value)
+            if update_index:
+                pipe.hset(KEY_DOI_INDEX, doi, key)
+            pipe.execute()
             # 文献Block永不过期，不设置TTL
             return True
         except Exception:
@@ -161,7 +199,7 @@ class PaperBlocks:
     
     @classmethod
     def set_block(cls, journal: str, year: int, papers: Dict[str, str],
-                  compress: bool = True) -> bool:
+                  compress: bool = True, update_index: bool = True) -> bool:
         """
         批量设置Block数据
         
@@ -170,6 +208,7 @@ class PaperBlocks:
             year: 年份
             papers: {DOI: Bib} 字典
             compress: 是否压缩Bib
+            update_index: 是否更新DOI反向索引
         """
         client = get_redis_client()
         if not client or not journal or not year or not papers:
@@ -186,6 +225,12 @@ class PaperBlocks:
             pipe = client.pipeline()
             pipe.delete(key)
             pipe.hset(key, mapping=mapping)
+            
+            # 同时更新DOI反向索引
+            if update_index and papers:
+                index_mapping = {doi: key for doi in papers.keys()}
+                pipe.hset(KEY_DOI_INDEX, mapping=index_mapping)
+            
             pipe.execute()
             return True
         except Exception:
@@ -231,7 +276,9 @@ class PaperBlocks:
     @classmethod
     def get_paper_by_doi(cls, doi: str) -> Optional[Tuple[str, str]]:
         """
-        根据DOI查找文献（需要遍历，性能较低）
+        根据DOI查找文献
+        
+        优先使用DOI反向索引实现O(1)查询，索引不存在时回退到遍历模式
         
         Returns:
             (block_key, bib) 元组，或None
@@ -241,14 +288,133 @@ class PaperBlocks:
             return None
         
         try:
-            # 遍历所有Block
+            # 优先从反向索引获取block_key (O(1))
+            block_key = client.hget(KEY_DOI_INDEX, doi)
+            if block_key:
+                data = client.hget(block_key, doi)
+                if data:
+                    return (block_key, cls._decompress_bib(data))
+            
+            # 索引不存在时回退到遍历模式（兼容旧数据）
             for block_key in cls.list_blocks():
                 data = client.hget(block_key, doi)
                 if data:
+                    # 顺便更新索引
+                    try:
+                        client.hset(KEY_DOI_INDEX, doi, block_key)
+                    except Exception:
+                        pass
                     return (block_key, cls._decompress_bib(data))
             return None
         except Exception:
             return None
+    
+    @classmethod
+    def get_block_key_by_doi(cls, doi: str) -> Optional[str]:
+        """
+        根据DOI获取对应的block_key（O(1)复杂度）
+        
+        Args:
+            doi: 文献DOI
+            
+        Returns:
+            block_key字符串，如 "meta:NATURE:2024"，或None
+        """
+        client = get_redis_client()
+        if not client or not doi:
+            return None
+        
+        try:
+            return client.hget(KEY_DOI_INDEX, doi)
+        except Exception:
+            return None
+    
+    @classmethod
+    def batch_get_block_keys(cls, dois: List[str]) -> Dict[str, str]:
+        """
+        批量获取多个DOI对应的block_key（Pipeline优化）
+        
+        Args:
+            dois: DOI列表
+            
+        Returns:
+            {doi: block_key} 字典
+        """
+        client = get_redis_client()
+        if not client or not dois:
+            return {}
+        
+        try:
+            pipe = client.pipeline()
+            for doi in dois:
+                pipe.hget(KEY_DOI_INDEX, doi)
+            
+            results = pipe.execute()
+            
+            output = {}
+            for i, block_key in enumerate(results):
+                if block_key:
+                    output[dois[i]] = block_key
+            
+            return output
+        except Exception as e:
+            print(f"[PaperBlocks] batch_get_block_keys 失败: {e}")
+            return {}
+    
+    @classmethod
+    def build_doi_index(cls) -> int:
+        """
+        构建DOI反向索引
+        
+        遍历所有Block，为每个DOI建立到block_key的映射
+        在Redis初始化时调用
+        
+        Returns:
+            索引的DOI数量
+        """
+        client = get_redis_client()
+        if not client:
+            return 0
+        
+        try:
+            total_count = 0
+            block_keys = cls.list_blocks()
+            
+            # 分批处理，每批1000个Block
+            batch_size = 50
+            for i in range(0, len(block_keys), batch_size):
+                batch_keys = block_keys[i:i + batch_size]
+                pipe = client.pipeline()
+                
+                # 收集所有DOI和对应的block_key
+                index_mapping = {}
+                for block_key in batch_keys:
+                    dois = client.hkeys(block_key) or []
+                    for doi in dois:
+                        index_mapping[doi] = block_key
+                
+                # 批量写入索引
+                if index_mapping:
+                    pipe.hset(KEY_DOI_INDEX, mapping=index_mapping)
+                    pipe.execute()
+                    total_count += len(index_mapping)
+            
+            return total_count
+        except Exception as e:
+            print(f"[PaperBlocks] build_doi_index 失败: {e}")
+            return 0
+    
+    @classmethod
+    def get_doi_index_size(cls) -> int:
+        """获取DOI索引中的条目数量"""
+        client = get_redis_client()
+        if not client:
+            return 0
+        
+        try:
+            return client.hlen(KEY_DOI_INDEX) or 0
+        except Exception:
+            return 0
     
     # ============================================================
     # 批量获取方法 (Pipeline优化，用于下载等场景)

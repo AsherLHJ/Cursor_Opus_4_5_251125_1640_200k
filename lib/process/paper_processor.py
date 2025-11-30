@@ -35,6 +35,7 @@ from ..load_data.journal_dao import (
 from ..redis.task_queue import TaskQueue
 from ..redis.paper_blocks import PaperBlocks
 from ..redis.system_cache import SystemCache
+from ..redis.system_config import SystemConfig
 from ..redis.connection import redis_ping
 
 # 导出兼容性
@@ -43,7 +44,7 @@ from .export import export_results_from_db, extract_url_from_entry
 from .scheduler import start_background_scheduler
 
 
-def process_papers(uid: int, search_params: dict) -> Tuple[bool, str]:
+def process_papers(uid: int, search_params: dict, estimated_cost: float = None) -> Tuple[bool, str]:
     """
     处理论文的主函数 (新架构)
     
@@ -55,6 +56,7 @@ def process_papers(uid: int, search_params: dict) -> Tuple[bool, str]:
             - journals: 选中的期刊列表
             - start_year, end_year: 年份范围
             - include_all_years: 是否包含所有年份
+        estimated_cost: 预估费用（修复31c：使用预估阶段计算的正确值）
         
     Returns:
         (success, query_id 或 error_message)
@@ -107,11 +109,15 @@ def process_papers(uid: int, search_params: dict) -> Tuple[bool, str]:
             "max_papers": max_papers,
         }
 
+        # 修复31c：使用传入的正确estimated_cost，否则回退到简单计算
+        if estimated_cost is None:
+            estimated_cost = float(max_papers)
+        
         # 创建查询记录
         query_id = create_query_log(
             uid=uid,
             search_params=full_search_params,
-            estimated_cost=float(max_papers)
+            estimated_cost=estimated_cost  # 使用正确的预估费用
         )
 
         if not query_id:
@@ -150,14 +156,29 @@ def process_papers(uid: int, search_params: dict) -> Tuple[bool, str]:
 
 
 def process_papers_for_distillation(uid: int, original_query_id: str, 
-                                   relevant_dois: List[str]) -> Tuple[bool, str]:
+                                   relevant_dois: List[str],
+                                   research_question: str = "",
+                                   requirements: str = "",
+                                   doi_prices: Dict[str, int] = None,
+                                   estimated_cost: float = None) -> Tuple[bool, str]:
     """
     蒸馏处理函数 (新架构)
+    
+    修复30：添加 research_question 和 requirements 参数，
+    将用户在蒸馏时输入的研究问题存储到 search_params 中
+    
+    修复31：添加 doi_prices 和 estimated_cost 参数
+    - doi_prices: 传递给Worker以避免重复查询价格
+    - estimated_cost: 使用预估阶段计算的正确费用（考虑实际期刊价格）
     
     Args:
         uid: 用户ID
         original_query_id: 原始查询ID
         relevant_dois: 相关DOI列表
+        research_question: 蒸馏研究问题（用户输入）
+        requirements: 蒸馏筛选要求（用户输入）
+        doi_prices: {doi: price} 映射（修复31：预估阶段收集的价格信息）
+        estimated_cost: 预估费用（修复31b：使用预估阶段计算的正确值）
         
     Returns:
         (success, query_id 或 error_message)
@@ -178,19 +199,24 @@ def process_papers_for_distillation(uid: int, original_query_id: str,
             utils.print_and_log("无可处理的论文")
             return False, "No papers to process for distillation"
 
-        # 创建查询记录
+        # 创建查询记录（修复30：存储用户输入的蒸馏研究问题）
         search_params = {
-            "research_question": "",  # 蒸馏沿用原始查询的问题
-            "requirements": "",
+            "research_question": research_question,
+            "requirements": requirements,
             "is_distillation": True,
             "original_query_id": original_query_id,
             "doi_count": paper_count,
         }
 
+        # 修复31b：使用传入的正确estimated_cost，否则回退到简单计算
+        if estimated_cost is None:
+            distill_rate = SystemConfig.get_distill_rate()
+            estimated_cost = float(paper_count) * distill_rate
+        
         query_id = create_query_log(
             uid=uid,
             search_params=search_params,
-            estimated_cost=float(paper_count) * 0.1  # 蒸馏0.1倍费率
+            estimated_cost=estimated_cost  # 使用正确的预估费用
         )
 
         if not query_id:
@@ -207,10 +233,11 @@ def process_papers_for_distillation(uid: int, original_query_id: str,
         # 启动进度监控
         start_progress_monitor(num_threads)
 
-        # 执行蒸馏处理
+        # 执行蒸馏处理（修复31：传递doi_prices）
         def run_distillation():
             try:
-                distillation_producer(relevant_dois, query_id, uid, "", "")
+                distillation_producer(relevant_dois, query_id, uid, 
+                                     research_question, requirements, doi_prices)
                 scheduler.start_background_scheduler()
             except Exception as e:
                 utils.print_and_log(f"[distill] Error in distillation: {e}")
@@ -407,31 +434,65 @@ def produce_tasks(selected_folders: List[str], time_range: Dict,
 
 
 def distillation_producer(relevant_dois: List[str], query_id: str, 
-                          uid: int, rq: str, requirements: str):
-    """蒸馏任务生产者"""
+                          uid: int, rq: str, requirements: str,
+                          doi_prices: Dict[str, int] = None):
+    """
+    蒸馏任务生产者（修复29重构）
+    
+    修复29：创建蒸馏专用Block（distill:前缀），只包含相关DOI的Bib数据
+    避免处理整个meta:Block导致超额计费
+    
+    修复31：在Block中存储价格信息，Worker直接读取无需再次查询
+    存储格式：{doi: json.dumps({"bib": bib, "price": price})}
+    """
+    from ..redis.connection import get_redis_client
+    import json
+    
     utils.print_and_log(f"[distill] Starting distillation for {len(relevant_dois)} DOIs")
     
-    # 按Block分组DOIs
-    block_dois = {}
+    client = get_redis_client()
+    if not client:
+        utils.print_and_log("[distill] Redis client not available")
+        mark_query_completed(query_id)
+        return
     
-    for doi in relevant_dois:
-        # 尝试从缓存获取Block信息
-        result = PaperBlocks.get_paper_by_doi(doi)
-        if result:
-            block_key, _ = result
-            if block_key not in block_dois:
-                block_dois[block_key] = []
-            block_dois[block_key].append(doi)
-        else:
-            # 无法找到Block，使用特殊标记
-            if "unknown" not in block_dois:
-                block_dois["unknown"] = []
-            block_dois["unknown"].append(doi)
+    # 确保doi_prices是字典
+    if doi_prices is None:
+        doi_prices = {}
     
-    block_keys = list(block_dois.keys())
+    # 按每100个DOI划分为一个蒸馏Block
+    DISTILL_BLOCK_SIZE = 100
+    block_keys = []
+    
+    for i in range(0, len(relevant_dois), DISTILL_BLOCK_SIZE):
+        batch_dois = relevant_dois[i:i + DISTILL_BLOCK_SIZE]
+        block_index = len(block_keys)
+        distill_block_key = f"distill:{uid}:{query_id}:{block_index}"
+        
+        # 收集这批DOI的Bib数据和价格
+        block_data = {}
+        for doi in batch_dois:
+            # 从meta:Block获取Bib数据
+            result = PaperBlocks.get_paper_by_doi(doi)
+            if result:
+                _, bib = result
+                if bib:
+                    # 修复31：存储格式包含bib和price
+                    price = doi_prices.get(doi, 1)  # 从预估阶段获取价格，默认1
+                    block_data[doi] = json.dumps({"bib": bib, "price": price})
+        
+        if block_data:
+            try:
+                # 存储蒸馏专用Block
+                client.hset(distill_block_key, mapping=block_data)
+                # 设置7天过期
+                client.expire(distill_block_key, 7 * 24 * 3600)
+                block_keys.append(distill_block_key)
+            except Exception as e:
+                utils.print_and_log(f"[distill] 存储Block失败: {e}")
     
     if not block_keys:
-        utils.print_and_log("[distill] No blocks found for DOIs")
+        utils.print_and_log("[distill] No blocks created for DOIs")
         mark_query_completed(query_id)
         return
     

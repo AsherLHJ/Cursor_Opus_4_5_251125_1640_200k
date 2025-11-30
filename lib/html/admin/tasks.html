@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>任务管理 - AutoPaperWeb Admin</title>
+    <title data-i18n="admin.nav_tasks">任务管理 - AutoPaperWeb Admin</title>
+    <script src="/static/js/i18n.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f5f7fa; min-height: 100vh; }
@@ -37,47 +38,48 @@
 </head>
 <body>
     <div class="header">
-        <h1>📊 AutoPaperWeb 管理后台</h1>
+        <h1>📊 AutoPaperWeb <span data-i18n="admin.header_title">管理后台</span></h1>
         <div class="header-actions">
-            <span id="adminName">管理员</span>
-            <button onclick="logout()">退出登录</button>
+            <span id="langToggle" style="cursor:pointer;margin-right:10px;">🌐 EN/中</span>
+            <span id="adminName" data-i18n="admin.administrator">管理员</span>
+            <button onclick="logout()" data-i18n="admin.nav_logout">退出登录</button>
         </div>
     </div>
     
     <nav class="nav">
         <ul>
-            <li><a href="dashboard.html">监控大盘</a></li>
-            <li><a href="users.html">用户管理</a></li>
-            <li><a href="tasks.html" class="active">任务管理</a></li>
-            <li><a href="control.html">系统控制</a></li>
-            <li><a href="debug.html">调试日志</a></li>
+            <li><a href="dashboard.html" data-i18n="admin.nav_dashboard">监控大盘</a></li>
+            <li><a href="users.html" data-i18n="admin.nav_users">用户管理</a></li>
+            <li><a href="tasks.html" class="active" data-i18n="admin.nav_tasks">任务管理</a></li>
+            <li><a href="control.html" data-i18n="admin.nav_control">系统控制</a></li>
+            <li><a href="debug.html" data-i18n="admin.nav_debug">调试日志</a></li>
         </ul>
     </nav>
     
     <div class="container">
         <div class="panel">
-            <h2>📋 任务列表</h2>
+            <h2>📋 <span data-i18n="admin.tasks_title">任务列表</span></h2>
             
             <div class="tabs">
-                <button class="tab active" onclick="filterTasks('all')">全部</button>
-                <button class="tab" onclick="filterTasks('RUNNING')">运行中</button>
-                <button class="tab" onclick="filterTasks('PAUSED')">已暂停</button>
-                <button class="tab" onclick="filterTasks('DONE')">已完成</button>
+                <button class="tab active" data-filter="all" onclick="filterTasks('all')" data-i18n="admin.tasks_filter_all">全部</button>
+                <button class="tab" data-filter="RUNNING" onclick="filterTasks('RUNNING')" data-i18n="admin.tasks_filter_running">运行中</button>
+                <button class="tab" data-filter="PAUSED" onclick="filterTasks('PAUSED')" data-i18n="admin.tasks_filter_paused">已暂停</button>
+                <button class="tab" data-filter="DONE" onclick="filterTasks('DONE')" data-i18n="admin.tasks_filter_done">已完成</button>
             </div>
             
             <table>
                 <thead>
                     <tr>
-                        <th>查询ID</th>
-                        <th>用户ID</th>
-                        <th>状态</th>
-                        <th>开始时间</th>
-                        <th>费用</th>
-                        <th>操作</th>
+                        <th data-i18n="admin.tasks_query_id">查询ID</th>
+                        <th data-i18n="admin.tasks_uid">用户ID</th>
+                        <th data-i18n="admin.tasks_status">状态</th>
+                        <th data-i18n="admin.tasks_start_time">开始时间</th>
+                        <th data-i18n="admin.tasks_cost">费用</th>
+                        <th data-i18n="admin.user_actions">操作</th>
                     </tr>
                 </thead>
                 <tbody id="taskList">
-                    <tr><td colspan="6" style="text-align:center;color:#999;">加载中...</td></tr>
+                    <tr><td colspan="6" style="text-align:center;color:#999;" data-i18n="admin.loading">加载中...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -86,7 +88,18 @@
     <script>
         const adminToken = localStorage.getItem('adminToken');
         if (!adminToken) window.location.href = '/admin/login.html';
-        document.getElementById('adminName').textContent = localStorage.getItem('adminUsername') || '管理员';
+        document.getElementById('adminName').textContent = localStorage.getItem('adminUsername') || i18n.t('admin.administrator');
+        
+        // 语言切换
+        document.getElementById('langToggle').onclick = function() {
+            const newLang = i18n.lang === 'zh' ? 'en' : 'zh';
+            i18n.setLang(newLang);
+        };
+        
+        // 语言切换回调
+        window.apw_afterLangChange = function(lang) {
+            renderTasks();
+        };
         
         let allTasks = [];
         let currentFilter = 'all';
@@ -112,11 +125,7 @@
         function filterTasks(status) {
             currentFilter = status;
             document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.toggle('active', tab.textContent.includes(
-                    status === 'all' ? '全部' : 
-                    status === 'RUNNING' ? '运行中' :
-                    status === 'PAUSED' ? '已暂停' : '已完成'
-                ));
+                tab.classList.toggle('active', tab.getAttribute('data-filter') === status);
             });
             renderTasks();
         }
@@ -129,7 +138,7 @@
             const tbody = document.getElementById('taskList');
             
             if (!filtered.length) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#999;">暂无任务</td></tr>';
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#999;">${i18n.t('admin.tasks_none')}</td></tr>`;
                 return;
             }
             
@@ -139,14 +148,14 @@
                     <td>${t.uid}</td>
                     <td><span class="status-badge status-${(t.status || 'pending').toLowerCase()}">${t.status || 'PENDING'}</span></td>
                     <td>${t.start_time ? new Date(t.start_time).toLocaleString() : '-'}</td>
-                    <td>¥${parseFloat(t.total_cost || 0).toFixed(2)}</td>
+                    <td>${parseFloat(t.total_cost || 0).toFixed(2)}</td>
                     <td>
                         ${t.status === 'RUNNING' ? `
-                            <button class="btn btn-warning" onclick="pauseTask(${t.uid}, '${t.query_id}')">暂停</button>
-                            <button class="btn btn-danger" onclick="terminateTask(${t.uid}, '${t.query_id}')">终止</button>
+                            <button class="btn btn-warning" onclick="pauseTask(${t.uid}, '${t.query_id}')">${i18n.t('admin.tasks_pause')}</button>
+                            <button class="btn btn-danger" onclick="terminateTask(${t.uid}, '${t.query_id}')">${i18n.t('admin.tasks_terminate')}</button>
                         ` : ''}
                         ${t.status === 'PAUSED' ? `
-                            <button class="btn btn-warning" onclick="resumeTask(${t.uid}, '${t.query_id}')">恢复</button>
+                            <button class="btn btn-warning" onclick="resumeTask(${t.uid}, '${t.query_id}')">${i18n.t('admin.tasks_resume')}</button>
                         ` : ''}
                     </td>
                 </tr>
@@ -154,7 +163,7 @@
         }
         
         async function terminateTask(uid, qid) {
-            if (!confirm('确定要终止这个任务吗？')) return;
+            if (!confirm(i18n.t('admin.tasks_terminate_confirm'))) return;
             
             try {
                 const response = await fetchWithAuth('/api/admin/tasks/terminate', {
@@ -162,10 +171,10 @@
                     body: JSON.stringify({ uid, query_id: qid })
                 });
                 const data = await response.json();
-                alert(data.message || (data.success ? '已发送终止信号' : '操作失败'));
+                alert(data.message || (data.success ? i18n.t('admin.terminate_sent') : i18n.t('admin.operation_failed')));
                 loadTasks();
             } catch (error) {
-                alert('操作失败: ' + error.message);
+                alert(i18n.t('admin.operation_failed') + ': ' + error.message);
             }
         }
         
@@ -176,10 +185,10 @@
                     body: JSON.stringify({ uid, query_id: qid })
                 });
                 const data = await response.json();
-                alert(data.message || (data.success ? '已暂停' : '操作失败'));
+                alert(data.message || (data.success ? i18n.t('admin.operation_success') : i18n.t('admin.operation_failed')));
                 loadTasks();
             } catch (error) {
-                alert('操作失败: ' + error.message);
+                alert(i18n.t('admin.operation_failed') + ': ' + error.message);
             }
         }
         
@@ -190,10 +199,10 @@
                     body: JSON.stringify({ uid, query_id: qid })
                 });
                 const data = await response.json();
-                alert(data.message || (data.success ? '已恢复' : '操作失败'));
+                alert(data.message || (data.success ? i18n.t('admin.operation_success') : i18n.t('admin.operation_failed')));
                 loadTasks();
             } catch (error) {
-                alert('操作失败: ' + error.message);
+                alert(i18n.t('admin.operation_failed') + ': ' + error.message);
             }
         }
         

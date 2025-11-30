@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>系统控制 - AutoPaperWeb Admin</title>
+    <title data-i18n="admin.nav_control">系统控制 - AutoPaperWeb Admin</title>
+    <script src="/static/js/i18n.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f5f7fa; min-height: 100vh; }
@@ -189,34 +190,35 @@
 </head>
 <body>
     <div class="header">
-        <h1>📊 AutoPaperWeb 管理后台</h1>
+        <h1>📊 AutoPaperWeb <span data-i18n="admin.header_title">管理后台</span></h1>
         <div class="header-actions">
-            <span id="adminName">管理员</span>
-            <button onclick="logout()">退出登录</button>
+            <span id="langToggle" style="cursor:pointer;margin-right:10px;">🌐 EN/中</span>
+            <span id="adminName" data-i18n="admin.administrator">管理员</span>
+            <button onclick="logout()" data-i18n="admin.nav_logout">退出登录</button>
         </div>
     </div>
     
     <nav class="nav">
         <ul>
-            <li><a href="dashboard.html">监控大盘</a></li>
-            <li><a href="users.html">用户管理</a></li>
-            <li><a href="tasks.html">任务管理</a></li>
-            <li><a href="control.html" class="active">系统控制</a></li>
-            <li><a href="debug.html">调试日志</a></li>
+            <li><a href="dashboard.html" data-i18n="admin.nav_dashboard">监控大盘</a></li>
+            <li><a href="users.html" data-i18n="admin.nav_users">用户管理</a></li>
+            <li><a href="tasks.html" data-i18n="admin.nav_tasks">任务管理</a></li>
+            <li><a href="control.html" class="active" data-i18n="admin.nav_control">系统控制</a></li>
+            <li><a href="debug.html" data-i18n="admin.nav_debug">调试日志</a></li>
         </ul>
     </nav>
     
     <div class="container">
         <div class="panel">
-            <h2>⚙️ 功能开关</h2>
+            <h2>⚙️ <span data-i18n="admin.feature_switches">功能开关</span></h2>
             
             <div class="switch-row">
                 <div class="switch-info">
-                    <h3>用户注册</h3>
-                    <p>控制是否允许新用户注册账号。关闭后，登录页面将不显示注册入口。</p>
+                    <h3 data-i18n="admin.control_registration">用户注册</h3>
+                    <p data-i18n="admin.control_registration_desc">控制是否允许新用户注册账号。关闭后，登录页面将不显示注册入口。</p>
                 </div>
                 <div class="switch-control">
-                    <span id="regStatusBadge" class="status-badge status-on">已开启</span>
+                    <span id="regStatusBadge" class="status-badge status-on" data-i18n="admin.control_registration_on">已开启</span>
                     <span id="regLoading" class="loading-spinner hidden"></span>
                     <label class="toggle">
                         <input type="checkbox" id="regToggle" checked onchange="toggleRegistration()">
@@ -227,11 +229,11 @@
             
             <div class="switch-row">
                 <div class="switch-info">
-                    <h3>调试日志控制台</h3>
-                    <p>控制是否允许访问容器调试日志。开启后，管理员可在"调试日志"页面查看系统实时日志。</p>
+                    <h3 data-i18n="admin.control_debug_console">调试日志控制台</h3>
+                    <p data-i18n="admin.control_debug_desc">控制是否允许访问容器调试日志。开启后，管理员可在"调试日志"页面查看系统实时日志。</p>
                 </div>
                 <div class="switch-control">
-                    <span id="debugStatusBadge" class="status-badge status-off">已关闭</span>
+                    <span id="debugStatusBadge" class="status-badge status-off" data-i18n="admin.control_registration_off">已关闭</span>
                     <span id="debugLoading" class="loading-spinner hidden"></span>
                     <label class="toggle">
                         <input type="checkbox" id="debugToggle" onchange="toggleDebugConsole()">
@@ -244,30 +246,30 @@
         
         <!-- 系统配置面板 -->
         <div class="panel">
-            <h2>🔧 系统配置</h2>
+            <h2>🔧 <span data-i18n="admin.system_config">系统配置</span></h2>
             
             <div class="config-section">
-                <h3>用户权限范围</h3>
-                <p class="config-desc">设置用户可分配的并发权限（线程数）范围。管理员修改用户权限时将受此范围限制。</p>
+                <h3 data-i18n="admin.control_permission_range">用户权限范围</h3>
+                <p class="config-desc" data-i18n="admin.control_permission_desc">设置用户可分配的并发权限（线程数）范围。管理员修改用户权限时将受此范围限制。</p>
                 <div class="config-row">
                     <div class="config-item">
-                        <label for="permissionMin">最小值</label>
+                        <label for="permissionMin" data-i18n="admin.control_permission_min">最小值</label>
                         <input type="number" id="permissionMin" min="0" max="100" value="1">
                     </div>
                     <span class="config-separator">~</span>
                     <div class="config-item">
-                        <label for="permissionMax">最大值</label>
+                        <label for="permissionMax" data-i18n="admin.control_permission_max">最大值</label>
                         <input type="number" id="permissionMax" min="1" max="100" value="10">
                     </div>
                 </div>
             </div>
             
             <div class="config-section">
-                <h3>蒸馏任务价格系数</h3>
-                <p class="config-desc">蒸馏任务相对于普通查询任务的价格比例。默认0.1表示蒸馏任务费用为查询任务的10%。</p>
+                <h3 data-i18n="admin.control_distill_rate">蒸馏任务价格系数</h3>
+                <p class="config-desc" data-i18n="admin.control_distill_desc">蒸馏任务相对于普通查询任务的价格比例。默认0.1表示蒸馏任务费用为查询任务的10%。</p>
                 <div class="config-row">
                     <div class="config-item">
-                        <label for="distillRate">系数 (0~1)</label>
+                        <label for="distillRate" data-i18n="admin.control_rate_label">系数 (0~1)</label>
                         <input type="number" id="distillRate" min="0" max="1" step="0.01" value="0.1">
                     </div>
                     <span class="config-preview" id="distillPreview">= 查询价格的 10%</span>
@@ -277,7 +279,7 @@
             <div class="config-actions">
                 <span id="settingsLoading" class="loading-spinner hidden"></span>
                 <span id="settingsStatus" class="settings-status"></span>
-                <button class="btn btn-primary" onclick="saveSettings()">保存配置</button>
+                <button class="btn btn-primary" onclick="saveSettings()" data-i18n="admin.control_save">保存配置</button>
             </div>
         </div>
     </div>
@@ -285,7 +287,18 @@
     <script>
         const adminToken = localStorage.getItem('adminToken');
         if (!adminToken) window.location.href = '/admin/login.html';
-        document.getElementById('adminName').textContent = localStorage.getItem('adminUsername') || '管理员';
+        document.getElementById('adminName').textContent = localStorage.getItem('adminUsername') || i18n.t('admin.administrator');
+        
+        // 语言切换
+        document.getElementById('langToggle').onclick = function() {
+            const newLang = i18n.lang === 'zh' ? 'en' : 'zh';
+            i18n.setLang(newLang);
+        };
+        
+        // 语言切换回调
+        window.apw_afterLangChange = function(lang) {
+            updateDistillPreview();
+        };
         
         async function fetchWithAuth(url, options = {}) {
             return fetch(url, { 
@@ -316,7 +329,7 @@
             const badge = document.getElementById('regStatusBadge');
             
             toggle.checked = enabled;
-            badge.textContent = enabled ? '已开启' : '已关闭';
+            badge.textContent = enabled ? i18n.t('admin.control_registration_on') : i18n.t('admin.control_registration_off');
             badge.className = 'status-badge ' + (enabled ? 'status-on' : 'status-off');
         }
         
@@ -380,7 +393,7 @@
         function updateDistillPreview() {
             const rate = parseFloat(document.getElementById('distillRate').value) || 0.1;
             const percent = Math.round(rate * 100);
-            document.getElementById('distillPreview').textContent = `= 查询价格的 ${percent}%`;
+            document.getElementById('distillPreview').textContent = i18n.t('admin.control_rate_preview', {percent: percent});
         }
         
         // 监听蒸馏系数变化
@@ -464,7 +477,7 @@
             const badge = document.getElementById('debugStatusBadge');
             
             toggle.checked = enabled;
-            badge.textContent = enabled ? '已开启' : '已关闭';
+            badge.textContent = enabled ? i18n.t('admin.control_registration_on') : i18n.t('admin.control_registration_off');
             badge.className = 'status-badge ' + (enabled ? 'status-on' : 'status-off');
         }
         

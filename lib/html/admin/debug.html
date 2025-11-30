@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>调试日志 - AutoPaperWeb Admin</title>
+    <title data-i18n="admin.nav_debug">调试日志 - AutoPaperWeb Admin</title>
+    <script src="/static/js/i18n.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -207,54 +208,55 @@
 </head>
 <body>
     <div class="header">
-        <h1>🔧 AutoPaperWeb 管理后台</h1>
+        <h1>🔧 AutoPaperWeb <span data-i18n="admin.header_title">管理后台</span></h1>
         <div class="header-actions">
-            <span id="adminName">管理员</span>
-            <button onclick="logout()">退出登录</button>
+            <span id="langToggle" style="cursor:pointer;margin-right:10px;">🌐 EN/中</span>
+            <span id="adminName" data-i18n="admin.administrator">管理员</span>
+            <button onclick="logout()" data-i18n="admin.nav_logout">退出登录</button>
         </div>
     </div>
     
     <nav class="nav">
         <ul>
-            <li><a href="dashboard.html">监控大盘</a></li>
-            <li><a href="users.html">用户管理</a></li>
-            <li><a href="tasks.html">任务管理</a></li>
-            <li><a href="control.html">系统控制</a></li>
-            <li><a href="debug.html" class="active">调试日志</a></li>
+            <li><a href="dashboard.html" data-i18n="admin.nav_dashboard">监控大盘</a></li>
+            <li><a href="users.html" data-i18n="admin.nav_users">用户管理</a></li>
+            <li><a href="tasks.html" data-i18n="admin.nav_tasks">任务管理</a></li>
+            <li><a href="control.html" data-i18n="admin.nav_control">系统控制</a></li>
+            <li><a href="debug.html" class="active" data-i18n="admin.nav_debug">调试日志</a></li>
         </ul>
     </nav>
     
     <div class="container">
         <!-- 调试控制面板 -->
         <div class="panel">
-            <h2>📋 容器日志</h2>
+            <h2>📋 <span data-i18n="admin.debug_container_log">容器日志</span></h2>
             
             <div id="disabledNotice" class="debug-disabled-notice" style="display: none;">
-                <h3>⚠️ 调试日志功能已禁用</h3>
-                <p>请在系统控制页面启用"调试日志控制台"功能，或联系管理员开启此功能。</p>
+                <h3>⚠️ <span data-i18n="admin.debug_disabled_title">调试日志功能已禁用</span></h3>
+                <p data-i18n="admin.debug_disabled_desc">请在系统控制页面启用"调试日志控制台"功能，或联系管理员开启此功能。</p>
             </div>
             
             <div class="controls">
                 <button id="refreshBtn" class="btn" onclick="fetchLog()">
-                    🔄 立即刷新
+                    🔄 <span data-i18n="admin.debug_refresh">立即刷新</span>
                 </button>
                 <button id="autoToggleBtn" class="btn btn-secondary" onclick="toggleAutoRefresh()">
-                    ⏸️ 暂停自动刷新
+                    ⏸️ <span id="autoToggleText" data-i18n="admin.debug_pause_auto">暂停自动刷新</span>
                 </button>
                 <div class="refresh-interval">
-                    <label for="refreshInterval">刷新间隔:</label>
+                    <label for="refreshInterval" data-i18n="admin.debug_interval">刷新间隔:</label>
                     <select id="refreshInterval" onchange="updateRefreshInterval()">
-                        <option value="1000">1秒</option>
-                        <option value="2000">2秒</option>
-                        <option value="5000" selected>5秒</option>
-                        <option value="10000">10秒</option>
-                        <option value="30000">30秒</option>
+                        <option value="1000" data-i18n="admin.debug_1s">1秒</option>
+                        <option value="2000" data-i18n="admin.debug_2s">2秒</option>
+                        <option value="5000" selected data-i18n="admin.debug_5s">5秒</option>
+                        <option value="10000" data-i18n="admin.debug_10s">10秒</option>
+                        <option value="30000" data-i18n="admin.debug_30s">30秒</option>
                     </select>
                 </div>
-                <span id="status" class="status-text">加载中...</span>
+                <span id="status" class="status-text" data-i18n="admin.loading">加载中...</span>
             </div>
             
-            <div id="logContent" class="log-container">等待日志输出...</div>
+            <div id="logContent" class="log-container" data-i18n="admin.debug_waiting">等待日志输出...</div>
         </div>
     </div>
 
@@ -263,6 +265,7 @@
         const logEl = document.getElementById('logContent');
         const refreshBtn = document.getElementById('refreshBtn');
         const autoToggleBtn = document.getElementById('autoToggleBtn');
+        const autoToggleText = document.getElementById('autoToggleText');
         const disabledNotice = document.getElementById('disabledNotice');
         const refreshIntervalSelect = document.getElementById('refreshInterval');
 
@@ -270,10 +273,21 @@
         let timer = null;
         let refreshInterval = 5000;
 
+        // 语言切换
+        document.getElementById('langToggle').onclick = function() {
+            const newLang = i18n.lang === 'zh' ? 'en' : 'zh';
+            i18n.setLang(newLang);
+        };
+        
+        // 语言切换回调
+        window.apw_afterLangChange = function(lang) {
+            updateAutoToggleText();
+        };
+
         // 检查管理员登录状态
         function checkAdminLogin() {
             const adminToken = localStorage.getItem('adminToken');
-            const adminName = localStorage.getItem('adminName');
+            const adminName = localStorage.getItem('adminUsername');
             
             if (!adminToken) {
                 window.location.href = '/admin/login.html';
@@ -288,24 +302,24 @@
 
         function logout() {
             localStorage.removeItem('adminToken');
-            localStorage.removeItem('adminName');
+            localStorage.removeItem('adminUsername');
             window.location.href = '/admin/login.html';
         }
 
         async function fetchLog() {
             try {
-                statusEl.textContent = '正在刷新...';
+                statusEl.textContent = i18n.t('admin.debug_refreshing');
                 refreshBtn.disabled = true;
                 
                 const res = await fetch('/api/debug-log?_=' + Date.now());
                 
                 if (!res.ok) {
                     if (res.status === 403) {
-                        statusEl.textContent = '调试控制台已禁用或访问被拒绝';
-                        logEl.textContent = '调试日志功能已被禁用。请在系统控制页面启用此功能。';
+                        statusEl.textContent = i18n.t('admin.debug_disabled_or_denied');
+                        logEl.textContent = i18n.t('admin.debug_disabled_desc');
                         disabledNotice.style.display = 'block';
                     } else {
-                        statusEl.textContent = '加载日志失败: HTTP ' + res.status;
+                        statusEl.textContent = i18n.t('admin.debug_load_failed') + ': HTTP ' + res.status;
                     }
                     return;
                 }
@@ -314,18 +328,19 @@
                 
                 if (data && data.success) {
                     disabledNotice.style.display = 'none';
-                    const truncatedLabel = data.truncated ? ' (显示最近部分)' : '';
-                    statusEl.textContent = '最后更新: ' + new Date().toLocaleTimeString() +
-                        ' | 字节数=' + data.bytes + ' | 行数=' + data.lines + truncatedLabel;
-                    logEl.textContent = data.content || '等待日志输出...';
+                    const truncatedLabel = data.truncated ? ` (${i18n.t('admin.debug_truncated')})` : '';
+                    statusEl.textContent = i18n.t('admin.last_update') + ': ' + new Date().toLocaleTimeString() +
+                        ' | ' + i18n.t('admin.debug_bytes') + '=' + data.bytes + 
+                        ' | ' + i18n.t('admin.debug_lines') + '=' + data.lines + truncatedLabel;
+                    logEl.textContent = data.content || i18n.t('admin.debug_waiting');
                     
                     // 自动滚动到底部
                     logEl.scrollTop = logEl.scrollHeight;
                 } else {
-                    statusEl.textContent = '日志为空或响应格式错误';
+                    statusEl.textContent = i18n.t('admin.debug_empty_or_error');
                 }
             } catch (err) {
-                statusEl.textContent = '加载日志失败: ' + err.message;
+                statusEl.textContent = i18n.t('admin.debug_load_failed') + ': ' + err.message;
             } finally {
                 refreshBtn.disabled = false;
             }
@@ -338,9 +353,13 @@
             }
         }
 
+        function updateAutoToggleText() {
+            autoToggleText.textContent = autoRefresh ? i18n.t('admin.debug_pause_auto') : i18n.t('admin.debug_resume_auto');
+        }
+
         function toggleAutoRefresh() {
             autoRefresh = !autoRefresh;
-            autoToggleBtn.textContent = autoRefresh ? '⏸️ 暂停自动刷新' : '▶️ 恢复自动刷新';
+            updateAutoToggleText();
             autoToggleBtn.classList.toggle('btn-secondary', autoRefresh);
             schedule();
         }

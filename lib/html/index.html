@@ -168,11 +168,11 @@
       align-items: center;
     }
 
-    /* 蒸馏类型历史项目样式 */
+    /* 蒸馏类型历史项目样式 - 修复31: 改为低饱和度橙色 */
     .history-item.distill-type {
-      background: linear-gradient(135deg, #2a1a3a 0%, #1e1e2e 100%);
-      border-left: 3px solid #8b5cf6;
-      box-shadow: 0 2px 8px rgba(139, 92, 246, 0.1);
+      background: linear-gradient(135deg, #2a2016 0%, #1e1e1e 100%);
+      border-left: 3px solid #b87333;
+      box-shadow: 0 2px 8px rgba(184, 115, 51, 0.1);
     }
 
     .history-item:hover {
@@ -180,8 +180,8 @@
     }
 
     .history-item.distill-type:hover {
-      background: linear-gradient(135deg, #3a2a4a 0%, #2e2e3e 100%);
-      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
+      background: linear-gradient(135deg, #3a2a1a 0%, #2e2a22 100%);
+      box-shadow: 0 4px 12px rgba(184, 115, 51, 0.2);
     }
 
     .history-item.active {
@@ -190,9 +190,9 @@
     }
 
     .history-item.distill-type.active {
-      background: linear-gradient(135deg, #3a2a4a 0%, #2e2e3e 100%);
-      border-left-color: #c084fc;
-      box-shadow: 0 4px 16px rgba(192, 132, 252, 0.3);
+      background: linear-gradient(135deg, #3a2a1a 0%, #2e2a22 100%);
+      border-left-color: #c9a06a;
+      box-shadow: 0 4px 16px rgba(201, 160, 106, 0.3);
     }
 
     .history-item-content {
@@ -210,10 +210,10 @@
       white-space: nowrap;
     }
 
-    /* 蒸馏类型历史项目标题样式 */
+    /* 蒸馏类型历史项目标题样式 - 修复31: 改为低饱和度橙色 */
     .history-item.distill-type .history-item-title {
-      color: #c084fc;
-      text-shadow: 0 0 8px rgba(192, 132, 252, 0.3);
+      color: #c9a06a;
+      text-shadow: 0 0 8px rgba(201, 160, 106, 0.3);
       font-weight: 600;
     }
 
@@ -222,9 +222,9 @@
       color: #888;
     }
 
-    /* 蒸馏类型历史项目元信息样式 */
+    /* 蒸馏类型历史项目元信息样式 - 修复31: 改为低饱和度橙色 */
     .history-item.distill-type .history-item-meta {
-      color: #a78bfa;
+      color: #b87333;
     }
 
     .sidebar.collapsed .history-item-title,
@@ -1574,11 +1574,11 @@
       transition: all 0.3s ease;
     }
 
-    /* 蒸馏类型历史描述卡片样式 */
+    /* 蒸馏类型历史描述卡片样式 - 修复31: 改为低饱和度橙色 */
     .history-description-card.distill-type {
-      background: linear-gradient(135deg, #2a1a3a 0%, #1e1e2e 100%);
-      border: 1px solid #8b5cf6;
-      box-shadow: 0 0 20px rgba(139, 92, 246, 0.1);
+      background: linear-gradient(135deg, #2a2016 0%, #1e1e1e 100%);
+      border: 1px solid #b87333;
+      box-shadow: 0 0 20px rgba(184, 115, 51, 0.1);
     }
 
     .history-description-card .card-header {
@@ -1591,7 +1591,7 @@
     }
 
     .history-description-card.distill-type .card-header {
-      border-bottom: 1px solid #8b5cf6;
+      border-bottom: 1px solid #b87333;
     }
 
     .history-description-card .card-header h3 {
@@ -1601,53 +1601,53 @@
     }
 
     .history-description-card.distill-type .card-header h3 {
-      color: #c084fc;
-      text-shadow: 0 0 10px rgba(192, 132, 252, 0.3);
+      color: #c9a06a;
+      text-shadow: 0 0 10px rgba(201, 160, 106, 0.3);
     }
 
-    /* 蒸馏类型卡片中的按钮样式 */
+    /* 蒸馏类型卡片中的按钮样式 - 修复31: 改为低饱和度橙色 */
     .history-description-card.distill-type .btn-secondary {
-      background: #4c1d95;
-      border-color: #8b5cf6;
-      color: #e0e7ff;
+      background: #5c4a2a;
+      border-color: #b87333;
+      color: #f5e6d3;
     }
 
     .history-description-card.distill-type .btn-secondary:hover {
-      background: #5b21b6;
-      border-color: #a78bfa;
-      color: #f3f4f6;
+      background: #6b5a3a;
+      border-color: #c9a06a;
+      color: #fff;
     }
 
     .history-description-card.distill-type .btn-orange {
-      background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+      background: linear-gradient(135deg, #b87333 0%, #8b6914 100%);
       border: none;
     }
 
     .history-description-card.distill-type .btn-orange:hover {
-      background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+      background: linear-gradient(135deg, #c9a06a 0%, #b87333 100%);
       transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+      box-shadow: 0 4px 12px rgba(184, 115, 51, 0.4);
     }
 
-    /* 蒸馏类型卡片中的进度条样式 */
+    /* 蒸馏类型卡片中的进度条样式 - 修复31: 改为低饱和度橙色 */
     .history-description-card.distill-type .progress-bar {
-      background: #2a1a3a;
-      border: 1px solid #8b5cf6;
+      background: #2a2016;
+      border: 1px solid #b87333;
     }
 
     .history-description-card.distill-type .progress-fill {
-      background: linear-gradient(90deg, #8b5cf6 0%, #c084fc 100%);
+      background: linear-gradient(90deg, #b87333 0%, #c9a06a 100%);
     }
 
-    /* 蒸馏类型卡片中的摘要值样式 */
+    /* 蒸馏类型卡片中的摘要值样式 - 修复31: 改为低饱和度橙色 */
     .history-description-card.distill-type .summary-value {
-      background: #2a1a3a;
-      border: 1px solid #8b5cf6;
-      color: #e0e7ff;
+      background: #2a2016;
+      border: 1px solid #b87333;
+      color: #f5e6d3;
     }
 
     .history-description-card.distill-type .summary-label {
-      color: #c084fc;
+      color: #c9a06a;
     }
 
     .btn-close {
@@ -1956,7 +1956,7 @@
         </button>
         <div id="status" class="status">
           <div class="status-icon">📊</div>
-          <span id="statusCount" data-i18n="index.selected_count">已选择文章数：0</span>
+          <span id="statusCount">已选择文章数：0</span>
         </div>
         <div id="costStatus" class="status" style="display: none;">
           <div class="status-icon">💰</div>
@@ -2394,9 +2394,11 @@
           tags.forEach(tag => {
             const option = document.createElement('div');
             option.className = 'filter-option';
+            // 使用 data-tag-value 存储原始值，显示翻译后的值
+            const translatedTag = i18n.translateTag(tag);
             option.innerHTML = `
-              <input type="checkbox" id="${containerId}_${tag}" value="${tag}">
-              <label for="${containerId}_${tag}">${tag}</label>
+              <input type="checkbox" id="${containerId}_${tag}" value="${tag}" data-tag-value="${tag}">
+              <label for="${containerId}_${tag}" data-tag-value="${tag}">${translatedTag}</label>
             `;
             
             const checkbox = option.querySelector('input');
@@ -2430,9 +2432,10 @@
           tags.forEach(tag => {
             const option = document.createElement('div');
             option.className = 'filter-option';
+            const translatedTag = i18n.translateTag(tag);
             option.innerHTML = `
-              <input type="checkbox" id="minorCategoryOptions_${tag}" value="${tag}">
-              <label for="minorCategoryOptions_${tag}">${tag}</label>
+              <input type="checkbox" id="minorCategoryOptions_${tag}" value="${tag}" data-tag-value="${tag}">
+              <label for="minorCategoryOptions_${tag}" data-tag-value="${tag}">${translatedTag}</label>
             `;
             option.querySelector('input').addEventListener('change', () => {
               updateFilters();
@@ -2730,6 +2733,24 @@
       
       // 更新统计信息显示
       updateCounts();
+      
+      // 更新已选择文章数的显示（保持当前值，仅更新语言）
+      const statusCountEl = document.getElementById('statusCount');
+      if (statusCountEl) {
+        // 从当前文本中提取数字，如果提取不到则默认为 0
+        const currentText = statusCountEl.textContent;
+        const match = currentText.match(/[\d,]+/);
+        const currentCount = match ? match[0] : '0';
+        statusCountEl.textContent = i18n.t('index.selected_count', {count: currentCount});
+      }
+      
+      // 更新筛选标签的翻译
+      document.querySelectorAll('label[data-tag-value]').forEach(label => {
+        const tagValue = label.getAttribute('data-tag-value');
+        if (tagValue) {
+          label.textContent = i18n.translateTag(tagValue);
+        }
+      });
       
       // 更新用户余额显示（如果已加载）
       if (userBalanceCache !== null) {
@@ -4184,7 +4205,10 @@
       
       const title = document.createElement('div');
       title.className = 'history-item-title';
-      const titleText = item.research_question || i18n.t('history.research_question_empty');
+      // 修复30：蒸馏任务标题添加前缀
+      const baseTitle = item.research_question || i18n.t('history.research_question_empty');
+      const distillPrefix = item.is_distillation ? (i18n.t('index.distill_prefix') || '🔬 ') : '';
+      const titleText = distillPrefix + baseTitle;
       title.textContent = titleText;
       title.title = titleText;
       
@@ -4192,6 +4216,10 @@
       if (!item.research_question) {
         title.setAttribute('data-i18n', 'history.research_question_empty');
         title.setAttribute('data-is-empty-title', 'true');
+      }
+      // 修复30：添加蒸馏标记以便语言切换时更新前缀
+      if (item.is_distillation) {
+        title.setAttribute('data-is-distillation', 'true');
       }
       
       const meta = document.createElement('div');
@@ -4536,8 +4564,21 @@
       console.log('selectedFoldersLabel:', selectedFoldersLabel);
       console.log('yearRangeLabel:', yearRangeLabel);
       
+      // 修复30：获取父任务ID（蒸馏任务专用）
+      const originalQueryId = details.original_query_id || historyData.original_query_id || '';
+      
+      // 修复31：获取文章总数和开销
+      const totalPapers = details.total_papers_count || historyData.total_papers_count || 0;
+      const estimatedCost = details.estimated_cost || historyData.estimated_cost || 0;
+      
       content.innerHTML = `
         <div class="history-summary">
+          ${isDistillation && originalQueryId ? `
+          <div class="summary-item distill-parent-info">
+            <div class="summary-label">${i18n.t('index.distill_based_on') || '基于任务'}：</div>
+            <div class="summary-value">${originalQueryId}</div>
+          </div>
+          ` : ''}
           <div class="summary-item">
             <div class="summary-label">${i18n.t('index.research_question')}：</div>
             <div class="summary-value">${question}</div>
@@ -4564,6 +4605,20 @@
             <div class="summary-value">${yearRange}</div>
           </div>
           ` : ''}
+          <div class="summary-stats">
+            <div class="stat-item">
+              <div class="stat-content">
+                <span class="stat-label">${isDistillation ? i18n.t('index.relevant_papers_count') : i18n.t('index.total_articles')}</span>
+                <strong>${totalPapers.toLocaleString()}</strong>
+              </div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-content">
+                <span class="stat-label">${i18n.t('index.actual_cost')}</span>
+                <strong>${estimatedCost} ${i18n.t('common.credit_unit')}</strong>
+              </div>
+            </div>
+          </div>
         </div>
         ${details.completed ? `
           <!-- 完成后按钮区域 -->
@@ -4844,7 +4899,7 @@
               </div>
             </div>
             <div class="distill-actions">
-              <button class="btn-orange" onclick="startDistillation('${cardId}', ${queryIndex})" disabled>
+              <button class="btn-orange" onclick="startDistillation('${cardId}', '${queryIndex}')" disabled>
                 ${i18n.t('index.start_distillation')}
               </button>
             </div>
@@ -4853,21 +4908,24 @@
       `;
       
       container.insertAdjacentHTML('afterbegin', cardHtml);
-      activeDistillCards.set(cardId, { queryIndex, type: 'input' });
+      activeDistillCards.set(cardId, { queryIndex, type: 'input', costData: null });
       
-      // 自动估算费用
+      // 自动估算费用（只需调用一次，费用与用户输入无关）
       estimateDistillationCost(cardId, queryIndex);
       
-      // 添加问题输入框的监听器，控制按钮状态
+      // 添加问题输入框的监听器，控制按钮状态（修复27：移除API调用，改为本地状态检查）
       const questionEl = document.getElementById(`${cardId}-question`);
       const startBtn = document.querySelector(`#${cardId} .btn-orange`);
       
       questionEl.addEventListener('input', function() {
         const hasQuestion = this.value.trim().length > 0;
-        if (hasQuestion) {
-          // 重新估算费用以检查余额
-          estimateDistillationCost(cardId, queryIndex);
+        // 从缓存中读取费用数据，避免重复调用API
+        const cardData = activeDistillCards.get(cardId);
+        if (cardData && cardData.costData) {
+          const hasEnoughBalance = cardData.costData.user_balance >= cardData.costData.estimated_cost;
+          startBtn.disabled = !(hasQuestion && hasEnoughBalance);
         } else {
+          // 费用数据尚未加载完成，保持禁用状态
           startBtn.disabled = true;
         }
       });
@@ -4881,8 +4939,9 @@
 
     /**
      * 估算蒸馏费用
+     * 修复27：费用只需获取一次，数据缓存到 activeDistillCards 中供 input 事件使用
      * @param {string} cardId 卡片ID
-     * @param {number} queryIndex 原始查询索引
+     * @param {string} queryIndex 原始查询索引
      */
     async function estimateDistillationCost(cardId, queryIndex) {
       const questionEl = document.getElementById(`${cardId}-question`);
@@ -4894,7 +4953,7 @@
         const uid = parseInt(localStorage.getItem('userId') || '0', 10);
         if (!uid || !queryIndex) return;
 
-        // 首先尝试获取基本的估算信息（不需要问题内容）
+        // 获取费用估算信息（只需调用一次）
         const response = await fetch('/api/estimate_distillation_cost', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -4907,6 +4966,16 @@
         const data = await response.json();
         
         if (data.success) {
+          // 缓存费用数据供后续 input 事件使用，避免重复调用API
+          const cardData = activeDistillCards.get(cardId);
+          if (cardData) {
+            cardData.costData = {
+              doi_count: data.doi_count || 0,
+              estimated_cost: data.estimated_cost || 0,
+              user_balance: data.user_balance || 0
+            };
+          }
+          
           document.getElementById(`${cardId}-paper-count`).textContent = (data.doi_count || 0).toLocaleString();
           document.getElementById(`${cardId}-estimated-cost`).textContent = (data.estimated_cost || 0).toLocaleString();
           document.getElementById(`${cardId}-user-balance`).textContent = (data.user_balance || 0).toLocaleString();
@@ -5002,7 +5071,14 @@
           loadHistory(); // 刷新历史列表
           
         } else {
-          showError(data.message || data.error || i18n.t('index.distill_start_failed'));
+          // 针对特定错误给出更友好的提示
+          let errorMsg = data.message || data.error || i18n.t('index.distill_start_failed');
+          if (data.error === 'no_relevant_papers') {
+            errorMsg = i18n.t('index.distill_no_relevant_papers');
+          } else if (data.error === 'insufficient_balance') {
+            errorMsg = i18n.t('index.distill_insufficient_balance');
+          }
+          showError(errorMsg);
         }
       } catch (error) {
         console.error('Start distillation error:', error);
@@ -5193,13 +5269,13 @@
           <div class="completion-message">
             <h4>${i18n.t('index.distillation_completed')}</h4>
             <div class="completion-actions">
-              <button class="btn-secondary" onclick="downloadDistillationCSV(${queryIndex})">
+              <button class="btn-secondary" onclick="downloadDistillationCSV('${queryIndex}')">
                 <span data-i18n="index.download_all_results">${i18n.t('index.download_all_results')}</span>
               </button>
-              <button class="btn-secondary" onclick="downloadDistillationBIB(${queryIndex})">
+              <button class="btn-secondary" onclick="downloadDistillationBIB('${queryIndex}')">
                 <span data-i18n="index.download_bib_results">${i18n.t('index.download_bib_results')}</span>
               </button>
-              <button class="btn-orange" onclick="createDistillInputCard(${queryIndex})">
+              <button class="btn-orange" onclick="createDistillInputCard('${queryIndex}')">
                 <span data-i18n="index.distill">${i18n.t('index.distill')}</span>
               </button>
             </div>

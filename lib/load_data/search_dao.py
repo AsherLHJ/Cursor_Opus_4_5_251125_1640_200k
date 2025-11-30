@@ -168,6 +168,82 @@ def get_relevant_dois_from_mysql(uid: int, query_id: str) -> List[str]:
         conn.close()
 
 
+def get_all_results_from_mysql(uid: int, query_id: str) -> Dict[str, Dict]:
+    """
+    从 MySQL 获取查询的所有结果（Redis MISS时的回源方法）
+    
+    用于蒸馏费用计算：当 result:* 缓存已过期（超过7天TTL）时，
+    从 MySQL search_result 表回源获取所有结果数据。
+    
+    注意：MySQL search_result 表不存储 block_key 列！
+    block_key 只存在于 Redis result:{uid}:{qid} 中。
+    使用 PaperBlocks.batch_get_block_keys() 批量获取 block_key（Pipeline优化）。
+    
+    性能优化（修复26）：
+    - 旧版：逐个调用 get_paper_by_doi，每个DOI遍历所有Block，O(n*m)
+    - 新版：使用DOI反向索引 + Pipeline批量查询，O(n)
+    
+    Args:
+        uid: 用户ID
+        query_id: 查询ID
+        
+    Returns:
+        {DOI: {ai_result, block_key}} 字典
+    """
+    from ..redis.paper_blocks import PaperBlocks
+    
+    conn = _get_connection()
+    try:
+        cursor = conn.cursor(dictionary=True)
+        # 只查询存在的列：doi, ai_result（MySQL 表没有 block_key 列）
+        cursor.execute("""
+            SELECT doi, ai_result
+            FROM search_result 
+            WHERE uid = %s AND query_id = %s
+        """, (uid, query_id))
+        
+        rows = cursor.fetchall()
+        cursor.close()
+        
+        if not rows:
+            return {}
+        
+        # 先收集所有DOI和AI结果
+        doi_results = {}
+        all_dois = []
+        for row in rows:
+            doi = row['doi']
+            ai_result = row['ai_result']
+            if isinstance(ai_result, str):
+                try:
+                    ai_result = json.loads(ai_result)
+                except Exception:
+                    pass
+            
+            doi_results[doi] = ai_result
+            all_dois.append(doi)
+        
+        # 使用批量查询获取所有DOI的block_key（Pipeline优化，O(n)复杂度）
+        block_key_map = PaperBlocks.batch_get_block_keys(all_dois)
+        
+        # 组装结果
+        results = {}
+        for doi, ai_result in doi_results.items():
+            results[doi] = {
+                'ai_result': ai_result,
+                'block_key': block_key_map.get(doi, '')
+            }
+        
+        if results:
+            print(f"[SearchDAO] 从MySQL回源获取 {len(results)} 条结果 (query_id={query_id})")
+        return results
+    except Exception as e:
+        print(f"[SearchDAO] 从MySQL获取所有结果失败: {e}")
+        return {}
+    finally:
+        conn.close()
+
+
 def get_result_count(uid: int, query_id: str) -> int:
     """获取结果数量"""
     if redis_ping():

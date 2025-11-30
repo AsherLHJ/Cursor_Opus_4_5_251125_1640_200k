@@ -259,9 +259,20 @@ def init_redis_from_mysql(conn,
                 print(f"[Redis Init] 进度: {loaded}/{total} ({100*loaded//total}%)")
         
         results['papers'] = load_papers_from_mysql(conn, progress_callback=paper_progress)
+        
+        # 3.5 构建DOI反向索引（用于O(1)查询DOI对应的block_key）
+        print("\n[Redis Init] === 阶段3.5: 构建DOI反向索引 ===")
+        index_count = PaperBlocks.build_doi_index()
+        if index_count > 0:
+            print(f"[Redis Init] 已构建 {index_count} 个DOI的反向索引")
+            results['doi_index'] = True
+        else:
+            print("[Redis Init] DOI反向索引构建失败或无数据")
+            results['doi_index'] = False
     else:
         print("\n[Redis Init] 跳过文献数据加载")
         results['papers'] = True
+        results['doi_index'] = True
     
     # 总结
     print("\n[Redis Init] === 初始化完成 ===")
@@ -283,6 +294,7 @@ def check_redis_data_loaded() -> Dict[str, bool]:
         'tags_loaded': False,
         'journals_loaded': False,
         'blocks_loaded': False,
+        'doi_index_loaded': False,
     }
     
     try:
@@ -296,6 +308,9 @@ def check_redis_data_loaded() -> Dict[str, bool]:
         for _ in client.scan_iter(match="meta:*", count=1):
             results['blocks_loaded'] = True
             break
+        
+        # 检查DOI反向索引
+        results['doi_index_loaded'] = client.exists("idx:doi_to_block") > 0
             
     except Exception:
         pass

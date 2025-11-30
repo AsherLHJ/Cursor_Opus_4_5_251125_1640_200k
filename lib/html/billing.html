@@ -309,7 +309,7 @@
         }
     </style>
 </head>
-<body>
+<body class="dark-theme">
     <div class="container">
         <div class="header">
             <h1 data-i18n="billing.title">📊 检索账单</h1>
@@ -350,23 +350,14 @@
             </div>
 
             <div id="billingContent" style="display: none;">
-                <table class="billing-table">
-                    <thead>
-                        <tr>
-                            <th data-i18n="billing.columns.time">检索时间</th>
-                            <th data-i18n="billing.columns.type">检索类型</th>
-                            <th data-i18n="billing.columns.count">检索篇数</th>
-                            <th data-i18n="billing.columns.cost">检索点花费</th>
-                        </tr>
-                    </thead>
-                    <tbody id="billingTableBody">
-                    </tbody>
-                </table>
+                <div id="billingTableContainer"></div>
             </div>
         </div>
     </div>
 
+    <link rel="stylesheet" href="/static/css/data-table.css">
     <script src="/static/js/i18n.js"></script>
+    <script src="/static/js/data-table.js"></script>
     <script>
                 // 欢迎语与登录校验
                 function updateWelcome(){
@@ -452,6 +443,9 @@
             }
         }
 
+        // 账单数据表格实例
+        let billingTable = null;
+        
         // 加载账单数据
         async function loadBilling() {
             const userId = localStorage.getItem('userId');
@@ -477,48 +471,53 @@
 
                 // 显示账单表格
                 document.getElementById('billingContent').style.display = 'block';
-                const tbody = document.getElementById('billingTableBody');
-                tbody.innerHTML = '';
-
-                records.forEach(record => {
-                    const row = document.createElement('tr');
-                    
-                    // 检索时间
-                    const timeCell = document.createElement('td');
-                    timeCell.textContent = formatTime(record.query_time);
-                    row.appendChild(timeCell);
-
-                    // 检索类型
-                    const typeCell = document.createElement('td');
-                    const typeBadge = document.createElement('span');
-                    typeBadge.className = 'type-badge';
-                    
-                    if (record.is_distillation) {
-                        typeBadge.className += ' type-distill';
-                        typeBadge.textContent = i18n.t('billing.type.distill');
-                    } else {
-                        typeBadge.className += ' type-normal';
-                        typeBadge.textContent = i18n.t('billing.type.normal');
-                    }
-                    
-                    typeCell.appendChild(typeBadge);
-                    row.appendChild(typeCell);
-
-                    // 检索篇数
-                    const countCell = document.createElement('td');
-                    countCell.textContent = (record.total_papers_count || 0).toLocaleString();
-                    row.appendChild(countCell);
-
-                    // 检索点花费
-                    const costCell = document.createElement('td');
-                    const costSpan = document.createElement('span');
-                    costSpan.className = 'cost-amount';
-                    costSpan.textContent = (record.actual_cost || 0).toLocaleString();
-                    costCell.appendChild(costSpan);
-                    row.appendChild(costCell);
-
-                    tbody.appendChild(row);
+                
+                // 为记录添加 id 和格式化字段
+                const formattedRecords = records.map((record, idx) => ({
+                    id: idx,
+                    query_time: formatTime(record.query_time),
+                    type: record.is_distillation ? 'distill' : 'normal',
+                    type_label: record.is_distillation ? i18n.t('billing.type.distill') : i18n.t('billing.type.normal'),
+                    total_papers_count: record.total_papers_count || 0,
+                    actual_cost: record.actual_cost || 0
+                }));
+                
+                // 初始化 DataTable
+                billingTable = new DataTable({
+                    containerId: 'billingTableContainer',
+                    columns: [
+                        { key: 'query_time', label: i18n.t('billing.columns.time'), sortable: true, searchable: true },
+                        { 
+                            key: 'type', 
+                            label: i18n.t('billing.columns.type'), 
+                            sortable: true,
+                            filterable: true,
+                            filterLabel: i18n.t('billing.columns.type'),
+                            filterOptions: [
+                                { value: 'normal', label: i18n.t('billing.type.normal') },
+                                { value: 'distill', label: i18n.t('billing.type.distill') }
+                            ],
+                            render: (row) => {
+                                const cls = row.type === 'distill' ? 'type-distill' : 'type-normal';
+                                return `<span class="type-badge ${cls}">${row.type_label}</span>`;
+                            }
+                        },
+                        { key: 'total_papers_count', label: i18n.t('billing.columns.count'), sortable: true },
+                        { 
+                            key: 'actual_cost', 
+                            label: i18n.t('billing.columns.cost'), 
+                            sortable: true,
+                            render: (row) => `<span class="cost-amount">${row.actual_cost.toLocaleString()}</span>`
+                        }
+                    ],
+                    pageSizes: [20, 50, 100],
+                    defaultPageSize: 20,
+                    emptyMessage: i18n.t('billing.empty'),
+                    loadingMessage: i18n.t('common.loading')
                 });
+                
+                billingTable.setData(formattedRecords);
+                billingTable.render();
 
             } catch (error) {
                 document.getElementById('loadingState').style.display = 'none';

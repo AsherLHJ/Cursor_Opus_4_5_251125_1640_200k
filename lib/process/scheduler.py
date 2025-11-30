@@ -161,8 +161,13 @@ def _start_query_workers(uid: int, qid: str, worker_count: int) -> None:
     
     新架构优化：实际启动的Worker数量 = min(permission, 待处理Block数量)
     避免启动多余的Worker（它们会立即退出）
+    
+    修复28：区分普通查询和蒸馏任务，使用不同的Worker类
+    - 普通查询: BlockWorker (正常费率)
+    - 蒸馏任务: DistillWorker (动态蒸馏费率，从 SystemConfig 获取)
     """
     from .search_paper import create_ai_processor
+    import json
     
     # 获取待处理Block数量
     pending_blocks = TaskQueue.get_pending_count(uid, qid)
@@ -178,8 +183,28 @@ def _start_query_workers(uid: int, qid: str, worker_count: int) -> None:
     # 创建AI处理器
     ai_processor = create_ai_processor(uid, qid)
     
-    # 生产Workers
-    workers = spawn_workers(uid, qid, actual_workers, ai_processor)
+    # 修复28：检查是否为蒸馏任务
+    from ..load_data.query_dao import get_query_by_id
+    query_info = get_query_by_id(qid)
+    is_distillation = False
+    if query_info:
+        search_params = query_info.get('search_params')
+        if isinstance(search_params, str):
+            try:
+                search_params = json.loads(search_params)
+            except (json.JSONDecodeError, TypeError):
+                search_params = {}
+        is_distillation = search_params.get('is_distillation', False) if search_params else False
+    
+    # 根据任务类型选择Worker
+    if is_distillation:
+        # 蒸馏任务使用 DistillWorker（0.1倍费率）
+        from .distill import spawn_distill_workers
+        workers = spawn_distill_workers(uid, qid, actual_workers, ai_processor)
+        print(f"[Scheduler] 蒸馏任务 {qid}: 使用 DistillWorker (动态蒸馏费率)")
+    else:
+        # 普通查询使用 BlockWorker
+        workers = spawn_workers(uid, qid, actual_workers, ai_processor)
     
     # 更新任务状态
     TaskQueue.set_state(uid, qid, 'RUNNING')
