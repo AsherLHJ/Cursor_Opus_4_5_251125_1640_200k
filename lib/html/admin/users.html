@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="admin.nav_users">用户管理 - AutoPaperWeb Admin</title>
+    <link rel="stylesheet" href="/static/css/data-table.css">
     <script src="/static/js/i18n.js"></script>
+    <script src="/static/js/data-table.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f5f7fa; min-height: 100vh; }
@@ -20,22 +22,88 @@
         .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
         .panel { background: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 1.5rem; }
         .panel h2 { font-size: 1.1rem; color: #1a1a2e; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid #eee; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 0.75rem 1rem; border-bottom: 1px solid #eee; }
-        th { color: #666; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
-        .btn { padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.85rem; cursor: pointer; border: none; }
-        .btn-primary { background: #0f3460; color: white; }
-        .btn-success { background: #10b981; color: white; }
-        .btn-warning { background: #f59e0b; color: white; }
-        .btn:hover { opacity: 0.9; }
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; }
+        
+        /* 模态框样式 */
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000; }
         .modal.active { display: flex; }
-        .modal-content { background: white; padding: 2rem; border-radius: 12px; width: 400px; max-width: 90%; }
-        .modal-content h3 { margin-bottom: 1rem; }
+        .modal-content { background: white; padding: 2rem; border-radius: 12px; width: 450px; max-width: 90%; }
+        .modal-content h3 { margin-bottom: 1rem; color: #1a1a2e; }
         .form-group { margin-bottom: 1rem; }
-        .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
-        .form-group input { width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 6px; }
+        .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 500; color: #333; }
+        .form-group input, .form-group select { width: 100%; padding: 0.75rem; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #4a6fa5; }
+        .form-group .hint { font-size: 0.85rem; color: #666; margin-top: 0.25rem; }
         .modal-actions { display: flex; gap: 1rem; justify-content: flex-end; margin-top: 1.5rem; }
+        .btn { padding: 0.6rem 1.2rem; border-radius: 6px; font-size: 0.9rem; cursor: pointer; border: none; font-weight: 500; }
+        .btn-default { background: #f0f0f0; color: #333; }
+        .btn-default:hover { background: #e0e0e0; }
+        .btn-primary { background: #0f3460; color: white; }
+        .btn-primary:hover { background: #16213e; }
+        
+        /* 操作方式选择器 */
+        .operation-selector { display: flex; gap: 0.5rem; margin-bottom: 0.5rem; }
+        .operation-selector .op-btn { flex: 1; padding: 0.5rem; text-align: center; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 0.9rem; transition: all 0.2s; }
+        .operation-selector .op-btn:hover { border-color: #4a6fa5; }
+        .operation-selector .op-btn.active { background: #4a6fa5; color: white; border-color: #4a6fa5; }
+        
+        /* DataTable 样式调整 */
+        .data-table-wrapper { margin-top: 1rem; }
+        
+        /* 刷新控制样式 */
+        .refresh-btn {
+            background: linear-gradient(135deg, #4a9eff 0%, #0066cc 100%);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+        }
+        
+        .refresh-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(74, 158, 255, 0.3);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+            box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+        }
+        
+        .refresh-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .refresh-interval {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .refresh-interval select {
+            padding: 0.4rem 0.8rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            background: white;
+            cursor: pointer;
+        }
+        
+        .refresh-interval select:focus {
+            outline: none;
+            border-color: #4a9eff;
+        }
+        
+        #lastUpdate { color: #999; font-size: 0.85rem; }
     </style>
 </head>
 <body>
@@ -59,59 +127,75 @@
     </nav>
     
     <div class="container">
+        <div class="refresh-controls">
+            <button id="refreshBtn" class="refresh-btn" onclick="loadUsers()">
+                🔄 <span data-i18n="admin.refresh_now">立即刷新</span>
+            </button>
+            <button id="autoToggleBtn" class="refresh-btn btn-secondary" onclick="toggleAutoRefresh()">
+                ⏸️ <span id="autoToggleText" data-i18n="admin.pause_auto_refresh">暂停自动刷新</span>
+            </button>
+            <div class="refresh-interval">
+                <label for="refreshInterval" data-i18n="admin.refresh_interval">刷新间隔:</label>
+                <select id="refreshInterval" onchange="updateRefreshInterval()">
+                    <option value="1000" data-i18n="admin.interval_1s">1秒</option>
+                    <option value="2000" data-i18n="admin.interval_2s">2秒</option>
+                    <option value="5000" selected data-i18n="admin.interval_5s">5秒</option>
+                    <option value="10000" data-i18n="admin.interval_10s">10秒</option>
+                    <option value="30000" data-i18n="admin.interval_30s">30秒</option>
+                </select>
+            </div>
+            <span id="lastUpdate"></span>
+        </div>
+        
         <div class="panel">
             <h2>👥 <span data-i18n="admin.users_title">用户列表</span></h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th data-i18n="admin.user_uid">UID</th>
-                        <th data-i18n="admin.user_username">用户名</th>
-                        <th data-i18n="admin.user_balance">余额</th>
-                        <th data-i18n="admin.user_permission">权限</th>
-                        <th data-i18n="admin.user_actions">操作</th>
-                    </tr>
-                </thead>
-                <tbody id="userList">
-                    <tr><td colspan="5" style="text-align:center;color:#999;" data-i18n="admin.loading">加载中...</td></tr>
-                </tbody>
-            </table>
+            <div id="usersTable"></div>
         </div>
     </div>
     
+    <!-- 批量调整余额模态框 -->
     <div class="modal" id="balanceModal">
         <div class="modal-content">
-            <h3>💰 <span data-i18n="admin.user_adjust_balance">调整余额</span></h3>
-            <input type="hidden" id="balanceUid">
+            <h3>💰 <span data-i18n="admin.batch_adjust_balance">批量调整余额</span></h3>
             <div class="form-group">
-                <label data-i18n="admin.user_current_balance">当前余额</label>
-                <input type="text" id="currentBalance" readonly>
+                <label data-i18n="admin.batch_selected_count">已选择用户数</label>
+                <input type="text" id="balanceSelectedCount" readonly>
             </div>
             <div class="form-group">
-                <label data-i18n="admin.user_new_balance">新余额</label>
-                <input type="number" id="newBalance" step="0.01" min="0">
+                <label data-i18n="admin.balance_mode">操作方式</label>
+                <div class="operation-selector" id="balanceOperationSelector">
+                    <div class="op-btn active" data-op="set" data-i18n="admin.balance_mode_set">设为</div>
+                    <div class="op-btn" data-op="increase" data-i18n="admin.balance_mode_increase">增加</div>
+                    <div class="op-btn" data-op="decrease" data-i18n="admin.balance_mode_decrease">减少</div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label data-i18n="admin.balance_amount">金额</label>
+                <input type="number" id="balanceAmount" step="0.01" min="0">
             </div>
             <div class="modal-actions">
-                <button class="btn" onclick="closeModal('balanceModal')" data-i18n="admin.user_cancel">取消</button>
-                <button class="btn btn-primary" onclick="saveBalance()" data-i18n="admin.user_save">保存</button>
+                <button class="btn btn-default" onclick="closeModal('balanceModal')" data-i18n="admin.user_cancel">取消</button>
+                <button class="btn btn-primary" onclick="saveBatchBalance()" data-i18n="admin.user_save">保存</button>
             </div>
         </div>
     </div>
     
+    <!-- 批量调整权限模态框 -->
     <div class="modal" id="permissionModal">
         <div class="modal-content">
-            <h3>⚙️ <span data-i18n="admin.user_adjust_permission">调整权限</span></h3>
-            <input type="hidden" id="permUid">
+            <h3>⚙️ <span data-i18n="admin.batch_adjust_permission">批量调整权限</span></h3>
             <div class="form-group">
-                <label data-i18n="admin.user_current_permission">当前权限（并发数）</label>
-                <input type="text" id="currentPerm" readonly>
+                <label data-i18n="admin.batch_selected_count">已选择用户数</label>
+                <input type="text" id="permSelectedCount" readonly>
             </div>
             <div class="form-group">
-                <label data-i18n="admin.user_new_permission">新权限</label>
-                <input type="number" id="newPerm" min="0" max="10">
+                <label data-i18n="admin.user_new_permission">新权限（并发数）</label>
+                <input type="number" id="newPermission" min="0" max="100">
+                <div class="hint" id="permissionHint"></div>
             </div>
             <div class="modal-actions">
-                <button class="btn" onclick="closeModal('permissionModal')" data-i18n="admin.user_cancel">取消</button>
-                <button class="btn btn-primary" onclick="savePermission()" data-i18n="admin.user_save">保存</button>
+                <button class="btn btn-default" onclick="closeModal('permissionModal')" data-i18n="admin.user_cancel">取消</button>
+                <button class="btn btn-primary" onclick="saveBatchPermission()" data-i18n="admin.user_save">保存</button>
             </div>
         </div>
     </div>
@@ -123,14 +207,116 @@
         
         // 语言切换
         document.getElementById('langToggle').onclick = function() {
-            const newLang = i18n.lang === 'zh' ? 'en' : 'zh';
+            const newLang = i18n.getLang() === 'zh' ? 'en' : 'zh';
             i18n.setLang(newLang);
+            i18n.applyI18n();
+            if (window.apw_afterLangChange) {
+                window.apw_afterLangChange(newLang);
+            }
         };
+        
+        // 自动刷新控制
+        let autoRefresh = true;
+        let timer = null;
+        let refreshInterval = 5000;
+        
+        // 状态变量
+        let usersTable = null;
+        let usersData = [];
+        let selectedUsersForBatch = [];
+        let balanceOperation = 'set';
+        
+        // 初始化用户表格
+        function initUsersTable() {
+            usersTable = new DataTable({
+                containerId: 'usersTable',
+                columns: [
+                    { 
+                        key: 'uid', 
+                        label: i18n.t('admin.user_uid'),
+                        sortable: true, 
+                        searchable: true
+                    },
+                    { 
+                        key: 'username', 
+                        label: i18n.t('admin.user_username'),
+                        sortable: true,
+                        searchable: true
+                    },
+                    { 
+                        key: 'balance', 
+                        label: i18n.t('admin.user_balance'),
+                        sortable: true,
+                        searchable: true,
+                        render: (row) => parseFloat(row.balance || 0).toFixed(2)
+                    },
+                    { 
+                        key: 'permission', 
+                        label: i18n.t('admin.user_permission'),
+                        sortable: true,
+                        searchable: true
+                    }
+                ],
+                pageSizes: [20, 50, 100],
+                defaultPageSize: 20,
+                selectable: true,
+                idKey: 'uid',
+                searchFieldSelector: true,
+                batchActions: [
+                    { 
+                        label: i18n.t('admin.batch_adjust_balance'), 
+                        className: 'batch-btn-success', 
+                        onClick: openBatchBalanceModal 
+                    },
+                    { 
+                        label: i18n.t('admin.batch_adjust_permission'), 
+                        className: 'batch-btn-warning', 
+                        onClick: openBatchPermissionModal 
+                    }
+                ],
+                emptyMessage: i18n.t('admin.no_data')
+            });
+        }
         
         // 语言切换回调
         window.apw_afterLangChange = function(lang) {
+            initUsersTable();
+            if (usersData.length > 0) {
+                usersTable.setData(usersData);
+                usersTable.render();
+            }
+            updateAutoToggleText();
             loadUsers();
+            loadPermissionRange();
         };
+        
+        // 刷新控制函数
+        function schedule() {
+            clearInterval(timer);
+            if (autoRefresh) {
+                timer = setInterval(loadUsers, refreshInterval);
+            }
+        }
+        
+        function updateAutoToggleText() {
+            const autoToggleText = document.getElementById('autoToggleText');
+            autoToggleText.textContent = autoRefresh ? i18n.t('admin.pause_auto_refresh') : i18n.t('admin.resume_auto_refresh');
+        }
+        
+        function toggleAutoRefresh() {
+            autoRefresh = !autoRefresh;
+            updateAutoToggleText();
+            const autoToggleBtn = document.getElementById('autoToggleBtn');
+            autoToggleBtn.classList.toggle('btn-secondary', autoRefresh);
+            schedule();
+        }
+        
+        function updateRefreshInterval() {
+            refreshInterval = parseInt(document.getElementById('refreshInterval').value);
+            if (autoRefresh) {
+                schedule();
+            }
+        }
         
         async function fetchWithAuth(url, options = {}) {
             return fetch(url, { ...options, headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken, ...(options.headers || {}) }});
@@ -142,36 +328,59 @@
                 const data = await response.json();
                 
                 if (data.success && data.users) {
-                    const tbody = document.getElementById('userList');
-                    tbody.innerHTML = data.users.map(u => `
-                        <tr>
-                            <td>${u.uid}</td>
-                            <td>${u.username}</td>
-                            <td>${parseFloat(u.balance || 0).toFixed(2)}</td>
-                            <td>${u.permission || 0}</td>
-                            <td>
-                                <button class="btn btn-success" onclick="openBalanceModal(${u.uid}, ${u.balance || 0})">${i18n.t('admin.user_adjust_balance')}</button>
-                                <button class="btn btn-warning" onclick="openPermModal(${u.uid}, ${u.permission || 0})">${i18n.t('admin.user_adjust_permission')}</button>
-                            </td>
-                        </tr>
-                    `).join('');
+                    usersData = data.users;
+                    if (usersTable) {
+                        usersTable.setData(usersData);
+                        usersTable.render();
+                    }
+                    document.getElementById('lastUpdate').textContent = 
+                        i18n.t('admin.last_update') + ': ' + new Date().toLocaleTimeString();
                 }
             } catch (error) {
                 console.error('加载用户失败:', error);
+                DataTable.showToast(i18n.t('admin.operation_failed'), 'error');
             }
         }
         
-        function openBalanceModal(uid, balance) {
-            document.getElementById('balanceUid').value = uid;
-            document.getElementById('currentBalance').value = balance.toFixed(2);
-            document.getElementById('newBalance').value = balance.toFixed(2);
+        async function loadPermissionRange() {
+            try {
+                const response = await fetchWithAuth('/api/admin/settings');
+                const data = await response.json();
+                if (data.success && data.current_values) {
+                    const min = data.current_values.permission_min || 0;
+                    const max = data.current_values.permission_max || 10;
+                    document.getElementById('newPermission').min = min;
+                    document.getElementById('newPermission').max = max;
+                    document.getElementById('permissionHint').textContent = `允许范围: ${min} - ${max}`;
+                }
+            } catch (error) {
+                console.error('加载权限范围失败:', error);
+            }
+        }
+        
+        // 批量余额模态框
+        function openBatchBalanceModal(selectedRows, table) {
+            if (selectedRows.length === 0) {
+                DataTable.showToast(i18n.t('admin.no_data'), 'warning');
+                return;
+            }
+            selectedUsersForBatch = selectedRows;
+            document.getElementById('balanceSelectedCount').value = i18n.t('admin.batch_selected_count', { count: selectedRows.length });
+            document.getElementById('balanceAmount').value = '';
+            balanceOperation = 'set';
+            updateBalanceOperationUI();
             document.getElementById('balanceModal').classList.add('active');
         }
         
-        function openPermModal(uid, perm) {
-            document.getElementById('permUid').value = uid;
-            document.getElementById('currentPerm').value = perm;
-            document.getElementById('newPerm').value = perm;
+        // 批量权限模态框
+        function openBatchPermissionModal(selectedRows, table) {
+            if (selectedRows.length === 0) {
+                DataTable.showToast(i18n.t('admin.no_data'), 'warning');
+                return;
+            }
+            selectedUsersForBatch = selectedRows;
+            document.getElementById('permSelectedCount').value = i18n.t('admin.batch_selected_count', { count: selectedRows.length });
+            document.getElementById('newPermission').value = '';
             document.getElementById('permissionModal').classList.add('active');
         }
         
@@ -179,39 +388,77 @@
             document.getElementById(id).classList.remove('active');
         }
         
-        async function saveBalance() {
-            const uid = document.getElementById('balanceUid').value;
-            const newBalance = parseFloat(document.getElementById('newBalance').value);
+        // 操作方式选择器
+        document.getElementById('balanceOperationSelector').addEventListener('click', function(e) {
+            if (e.target.classList.contains('op-btn')) {
+                balanceOperation = e.target.getAttribute('data-op');
+                updateBalanceOperationUI();
+            }
+        });
+        
+        function updateBalanceOperationUI() {
+            document.querySelectorAll('#balanceOperationSelector .op-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.getAttribute('data-op') === balanceOperation);
+            });
+        }
+        
+        async function saveBatchBalance() {
+            const amount = parseFloat(document.getElementById('balanceAmount').value);
+            
+            if (isNaN(amount) || amount < 0) {
+                DataTable.showToast(i18n.t('admin.balance_invalid'), 'error');
+                return;
+            }
+            
+            const items = selectedUsersForBatch.map(u => ({ uid: u.uid }));
             
             try {
-                const response = await fetchWithAuth('/api/admin/users/balance', {
+                const response = await fetchWithAuth('/api/admin/users/batch_balance', {
                     method: 'POST',
-                    body: JSON.stringify({ uid: parseInt(uid), balance: newBalance })
+                    body: JSON.stringify({ items, operation: balanceOperation, amount })
                 });
                 const data = await response.json();
-                alert(data.message || (data.success ? i18n.t('admin.user_update_success') : i18n.t('admin.user_update_failed')));
-                closeModal('balanceModal');
-                loadUsers();
+                
+                if (data.success) {
+                    DataTable.showToast(data.message || i18n.t('admin.operation_success'), 'success');
+                    closeModal('balanceModal');
+                    usersTable.clearSelection();
+                    loadUsers();
+                } else {
+                    DataTable.showToast(data.message || i18n.t('admin.operation_failed'), 'error');
+                }
             } catch (error) {
-                alert(i18n.t('admin.operation_failed') + ': ' + error.message);
+                DataTable.showToast(i18n.t('admin.operation_failed') + ': ' + error.message, 'error');
             }
         }
         
-        async function savePermission() {
-            const uid = document.getElementById('permUid').value;
-            const newPerm = parseInt(document.getElementById('newPerm').value);
+        async function saveBatchPermission() {
+            const permission = parseInt(document.getElementById('newPermission').value);
+            
+            if (isNaN(permission)) {
+                DataTable.showToast(i18n.t('admin.permission_invalid'), 'error');
+                return;
+            }
+            
+            const items = selectedUsersForBatch.map(u => ({ uid: u.uid }));
             
             try {
-                const response = await fetchWithAuth('/api/admin/users/permission', {
+                const response = await fetchWithAuth('/api/admin/users/batch_permission', {
                     method: 'POST',
-                    body: JSON.stringify({ uid: parseInt(uid), permission: newPerm })
+                    body: JSON.stringify({ items, permission })
                 });
                 const data = await response.json();
-                alert(data.message || (data.success ? i18n.t('admin.user_update_success') : i18n.t('admin.user_update_failed')));
-                closeModal('permissionModal');
-                loadUsers();
+                
+                if (data.success) {
+                    DataTable.showToast(data.message || i18n.t('admin.operation_success'), 'success');
+                    closeModal('permissionModal');
+                    usersTable.clearSelection();
+                    loadUsers();
+                } else {
+                    DataTable.showToast(data.message || i18n.t('admin.operation_failed'), 'error');
+                }
             } catch (error) {
-                alert(i18n.t('admin.operation_failed') + ': ' + error.message);
+                DataTable.showToast(i18n.t('admin.operation_failed') + ': ' + error.message, 'error');
             }
         }
         
@@ -221,7 +468,13 @@
             window.location.href = '/admin/login.html';
         }
         
-        loadUsers();
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initUsersTable();
+            loadUsers();
+            loadPermissionRange();
+            schedule();
+        });
     </script>
 </body>
 </html>

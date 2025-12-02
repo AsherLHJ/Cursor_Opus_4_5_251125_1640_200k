@@ -103,6 +103,17 @@
     .register-link a:hover {
       text-decoration: underline;
     }
+    .registration-notice {
+      margin-top: 20px;
+      padding: 12px;
+      background: #2a2016;
+      border: 1px solid #8b6914;
+      border-radius: 5px;
+      color: #c9a06a;
+      font-size: 13px;
+      text-align: center;
+      display: none; /* 默认隐藏 */
+    }
   </style>
 </head>
 <body>
@@ -123,6 +134,7 @@
   <button type="submit" id="loginBtn" data-i18n="login.submit">登录</button>
     </form>
     <div id="message"></div>
+    <div id="registrationNotice" class="registration-notice" data-i18n="register.disabled"></div>
   </div>
 
   <script src="/static/js/i18n.js"></script>
@@ -136,6 +148,10 @@
         // 只有当明确返回 registration_enabled: false 时才隐藏
         if (result.success && result.registration_enabled === false) {
           document.getElementById('registerLink').style.display = 'none';
+          // 显示注册关闭提示
+          const notice = document.getElementById('registrationNotice');
+          notice.style.display = 'block';
+          notice.textContent = i18n.t('register.disabled');
         }
       } catch (error) {
         // 如果获取状态失败，默认保持显示注册链接

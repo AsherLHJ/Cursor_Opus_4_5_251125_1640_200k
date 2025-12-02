@@ -275,8 +275,12 @@
 
         // 语言切换
         document.getElementById('langToggle').onclick = function() {
-            const newLang = i18n.lang === 'zh' ? 'en' : 'zh';
+            const newLang = i18n.getLang() === 'zh' ? 'en' : 'zh';
             i18n.setLang(newLang);
+            i18n.applyI18n();
+            if (window.apw_afterLangChange) {
+                window.apw_afterLangChange(newLang);
+            }
         };
         
         // 语言切换回调

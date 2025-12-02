@@ -64,7 +64,7 @@ def _handle_register(payload: Dict) -> Tuple[int, Dict]:
     if not reg_enabled:
         return 403, {
             'success': False, 
-            'message': '注册功能暂时关闭，请联系管理员',
+            'message': '由于当前算力资源已达上限，为保障现有用户体验，暂时暂停新用户注册。',
             'error': 'registration_disabled'
         }
     

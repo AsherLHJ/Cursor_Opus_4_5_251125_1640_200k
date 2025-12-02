@@ -3,10 +3,10 @@
 ## 项目概述
 - **开始时间**: 2025-11-25 16:40
 - **重构完成时间**: 2025-11-25 17:50
-- **最后修复时间**: 2025-11-30
+- **最后修复时间**: 2025-12-02
 - **指导文件**: 新架构项目重构完整指导文件20251130.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 二十五轮Bug修复
+- **状态**: ✅ 重构完成 + 三十四轮Bug修复
 
 ---
 
@@ -593,6 +593,9 @@
 || 2025-11-30 | 修复24 | 前端功能增强与Bug修复（8项） | query_api.py, search_dao.py, user_dao.py, index.html, billing.html, i18n.js, data-table.js(新), data-table.css(新), admin/*.html |
 || 2025-11-30 | 修复30 | 蒸馏功能深度修复（代码清理+研究问题传递+is_distillation修复+前端显示） | distill.py, paper_processor.py, query_api.py, index.html, i18n.js |
 || 2025-11-30 | 修复31 | 蒸馏功能深度修复（API字段补全+扣费IOPS优化+颜色改橙色） | query_api.py, paper_processor.py, distill.py, index.html, i18n.js |
+|| 2025-12-02 | 修复32 | 管理员页面DataTable增强与批量操作 | data-table.js, data-table.css, i18n.js, admin_api.py, dashboard.html, users.html, tasks.html |
+|| 2025-12-02 | 修复33 | 管理员页面刷新控制功能迁移（列名+自动刷新） | i18n.js, dashboard.html, users.html, tasks.html |
+|| 2025-12-02 | 修复34 | 压力测试脚本蒸馏功能扩展（查询->蒸馏->下载完整流程） | scripts/autopaper_scraper.py |
 
 ---
 
@@ -1147,6 +1150,299 @@ def _thread(self):
 - `lib/process/distill.py` - 缓存费率，从Block解析价格JSON
 - `lib/html/index.html` - 前端显示+CSS颜色修改
 - `lib/html/static/js/i18n.js` - 翻译词条
+
+---
+
+## 修复轮次三十二：管理员页面 DataTable 增强与批量操作 (2025-12-02)
+
+### 问题清单
+1. 管理员页面列表（dashboard/users/tasks）缺少分页、排序、搜索、筛选功能
+2. 缺少全选/勾选和批量操作功能
+3. 操作成功后使用 alert 弹窗，用户体验差
+
+### 修复内容
+
+#### 32a: DataTable 组件扩展
+- **data-table.js 新增功能**:
+  - `selectable: true` 配置项启用勾选列
+  - `idKey` 配置项指定行唯一标识字段
+  - `batchActions` 配置项定义批量操作按钮
+  - `selectedIds` Set 维护选中状态
+  - `getSelectedRows()` 获取选中行数据
+  - `clearSelection()` 清空选中
+  - `selectAllOnPage()` / `deselectAllOnPage()` 全选/取消当前页
+  - `DataTable.showToast(message, type, duration)` 静态方法显示 Toast 提示
+- **data-table.css 新增样式**:
+  - `.data-table-checkbox-col` - checkbox 列样式
+  - `.data-table-batch-bar` - 批量操作栏（选中项时显示）
+  - `.batch-btn`, `.batch-btn-danger`, `.batch-btn-warning`, `.batch-btn-success` - 批量按钮
+  - `.data-table-toast-container`, `.data-table-toast` - Toast 提示
+  - 深色主题全面适配
+
+#### 32b: 后端批量操作 API（admin_api.py）
+- `POST /api/admin/users/batch_balance` - 批量调整余额
+  - 请求：`{items: [{uid}], operation: "increase"|"decrease"|"set", amount: number}`
+  - 响应：`{success, message, success_count}`
+- `POST /api/admin/users/batch_permission` - 批量调整权限
+  - 请求：`{items: [{uid}], permission: number}`
+  - 响应：`{success, message, success_count}`
+- `POST /api/admin/tasks/batch_terminate` - 批量终止任务
+  - 请求：`{items: [{uid, query_id}]}`
+  - 响应：`{success, message, success_count, workers_stopped}`
+- `POST /api/admin/tasks/batch_pause` - 批量暂停任务
+- `POST /api/admin/tasks/batch_resume` - 批量恢复任务
+
+#### 32c: 管理员页面重构
+
+**dashboard.html**:
+- 引入 DataTable 组件
+- 活跃任务队列使用 DataTable 渲染
+- 支持按状态筛选（RUNNING/PAUSED/DONE）
+- 批量操作：批量终止
+- Toast 替代 alert
+
+**users.html**:
+- 用户列表使用 DataTable 渲染
+- 支持 UID/用户名搜索、余额/权限排序
+- 批量操作：批量调整余额、批量调整权限
+- 余额调整支持增加/减少/设为三种模式
+- 移除单行操作按钮，统一使用批量操作
+
+**tasks.html**:
+- 任务列表使用 DataTable 渲染
+- 移除原有 tabs 筛选，改用 DataTable 内置筛选
+- 支持按状态筛选、按用户ID筛选
+- 批量操作：批量暂停、批量恢复、批量终止
+- 智能过滤：暂停只对 RUNNING 任务，恢复只对 PAUSED 任务
+
+#### 32d: i18n 翻译扩展
+新增翻译词条（中英文）：
+- `admin.batch_selected_count`: "已选择 {count} 项"
+- `admin.batch_terminate`: "批量终止"
+- `admin.batch_pause`: "批量暂停"
+- `admin.batch_resume`: "批量恢复"
+- `admin.batch_adjust_balance`: "批量调整余额"
+- `admin.batch_adjust_permission`: "批量调整权限"
+- `admin.batch_confirm_*`: 批量操作确认提示
+- `admin.balance_mode_*`: 增加/减少/设为
+- `datatable.*`: DataTable 组件翻译
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 7 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `lib/html/static/js/data-table.js` - DataTable 组件扩展
+- `lib/html/static/css/data-table.css` - 新增样式
+- `lib/html/static/js/i18n.js` - 新增翻译词条
+- `lib/webserver/admin_api.py` - 新增5个批量操作 API
+- `lib/html/admin/dashboard.html` - 集成 DataTable
+- `lib/html/admin/users.html` - 集成 DataTable + 批量模态框
+- `lib/html/admin/tasks.html` - 集成 DataTable（移除 tabs）
+
+---
+
+## 修复轮次三十三：管理员页面刷新控制功能迁移 (2025-12-02)
+
+### 问题清单
+1. dashboard.html、users.html、tasks.html 的"用户"/"用户ID"列名需改为"用户UID"
+2. 三个页面需要添加与 debug.html 相同的刷新控制功能（立即刷新、暂停/继续自动刷新、刷新间隔选择）
+3. "最后更新"需改为"最后更新时间"
+
+### 问题分析
+
+#### 33a: 列名不统一
+- **dashboard.html**: 活跃任务队列中"用户"列标签使用 `admin.task_user`
+- **tasks.html**: 任务列表中"用户ID"列标签使用 `admin.tasks_uid`
+- **需求**: 统一改为 `admin.task_user_uid`（"用户UID"/"User UID"）
+
+#### 33b: 刷新控制功能缺失
+- **debug.html**: 已有完整的刷新控制（立即刷新、暂停/继续、间隔选择1/2/5/10/30秒）
+- **dashboard.html**: 仅有单一刷新按钮和 `setInterval(refreshData, 5000)` 固定5秒刷新
+- **users.html**: 无刷新按钮和自动刷新
+- **tasks.html**: 单一刷新按钮和 `setInterval(loadTasks, 10000)` 固定10秒刷新
+
+### 修复内容
+
+#### 33a: i18n.js 翻译更新
+新增翻译词条：
+- `admin.task_user_uid`: "用户UID" / "User UID"
+- `admin.refresh_now`: "立即刷新" / "Refresh Now"
+- `admin.pause_auto_refresh`: "暂停自动刷新" / "Pause Auto Refresh"
+- `admin.resume_auto_refresh`: "继续自动刷新" / "Resume Auto Refresh"
+- `admin.refresh_interval`: "刷新间隔:" / "Refresh Interval:"
+- `admin.interval_1s` / `2s` / `5s` / `10s` / `30s`: 时间间隔选项
+
+修改翻译词条：
+- `admin.last_update`: "最后更新" → "最后更新时间" / "Last Update Time"
+
+#### 33b: dashboard.html 修改
+- **列名**: `i18n.t('admin.task_user')` → `i18n.t('admin.task_user_uid')`
+- **CSS 新增**: `.refresh-controls`、`.btn-secondary`、`.refresh-interval`、`#lastUpdate` 样式
+- **HTML**: 替换刷新按钮区域为三控件布局
+- **JS 变量**: 添加 `autoRefresh = true`、`timer = null`、`refreshInterval = 5000`
+- **JS 函数**: 添加 `schedule()`、`toggleAutoRefresh()`、`updateRefreshInterval()`、`updateAutoToggleText()`
+- **初始化**: `setInterval(refreshData, 5000)` → `schedule()`
+
+#### 33c: users.html 修改
+- **CSS 新增**: 与 dashboard.html 相同的刷新控制样式
+- **HTML**: 在 panel 前添加 `.refresh-controls` 区域
+- **JS 变量/函数**: 同上，调用 `loadUsers()` 而非 `refreshData()`
+- **初始化**: 添加自动刷新支持，默认间隔 5 秒
+
+#### 33d: tasks.html 修改
+- **列名**: `i18n.t('admin.tasks_uid')` → `i18n.t('admin.task_user_uid')`
+- **CSS/HTML/JS**: 同上修改
+- **初始化**: 默认间隔 10 秒（保持原有行为）
+
+### 刷新控制功能逻辑
+
+```javascript
+// 自动刷新控制变量
+let autoRefresh = true;
+let timer = null;
+let refreshInterval = 5000;  // dashboard/users=5s, tasks=10s
+
+// 调度函数
+function schedule() {
+    clearInterval(timer);
+    if (autoRefresh) {
+        timer = setInterval(refreshData, refreshInterval);  // 或 loadUsers/loadTasks
+    }
+}
+
+// 切换自动刷新
+function toggleAutoRefresh() {
+    autoRefresh = !autoRefresh;
+    updateAutoToggleText();
+    schedule();
+}
+
+// 更新间隔
+function updateRefreshInterval() {
+    refreshInterval = parseInt(document.getElementById('refreshInterval').value);
+    if (autoRefresh) schedule();
+}
+
+// 更新按钮文本（多语言支持）
+function updateAutoToggleText() {
+    const textSpan = document.getElementById('autoToggleText');
+    const btn = document.getElementById('autoToggleBtn');
+    if (autoRefresh) {
+        btn.innerHTML = '⏸️ <span id="autoToggleText" data-i18n="admin.pause_auto_refresh">' + 
+                        i18n.t('admin.pause_auto_refresh') + '</span>';
+    } else {
+        btn.innerHTML = '▶️ <span id="autoToggleText" data-i18n="admin.resume_auto_refresh">' + 
+                        i18n.t('admin.resume_auto_refresh') + '</span>';
+    }
+}
+```
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 4 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `lib/html/static/js/i18n.js` - 添加/修改翻译词条
+- `lib/html/admin/dashboard.html` - 列名 + 刷新控制功能
+- `lib/html/admin/users.html` - 添加刷新控制功能
+- `lib/html/admin/tasks.html` - 列名 + 刷新控制功能
+
+---
+
+## 修复轮次三十四：压力测试脚本蒸馏功能扩展 (2025-12-02)
+
+### 需求清单
+1. 注册300个用户 (autoTest1~autoTest300)，设置权限=2，余额=30000
+2. 前100个用户 (autoTest1~100) 同时发起查询任务
+3. 每个查询任务完成后，该用户立即发起蒸馏任务
+4. 每个蒸馏任务完成后，立即下载 CSV 和 BIB 文件
+5. 支持 `--start-id` 和 `--end-id` 参数指定测试用户范围
+
+### 查询参数（保持不变）
+- 研究问题: "人机交互相关的任何研究"
+- 数据源: ANNU REV NEUROSCI, TRENDS NEUROSCI, ISMAR
+- 年份范围: 2020-2025
+
+### 蒸馏参数（新增）
+- 蒸馏研究问题: "使用了EEG和EMG的硬件的研究"
+- 蒸馏研究要求: (空)
+
+### 修复内容
+
+#### 34a: 配置常量更新
+- `TOTAL_USERS`: 100 -> 300（用于注册账户总数）
+- `ACTIVE_TEST_USERS`: 新增，值为100（实际参与测试的用户数）
+- `DISTILL_QUESTION`: 新增，"使用了EEG和EMG的硬件的研究"
+- `DISTILL_REQUIREMENTS`: 新增，空字符串
+- `PIPELINE_CONCURRENCY`: 新增，值为100（管道并发数）
+
+#### 34b: TestAccount 数据类扩展
+新增字段：
+- `distill_query_id: str = ""`：蒸馏查询ID
+- `distill_start_time: Optional[datetime] = None`：蒸馏开始时间
+- `distill_end_time: Optional[datetime] = None`：蒸馏结束时间
+- `distill_completed: bool = False`：蒸馏完成标志
+- `@property distill_duration`：蒸馏耗时（秒）
+
+#### 34c: TestResult 数据类扩展
+新增字段：
+- `successful_distillations: int = 0`：成功蒸馏数
+- `failed_distillations: int = 0`：失败蒸馏数
+
+#### 34d: APIClient 蒸馏API支持
+新增方法：
+```python
+def estimate_distillation_cost(self, uid: int, original_query_id: str) -> Dict:
+    """估算蒸馏费用"""
+
+def start_distillation(self, uid: int, original_query_id: str,
+                       question: str, requirements: str = "") -> str:
+    """发起蒸馏任务，返回新的query_id"""
+```
+
+#### 34e: 测试流程重构
+- **简化为单阶段流程**: 查询 -> 蒸馏 -> 下载
+- **移除旧的两阶段流程**: 删除 `_phase1_query()`, `_phase2_query_and_download()` 等方法
+- **新增方法**:
+  - `_phase1_query_distill_download()`: 统一管理查询->蒸馏->下载流程
+  - `_query_distill_download_pipeline()`: 每账户独立执行的完整管道
+  - `_start_distillation_for_account()`: 发起单个账户的蒸馏
+  - `_wait_for_single_query()`: 等待单个查询完成
+  - `_wait_for_distillation()`: 等待蒸馏完成
+  - `_download_distill_results()`: 下载蒸馏结果
+- **下载方法修改**: `_download_with_async_api()` 和 `_download_with_sync_api()` 支持指定 `query_id` 参数
+
+#### 34f: 报告增强
+- 统计信息增加蒸馏成功/失败数
+- 增加蒸馏耗时统计（平均/最短/最长）
+- CSV报告新增蒸馏相关列：`distill_query_id`, `distill_start_time`, `distill_end_time`, `distill_duration_sec`, `distill_completed`
+- 下载文件重命名为 `{username}_Distill_Result.csv/bib`
+
+### 使用示例
+```bash
+# 测试前10个用户
+python scripts/autopaper_scraper.py --start-id 1 --end-id 10
+
+# 测试前50个用户
+python scripts/autopaper_scraper.py --start-id 1 --end-id 50
+
+# 测试全部100个活跃用户
+python scripts/autopaper_scraper.py
+```
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 1 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `scripts/autopaper_scraper.py` - 完整重构支持蒸馏流程（约1050行）
 
 ---
 

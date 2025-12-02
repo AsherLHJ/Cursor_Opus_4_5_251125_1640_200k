@@ -77,6 +77,22 @@ def handle_admin_api(path: str, method: str, headers: Dict,
     if path == '/api/admin/tasks/resume' and method == 'POST':
         return _handle_resume_task(data)
     
+    # 批量操作 API（修复32新增）
+    if path == '/api/admin/users/batch_balance' and method == 'POST':
+        return _handle_batch_update_balance(data)
+    
+    if path == '/api/admin/users/batch_permission' and method == 'POST':
+        return _handle_batch_update_permission(data)
+    
+    if path == '/api/admin/tasks/batch_terminate' and method == 'POST':
+        return _handle_batch_terminate_tasks(data)
+    
+    if path == '/api/admin/tasks/batch_pause' and method == 'POST':
+        return _handle_batch_pause_tasks(data)
+    
+    if path == '/api/admin/tasks/batch_resume' and method == 'POST':
+        return _handle_batch_resume_tasks(data)
+    
     if path == '/api/admin/admins' and method == 'GET':
         return _handle_get_admins()
     
@@ -447,4 +463,330 @@ def _handle_update_settings(data: Dict) -> Tuple[int, Dict]:
         return 400, {'success': False, 'error': 'invalid_value', 'message': str(e)}
     except Exception as e:
         return 500, {'success': False, 'error': 'update_settings_failed', 'message': str(e)}
+
+
+# ============================================================
+# 批量操作 API（修复32新增）
+# ============================================================
+
+def _handle_batch_update_balance(data: Dict) -> Tuple[int, Dict]:
+    """
+    批量更新用户余额
+    
+    请求格式:
+    {
+        "items": [{"uid": 1}, {"uid": 2}, ...],  # 用户列表
+        "operation": "increase" | "decrease" | "set",  # 操作类型
+        "amount": 100.00  # 金额
+    }
+    """
+    items = data.get('items', [])
+    operation = data.get('operation', 'set')  # increase/decrease/set
+    amount = data.get('amount')
+    
+    if not items:
+        return 400, {'success': False, 'message': '未选择任何用户'}
+    
+    if amount is None:
+        return 400, {'success': False, 'message': '请输入金额'}
+    
+    try:
+        amount = float(amount)
+    except (TypeError, ValueError):
+        return 400, {'success': False, 'message': '金额格式错误'}
+    
+    if amount < 0 and operation != 'decrease':
+        return 400, {'success': False, 'message': '金额不能为负'}
+    
+    success_count = 0
+    fail_count = 0
+    errors = []
+    
+    for item in items:
+        uid = item.get('uid')
+        if not uid:
+            fail_count += 1
+            continue
+        
+        try:
+            uid = int(uid)
+            
+            # 获取当前余额
+            from ..load_data.user_dao import get_user_by_uid
+            user = get_user_by_uid(uid)
+            if not user:
+                fail_count += 1
+                errors.append(f'用户 {uid} 不存在')
+                continue
+            
+            current_balance = float(user.get('balance', 0))
+            
+            # 计算新余额
+            if operation == 'increase':
+                new_balance = current_balance + amount
+            elif operation == 'decrease':
+                new_balance = max(0, current_balance - amount)  # 不允许负余额
+            else:  # set
+                new_balance = amount
+            
+            if update_user_balance(uid, new_balance):
+                success_count += 1
+            else:
+                fail_count += 1
+                errors.append(f'用户 {uid} 更新失败')
+        except Exception as e:
+            fail_count += 1
+            errors.append(f'用户 {uid}: {str(e)}')
+    
+    total = success_count + fail_count
+    if fail_count == 0:
+        return 200, {
+            'success': True,
+            'message': f'批量操作成功，共 {success_count} 项',
+            'success_count': success_count
+        }
+    elif success_count > 0:
+        return 200, {
+            'success': True,
+            'message': f'部分成功：{success_count}/{total} 项',
+            'success_count': success_count,
+            'fail_count': fail_count,
+            'errors': errors
+        }
+    else:
+        return 400, {
+            'success': False,
+            'message': '批量操作失败',
+            'errors': errors
+        }
+
+
+def _handle_batch_update_permission(data: Dict) -> Tuple[int, Dict]:
+    """
+    批量更新用户权限
+    
+    请求格式:
+    {
+        "items": [{"uid": 1}, {"uid": 2}, ...],
+        "permission": 5
+    }
+    """
+    from ..redis.system_config import SystemConfig
+    
+    items = data.get('items', [])
+    permission = data.get('permission')
+    
+    if not items:
+        return 400, {'success': False, 'message': '未选择任何用户'}
+    
+    if permission is None:
+        return 400, {'success': False, 'message': '请输入权限值'}
+    
+    try:
+        permission = int(permission)
+    except (TypeError, ValueError):
+        return 400, {'success': False, 'message': '权限值格式错误'}
+    
+    # 检查权限范围
+    min_perm, max_perm = SystemConfig.get_permission_range()
+    if not (min_perm <= permission <= max_perm):
+        return 400, {'success': False, 'message': f'权限值范围: {min_perm}-{max_perm}'}
+    
+    success_count = 0
+    fail_count = 0
+    errors = []
+    
+    for item in items:
+        uid = item.get('uid')
+        if not uid:
+            fail_count += 1
+            continue
+        
+        try:
+            uid = int(uid)
+            if update_user_permission(uid, permission):
+                success_count += 1
+            else:
+                fail_count += 1
+                errors.append(f'用户 {uid} 更新失败')
+        except Exception as e:
+            fail_count += 1
+            errors.append(f'用户 {uid}: {str(e)}')
+    
+    total = success_count + fail_count
+    if fail_count == 0:
+        return 200, {
+            'success': True,
+            'message': f'批量操作成功，共 {success_count} 项',
+            'success_count': success_count
+        }
+    elif success_count > 0:
+        return 200, {
+            'success': True,
+            'message': f'部分成功：{success_count}/{total} 项',
+            'success_count': success_count,
+            'fail_count': fail_count,
+            'errors': errors
+        }
+    else:
+        return 400, {
+            'success': False,
+            'message': '批量操作失败',
+            'errors': errors
+        }
+
+
+def _handle_batch_terminate_tasks(data: Dict) -> Tuple[int, Dict]:
+    """
+    批量终止任务
+    
+    请求格式:
+    {
+        "items": [{"uid": 1, "query_id": "xxx"}, ...]
+    }
+    """
+    items = data.get('items', [])
+    
+    if not items:
+        return 400, {'success': False, 'message': '未选择任何任务'}
+    
+    success_count = 0
+    fail_count = 0
+    total_workers_stopped = 0
+    
+    for item in items:
+        uid = item.get('uid')
+        qid = item.get('query_id')
+        
+        if not uid or not qid:
+            fail_count += 1
+            continue
+        
+        try:
+            uid = int(uid)
+            TaskQueue.set_terminate_signal(uid, qid)
+            TaskQueue.set_state(uid, qid, 'CANCELLED')
+            stopped = stop_workers_for_query(uid, qid)
+            total_workers_stopped += stopped
+            success_count += 1
+        except Exception:
+            fail_count += 1
+    
+    total = success_count + fail_count
+    if fail_count == 0:
+        return 200, {
+            'success': True,
+            'message': f'批量终止成功，共 {success_count} 个任务，停止了 {total_workers_stopped} 个Worker',
+            'success_count': success_count,
+            'workers_stopped': total_workers_stopped
+        }
+    elif success_count > 0:
+        return 200, {
+            'success': True,
+            'message': f'部分成功：{success_count}/{total} 个任务',
+            'success_count': success_count,
+            'fail_count': fail_count
+        }
+    else:
+        return 400, {'success': False, 'message': '批量终止失败'}
+
+
+def _handle_batch_pause_tasks(data: Dict) -> Tuple[int, Dict]:
+    """
+    批量暂停任务
+    
+    请求格式:
+    {
+        "items": [{"uid": 1, "query_id": "xxx"}, ...]
+    }
+    """
+    items = data.get('items', [])
+    
+    if not items:
+        return 400, {'success': False, 'message': '未选择任何任务'}
+    
+    success_count = 0
+    fail_count = 0
+    
+    for item in items:
+        uid = item.get('uid')
+        qid = item.get('query_id')
+        
+        if not uid or not qid:
+            fail_count += 1
+            continue
+        
+        try:
+            uid = int(uid)
+            pause_query(uid, qid)
+            success_count += 1
+        except Exception:
+            fail_count += 1
+    
+    total = success_count + fail_count
+    if fail_count == 0:
+        return 200, {
+            'success': True,
+            'message': f'批量暂停成功，共 {success_count} 个任务',
+            'success_count': success_count
+        }
+    elif success_count > 0:
+        return 200, {
+            'success': True,
+            'message': f'部分成功：{success_count}/{total} 个任务',
+            'success_count': success_count,
+            'fail_count': fail_count
+        }
+    else:
+        return 400, {'success': False, 'message': '批量暂停失败'}
+
+
+def _handle_batch_resume_tasks(data: Dict) -> Tuple[int, Dict]:
+    """
+    批量恢复任务
+    
+    请求格式:
+    {
+        "items": [{"uid": 1, "query_id": "xxx"}, ...]
+    }
+    """
+    items = data.get('items', [])
+    
+    if not items:
+        return 400, {'success': False, 'message': '未选择任何任务'}
+    
+    success_count = 0
+    fail_count = 0
+    
+    for item in items:
+        uid = item.get('uid')
+        qid = item.get('query_id')
+        
+        if not uid or not qid:
+            fail_count += 1
+            continue
+        
+        try:
+            uid = int(uid)
+            resume_query(uid, qid)
+            success_count += 1
+        except Exception:
+            fail_count += 1
+    
+    total = success_count + fail_count
+    if fail_count == 0:
+        return 200, {
+            'success': True,
+            'message': f'批量恢复成功，共 {success_count} 个任务',
+            'success_count': success_count
+        }
+    elif success_count > 0:
+        return 200, {
+            'success': True,
+            'message': f'部分成功：{success_count}/{total} 个任务',
+            'success_count': success_count,
+            'fail_count': fail_count
+        }
+    else:
+        return 400, {'success': False, 'message': '批量恢复失败'}
 

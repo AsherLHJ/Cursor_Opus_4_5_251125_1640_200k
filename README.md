@@ -213,7 +213,7 @@ python scripts/package_images.py
 
 ```bash
 # Windows PowerShell / CMD / Git Bash
-ssh -L 16379:127.0.0.1:6379 -N root@你的ECS公网IP
+ssh -L 16379:127.0.0.1:6379 -N root@8.138.45.108
 
 # -L 16379:127.0.0.1:6379  将本地16379端口映射到远程的127.0.0.1:6379
 # -N  不执行远程命令，只做端口转发
@@ -276,7 +276,7 @@ python DB_tools/create_admin.py
 使用高并发压力测试工具（HTTP API模式，非Selenium）：
 
 ```bash
-# 本地测试 (默认100用户，50并发)
+# 本地测试 (默认测试全部100个活跃用户)
 python scripts/autopaper_scraper.py
 
 # 生产环境测试
@@ -286,10 +286,10 @@ python scripts/autopaper_scraper.py --production
 python scripts/autopaper_scraper.py --start-id 1 --end-id 10
 
 # 自定义下载目录
-python scripts/autopaper_scraper.py --download-dir "D:\Downloads\test"
+python scripts/autopaper_scraper.py --download-dir "C:\Users\Asher\Downloads\testDownloadFileLocal"
 
 # 指定服务器地址
-python scripts/autopaper_scraper.py --base-url "http://192.168.1.100:18080"
+python scripts/autopaper_scraper.py --base-url "https://autopapersearch.com/"
 ```
 
 **测试流程**：

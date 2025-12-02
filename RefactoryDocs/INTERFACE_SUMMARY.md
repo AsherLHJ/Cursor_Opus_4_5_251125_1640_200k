@@ -4,9 +4,9 @@
 
 ## 当前进度
 
-**最后更新**: 2025-11-30  
+**最后更新**: 2025-12-02  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 二十五轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 三十四轮Bug修复
 
 ---
 
@@ -450,11 +450,11 @@ blocks = PaperBlocks.batch_get_blocks(['meta:NATURE:2024', 'meta:SCIENCE:2023'])
 
 ---
 
-## 高并发测试脚本
+## 高并发测试脚本 (含蒸馏功能)
 
 ### 使用方法
 ```bash
-# 本地测试 (默认端口18080)
+# 本地测试 (全部100个活跃用户)
 python scripts/autopaper_scraper.py
 
 # 指定服务器地址
@@ -463,26 +463,32 @@ python scripts/autopaper_scraper.py --base-url http://localhost:18080
 # 生产环境测试
 python scripts/autopaper_scraper.py --production
 
-# 测试部分用户 (只测试前10个)
+# 测试前10个用户
 python scripts/autopaper_scraper.py --start-id 1 --end-id 10
+
+# 测试前50个用户
+python scripts/autopaper_scraper.py --start-id 1 --end-id 50
 
 # 自定义下载目录
 python scripts/autopaper_scraper.py --download-dir "D:\\Downloads\\test"
 ```
 
 ### 测试流程
-1. **阶段0**: 初始化100个账户(autoTest1~100)，设置权限=2，余额=30000
-2. **阶段1**: 前50用户(1~50)同时发起查询，等待全部完成
-3. **阶段2**: 后50用户(51~100)开始查询 + 前50用户同时下载CSV/BIB
+1. **阶段0**: 初始化账户(autoTest1~300)，设置权限=2，余额=30000
+2. **阶段1**: 前100用户同时发起查询 -> 每个查询完成后自动发起蒸馏 -> 蒸馏完成后下载CSV/BIB
 
 ### 查询参数
 - 研究问题: 人机交互相关的任何研究
 - 数据源: ANNU REV NEUROSCI, TRENDS NEUROSCI, ISMAR
 - 年份范围: 2020-2025
 
+### 蒸馏参数
+- 蒸馏研究问题: 使用了EEG和EMG的硬件的研究
+- 蒸馏研究要求: (空)
+
 ### 输出文件
-- `test_report.csv`: 详细测试报告
-- `C:\Users\Asher\Downloads\testDownloadFile\`: 下载的CSV/BIB文件
+- `test_report.csv`: 详细测试报告（含查询、蒸馏、下载耗时统计）
+- `C:\Users\Asher\Downloads\testDownloadFile\`: 下载的蒸馏结果CSV/BIB文件
 
 ---
 
@@ -734,6 +740,158 @@ sudo /opt/deploy_autopaperweb.sh
 
 ---
 
+## 修复32: 管理员页面 DataTable 增强与批量操作 (2025-12-02)
+
+### 问题清单
+1. 管理员页面列表需要分页、排序、搜索、筛选功能
+2. 需要全选/勾选和批量操作功能
+3. 操作成功后应使用 Toast 提示而非 alert 弹窗
+
+### 修复内容
+
+#### 32a: DataTable 组件扩展
+- **data-table.js 新增功能**:
+  - `selectable: true` - 启用勾选列
+  - `idKey: 'uid'` - 行唯一标识字段
+  - `batchActions: [...]` - 批量操作按钮配置
+  - `getSelectedRows()` - 获取选中行数据
+  - `clearSelection()` - 清空选中
+  - `DataTable.showToast()` - 静态方法显示 Toast 提示
+- **data-table.css 新增样式**:
+  - `.data-table-checkbox-col` - checkbox 列样式
+  - `.data-table-batch-bar` - 批量操作栏样式
+  - `.data-table-toast-container`, `.data-table-toast` - Toast 样式
+  - 深色主题适配
+
+#### 32b: 后端批量操作 API
+- `POST /api/admin/users/batch_balance` - 批量调整余额（支持增加/减少/设为）
+- `POST /api/admin/users/batch_permission` - 批量调整权限
+- `POST /api/admin/tasks/batch_terminate` - 批量终止任务
+- `POST /api/admin/tasks/batch_pause` - 批量暂停任务
+- `POST /api/admin/tasks/batch_resume` - 批量恢复任务
+
+#### 32c: 管理员页面重构
+- **dashboard.html**: 活跃任务队列集成 DataTable，支持批量终止
+- **users.html**: 用户列表集成 DataTable，支持批量调整余额/权限
+- **tasks.html**: 任务列表集成 DataTable（移除原有 tabs），支持批量暂停/恢复/终止
+
+#### 32d: i18n 翻译扩展
+- 新增 `admin.batch_*` 系列翻译（中英文）
+- 新增 `datatable.*` 组件翻译
+
+### 修改文件清单
+| 文件 | 说明 |
+|------|------|
+| `lib/html/static/js/data-table.js` | 扩展：selectable、batchActions、Toast |
+| `lib/html/static/css/data-table.css` | 新增：checkbox、批量操作栏、Toast 样式 |
+| `lib/html/static/js/i18n.js` | 新增翻译词条 |
+| `lib/webserver/admin_api.py` | 新增5个批量操作 API |
+| `lib/html/admin/dashboard.html` | 重构：集成 DataTable |
+| `lib/html/admin/users.html` | 重构：集成 DataTable + 批量模态框 |
+| `lib/html/admin/tasks.html` | 重构：集成 DataTable（移除 tabs）|
+
+---
+
+## 修复33: 管理员页面刷新控制功能迁移 (2025-12-02)
+
+### 问题清单
+1. dashboard.html、users.html、tasks.html 的"用户"/"用户ID"列名需改为"用户UID"
+2. 三个页面需要添加与 debug.html 相同的刷新控制功能（立即刷新、暂停/继续自动刷新、刷新间隔选择）
+3. "最后更新"需改为"最后更新时间"
+
+### 修复内容
+
+#### 33a: i18n.js 翻译更新
+| 词条 | 中文 | 英文 |
+|------|------|------|
+| `admin.task_user_uid` | 用户UID | User UID |
+| `admin.last_update` | 最后更新时间 | Last Update Time |
+| `admin.refresh_now` | 立即刷新 | Refresh Now |
+| `admin.pause_auto_refresh` | 暂停自动刷新 | Pause Auto Refresh |
+| `admin.resume_auto_refresh` | 继续自动刷新 | Resume Auto Refresh |
+| `admin.refresh_interval` | 刷新间隔: | Refresh Interval: |
+| `admin.interval_1s/2s/5s/10s/30s` | 1秒/2秒/5秒/10秒/30秒 | 1s/2s/5s/10s/30s |
+
+#### 33b: dashboard.html 修改
+- 列名从 `admin.task_user` 改为 `admin.task_user_uid`
+- 添加刷新控制功能：三个控件（立即刷新、暂停/继续、间隔选择）
+- 添加 JS 变量：`autoRefresh`、`timer`、`refreshInterval`
+- 添加 JS 函数：`schedule()`、`toggleAutoRefresh()`、`updateRefreshInterval()`、`updateAutoToggleText()`
+- 将 `setInterval(refreshData, 5000)` 改为 `schedule()` 函数
+
+#### 33c: users.html 修改
+- 添加刷新控制功能（原本没有刷新按钮和自动刷新）
+- 添加 CSS 样式和 JS 逻辑
+- 默认刷新间隔 5 秒
+
+#### 33d: tasks.html 修改
+- 列名从 `admin.tasks_uid` 改为 `admin.task_user_uid`
+- 将单一刷新按钮替换为三控件区域
+- 将 `setInterval(loadTasks, 10000)` 改为 `schedule()` 函数
+- 默认刷新间隔保持 10 秒
+
+### 修改文件清单
+| 文件 | 说明 |
+|------|------|
+| `lib/html/static/js/i18n.js` | 添加/修改翻译词条 |
+| `lib/html/admin/dashboard.html` | 列名 + 刷新控制功能 |
+| `lib/html/admin/users.html` | 添加刷新控制功能 |
+| `lib/html/admin/tasks.html` | 列名 + 刷新控制功能 |
+
+---
+
+## 修复34: 压力测试脚本蒸馏功能扩展 (2025-12-02)
+
+### 需求
+1. 注册300个用户 (autoTest1~autoTest300)，设置权限=2，余额=30000
+2. 前100个用户 (autoTest1~100) 同时发起查询任务
+3. 每个查询任务完成后，该用户立即发起蒸馏任务
+4. 每个蒸馏任务完成后，立即下载 CSV 和 BIB 文件
+
+### 修改内容
+
+#### 34a: 配置常量更新
+- `TOTAL_USERS`: 100 -> 300
+- `ACTIVE_TEST_USERS`: 新增，值为100
+- `DISTILL_QUESTION`: 新增，"使用了EEG和EMG的硬件的研究"
+- `DISTILL_REQUIREMENTS`: 新增，空字符串
+
+#### 34b: TestAccount 数据类扩展
+新增字段：
+- `distill_query_id`: 蒸馏查询ID
+- `distill_start_time`/`distill_end_time`: 蒸馏时间
+- `distill_completed`: 蒸馏完成标志
+- `distill_duration`: 蒸馏耗时属性
+
+#### 34c: TestResult 数据类扩展
+新增字段：
+- `successful_distillations`: 成功蒸馏数
+- `failed_distillations`: 失败蒸馏数
+
+#### 34d: APIClient 蒸馏API支持
+新增方法：
+- `estimate_distillation_cost(uid, original_query_id)`: 估算蒸馏费用
+- `start_distillation(uid, original_query_id, question, requirements)`: 发起蒸馏
+
+#### 34e: 测试流程重构
+- 简化为单阶段流程: 查询 -> 蒸馏 -> 下载
+- 新增 `_phase1_query_distill_download()` 方法
+- 新增 `_query_distill_download_pipeline()` 方法（每账户独立管道）
+- 新增蒸馏相关方法：`_start_distillation_for_account`, `_wait_for_distillation`, `_download_distill_results`
+- 下载方法支持指定 `query_id` 参数
+
+#### 34f: 报告增强
+- 包含蒸馏成功/失败统计
+- 包含蒸馏耗时统计（平均/最短/最长）
+- CSV报告新增蒸馏相关列
+
+### 修改文件清单
+| 文件 | 说明 |
+|------|------|
+| `scripts/autopaper_scraper.py` | 完整重构支持蒸馏流程 |
+
+---
+
 ## 恢复指南
 
 如果你是新的Agent会话，请：
@@ -741,7 +899,7 @@ sudo /opt/deploy_autopaperweb.sh
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `RefactoryDocs/前端重构设计文档20251129.md` 了解前端重构规划
 4. 查看 `需要手动操作的事项.txt` 了解待完成操作
-5. 项目重构已基本完成，经过三十一轮Bug修复，可进行测试
+5. 项目重构已基本完成，经过三十四轮Bug修复，可进行测试
 
 ---
 

@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="admin.nav_tasks">任务管理 - AutoPaperWeb Admin</title>
+    <link rel="stylesheet" href="/static/css/data-table.css">
     <script src="/static/js/i18n.js"></script>
+    <script src="/static/js/data-table.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f5f7fa; min-height: 100vh; }
@@ -12,6 +14,7 @@
         .header h1 { font-size: 1.5rem; font-weight: 600; }
         .header-actions { display: flex; gap: 1rem; align-items: center; }
         .header-actions a, .header-actions button { color: white; text-decoration: none; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.9rem; cursor: pointer; border: 1px solid rgba(255,255,255,0.3); background: transparent; }
+        .header-actions a:hover, .header-actions button:hover { background: rgba(255,255,255,0.1); }
         .nav { background: white; padding: 0 2rem; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
         .nav ul { display: flex; list-style: none; gap: 0.5rem; }
         .nav a { display: block; padding: 1rem 1.5rem; color: #666; text-decoration: none; font-weight: 500; border-bottom: 3px solid transparent; }
@@ -19,21 +22,73 @@
         .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
         .panel { background: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 1.5rem; }
         .panel h2 { font-size: 1.1rem; color: #1a1a2e; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid #eee; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { text-align: left; padding: 0.75rem 1rem; border-bottom: 1px solid #eee; }
-        th { color: #666; font-weight: 600; font-size: 0.85rem; text-transform: uppercase; }
+        
+        /* 状态徽章 */
         .status-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: 500; }
         .status-running { background: #dcfce7; color: #166534; }
         .status-done { background: #e0e7ff; color: #3730a3; }
         .status-paused { background: #fef3c7; color: #92400e; }
         .status-pending { background: #f3f4f6; color: #6b7280; }
-        .btn { padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.85rem; cursor: pointer; border: none; }
-        .btn-danger { background: #ef4444; color: white; }
-        .btn-warning { background: #f59e0b; color: white; }
-        .btn:hover { opacity: 0.9; }
-        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
-        .tab { padding: 0.5rem 1rem; border: 1px solid #ddd; border-radius: 6px; cursor: pointer; background: white; }
-        .tab.active { background: #0f3460; color: white; border-color: #0f3460; }
+        .status-cancelled { background: #fee2e2; color: #991b1b; }
+        
+        /* DataTable 样式调整 */
+        .data-table-wrapper { margin-top: 1rem; }
+        
+        /* 刷新控制样式 */
+        .refresh-btn {
+            background: linear-gradient(135deg, #4a9eff 0%, #0066cc 100%);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s ease;
+        }
+        
+        .refresh-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(74, 158, 255, 0.3);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+            box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+        }
+        
+        .refresh-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .refresh-interval {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .refresh-interval select {
+            padding: 0.4rem 0.8rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            background: white;
+            cursor: pointer;
+        }
+        
+        .refresh-interval select:focus {
+            outline: none;
+            border-color: #4a9eff;
+        }
+        
+        #lastUpdate { color: #999; font-size: 0.85rem; }
     </style>
 </head>
 <body>
@@ -57,31 +112,29 @@
     </nav>
     
     <div class="container">
+        <div class="refresh-controls">
+            <button id="refreshBtn" class="refresh-btn" onclick="loadTasks()">
+                🔄 <span data-i18n="admin.refresh_now">立即刷新</span>
+            </button>
+            <button id="autoToggleBtn" class="refresh-btn btn-secondary" onclick="toggleAutoRefresh()">
+                ⏸️ <span id="autoToggleText" data-i18n="admin.pause_auto_refresh">暂停自动刷新</span>
+            </button>
+            <div class="refresh-interval">
+                <label for="refreshInterval" data-i18n="admin.refresh_interval">刷新间隔:</label>
+                <select id="refreshInterval" onchange="updateRefreshInterval()">
+                    <option value="1000" data-i18n="admin.interval_1s">1秒</option>
+                    <option value="2000" data-i18n="admin.interval_2s">2秒</option>
+                    <option value="5000" data-i18n="admin.interval_5s">5秒</option>
+                    <option value="10000" selected data-i18n="admin.interval_10s">10秒</option>
+                    <option value="30000" data-i18n="admin.interval_30s">30秒</option>
+                </select>
+            </div>
+            <span id="lastUpdate"></span>
+        </div>
+        
         <div class="panel">
             <h2>📋 <span data-i18n="admin.tasks_title">任务列表</span></h2>
-            
-            <div class="tabs">
-                <button class="tab active" data-filter="all" onclick="filterTasks('all')" data-i18n="admin.tasks_filter_all">全部</button>
-                <button class="tab" data-filter="RUNNING" onclick="filterTasks('RUNNING')" data-i18n="admin.tasks_filter_running">运行中</button>
-                <button class="tab" data-filter="PAUSED" onclick="filterTasks('PAUSED')" data-i18n="admin.tasks_filter_paused">已暂停</button>
-                <button class="tab" data-filter="DONE" onclick="filterTasks('DONE')" data-i18n="admin.tasks_filter_done">已完成</button>
-            </div>
-            
-            <table>
-                <thead>
-                    <tr>
-                        <th data-i18n="admin.tasks_query_id">查询ID</th>
-                        <th data-i18n="admin.tasks_uid">用户ID</th>
-                        <th data-i18n="admin.tasks_status">状态</th>
-                        <th data-i18n="admin.tasks_start_time">开始时间</th>
-                        <th data-i18n="admin.tasks_cost">费用</th>
-                        <th data-i18n="admin.user_actions">操作</th>
-                    </tr>
-                </thead>
-                <tbody id="taskList">
-                    <tr><td colspan="6" style="text-align:center;color:#999;" data-i18n="admin.loading">加载中...</td></tr>
-                </tbody>
-            </table>
+            <div id="tasksTable"></div>
         </div>
     </div>
     
@@ -92,17 +145,146 @@
         
         // 语言切换
         document.getElementById('langToggle').onclick = function() {
-            const newLang = i18n.lang === 'zh' ? 'en' : 'zh';
+            const newLang = i18n.getLang() === 'zh' ? 'en' : 'zh';
             i18n.setLang(newLang);
+            i18n.applyI18n();
+            if (window.apw_afterLangChange) {
+                window.apw_afterLangChange(newLang);
+            }
         };
+        
+        // 自动刷新控制
+        let autoRefresh = true;
+        let timer = null;
+        let refreshInterval = 10000;
+        
+        // 状态变量
+        let tasksTable = null;
+        let tasksData = [];
+        
+        // 状态翻译映射
+        const statusLabels = {
+            'RUNNING': () => i18n.t('admin.tasks_filter_running'),
+            'PAUSED': () => i18n.t('admin.tasks_filter_paused'),
+            'DONE': () => i18n.t('admin.tasks_filter_done'),
+            'CANCELLED': () => '已取消',
+            'PENDING': () => '待处理'
+        };
+        
+        // 初始化任务表格
+        function initTasksTable() {
+            tasksTable = new DataTable({
+                containerId: 'tasksTable',
+                columns: [
+                    { 
+                        key: 'query_id', 
+                        label: i18n.t('admin.tasks_query_id'),
+                        sortable: true, 
+                        searchable: true,
+                        render: (row) => `<code style="font-size:0.85rem;">${row.query_id || ''}</code>`
+                    },
+                    { 
+                        key: 'uid', 
+                        label: i18n.t('admin.task_user_uid'),
+                        sortable: true,
+                        searchable: true
+                    },
+                    { 
+                        key: 'status', 
+                        label: i18n.t('admin.tasks_status'),
+                        sortable: true,
+                        filterable: true,
+                        filterOptions: [
+                            { value: 'RUNNING', label: i18n.t('admin.tasks_filter_running') },
+                            { value: 'PAUSED', label: i18n.t('admin.tasks_filter_paused') },
+                            { value: 'DONE', label: i18n.t('admin.tasks_filter_done') },
+                            { value: 'CANCELLED', label: '已取消' }
+                        ],
+                        render: (row) => {
+                            const status = row.status || 'PENDING';
+                            const statusClass = status.toLowerCase();
+                            return `<span class="status-badge status-${statusClass}">${status}</span>`;
+                        }
+                    },
+                    { 
+                        key: 'start_time', 
+                        label: i18n.t('admin.tasks_start_time'),
+                        sortable: true,
+                        render: (row) => row.start_time ? new Date(row.start_time).toLocaleString() : '-'
+                    },
+                    { 
+                        key: 'total_cost', 
+                        label: i18n.t('admin.tasks_cost'),
+                        sortable: true,
+                        render: (row) => parseFloat(row.total_cost || 0).toFixed(2)
+                    }
+                ],
+                pageSizes: [20, 50, 100],
+                defaultPageSize: 20,
+                selectable: true,
+                idKey: 'query_id',
+                searchFieldSelector: true,
+                filterCentered: true,
+                filterLabelPrefix: i18n.t('admin.status_filter'),
+                batchActions: [
+                    { 
+                        label: i18n.t('admin.batch_pause'), 
+                        className: 'batch-btn-warning', 
+                        onClick: batchPauseTasks 
+                    },
+                    { 
+                        label: i18n.t('admin.batch_resume'), 
+                        className: 'batch-btn-success', 
+                        onClick: batchResumeTasks 
+                    },
+                    { 
+                        label: i18n.t('admin.batch_terminate'), 
+                        className: 'batch-btn-danger', 
+                        onClick: batchTerminateTasks 
+                    }
+                ],
+                emptyMessage: i18n.t('admin.tasks_none')
+            });
+        }
         
         // 语言切换回调
         window.apw_afterLangChange = function(lang) {
-            renderTasks();
+            initTasksTable();
+            if (tasksData.length > 0) {
+                tasksTable.setData(tasksData);
+                tasksTable.render();
+            }
+            updateAutoToggleText();
+            loadTasks();
         };
         
-        let allTasks = [];
-        let currentFilter = 'all';
+        // 刷新控制函数
+        function schedule() {
+            clearInterval(timer);
+            if (autoRefresh) {
+                timer = setInterval(loadTasks, refreshInterval);
+            }
+        }
+        
+        function updateAutoToggleText() {
+            const autoToggleText = document.getElementById('autoToggleText');
+            autoToggleText.textContent = autoRefresh ? i18n.t('admin.pause_auto_refresh') : i18n.t('admin.resume_auto_refresh');
+        }
+        
+        function toggleAutoRefresh() {
+            autoRefresh = !autoRefresh;
+            updateAutoToggleText();
+            const autoToggleBtn = document.getElementById('autoToggleBtn');
+            autoToggleBtn.classList.toggle('btn-secondary', autoRefresh);
+            schedule();
+        }
+        
+        function updateRefreshInterval() {
+            refreshInterval = parseInt(document.getElementById('refreshInterval').value);
+            if (autoRefresh) {
+                schedule();
+            }
+        }
         
         async function fetchWithAuth(url, options = {}) {
             return fetch(url, { ...options, headers: { 'Content-Type': 'application/json', 'X-Admin-Token': adminToken, ...(options.headers || {}) }});
@@ -114,95 +296,124 @@
                 const data = await response.json();
                 
                 if (data.success && data.tasks) {
-                    allTasks = data.tasks;
-                    renderTasks();
+                    tasksData = data.tasks;
+                    if (tasksTable) {
+                        // 重新初始化以更新UID筛选选项
+                        initTasksTable();
+                        tasksTable.setData(tasksData);
+                        tasksTable.render();
+                    }
+                    document.getElementById('lastUpdate').textContent = 
+                        i18n.t('admin.last_update') + ': ' + new Date().toLocaleTimeString();
                 }
             } catch (error) {
                 console.error('加载任务失败:', error);
+                DataTable.showToast(i18n.t('admin.operation_failed'), 'error');
             }
         }
         
-        function filterTasks(status) {
-            currentFilter = status;
-            document.querySelectorAll('.tab').forEach(tab => {
-                tab.classList.toggle('active', tab.getAttribute('data-filter') === status);
-            });
-            renderTasks();
-        }
-        
-        function renderTasks() {
-            const filtered = currentFilter === 'all' 
-                ? allTasks 
-                : allTasks.filter(t => t.status === currentFilter);
-            
-            const tbody = document.getElementById('taskList');
-            
-            if (!filtered.length) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#999;">${i18n.t('admin.tasks_none')}</td></tr>`;
+        async function batchPauseTasks(selectedRows, table) {
+            // 只选择 RUNNING 状态的任务
+            const runningTasks = selectedRows.filter(r => r.status === 'RUNNING');
+            if (runningTasks.length === 0) {
+                DataTable.showToast('请选择运行中的任务', 'warning');
                 return;
             }
             
-            tbody.innerHTML = filtered.map(t => `
-                <tr>
-                    <td><code>${t.query_id}</code></td>
-                    <td>${t.uid}</td>
-                    <td><span class="status-badge status-${(t.status || 'pending').toLowerCase()}">${t.status || 'PENDING'}</span></td>
-                    <td>${t.start_time ? new Date(t.start_time).toLocaleString() : '-'}</td>
-                    <td>${parseFloat(t.total_cost || 0).toFixed(2)}</td>
-                    <td>
-                        ${t.status === 'RUNNING' ? `
-                            <button class="btn btn-warning" onclick="pauseTask(${t.uid}, '${t.query_id}')">${i18n.t('admin.tasks_pause')}</button>
-                            <button class="btn btn-danger" onclick="terminateTask(${t.uid}, '${t.query_id}')">${i18n.t('admin.tasks_terminate')}</button>
-                        ` : ''}
-                        ${t.status === 'PAUSED' ? `
-                            <button class="btn btn-warning" onclick="resumeTask(${t.uid}, '${t.query_id}')">${i18n.t('admin.tasks_resume')}</button>
-                        ` : ''}
-                    </td>
-                </tr>
-            `).join('');
-        }
-        
-        async function terminateTask(uid, qid) {
-            if (!confirm(i18n.t('admin.tasks_terminate_confirm'))) return;
+            const confirmMsg = i18n.t('admin.batch_confirm_pause', { count: runningTasks.length });
+            if (!confirm(confirmMsg)) return;
+            
+            const items = runningTasks.map(row => ({
+                uid: row.uid,
+                query_id: row.query_id
+            }));
             
             try {
-                const response = await fetchWithAuth('/api/admin/tasks/terminate', {
+                const response = await fetchWithAuth('/api/admin/tasks/batch_pause', {
                     method: 'POST',
-                    body: JSON.stringify({ uid, query_id: qid })
+                    body: JSON.stringify({ items })
                 });
                 const data = await response.json();
-                alert(data.message || (data.success ? i18n.t('admin.terminate_sent') : i18n.t('admin.operation_failed')));
-                loadTasks();
+                
+                if (data.success) {
+                    DataTable.showToast(data.message || i18n.t('admin.operation_success'), 'success');
+                    table.clearSelection();
+                    loadTasks();
+                } else {
+                    DataTable.showToast(data.message || i18n.t('admin.operation_failed'), 'error');
+                }
             } catch (error) {
-                alert(i18n.t('admin.operation_failed') + ': ' + error.message);
+                DataTable.showToast(i18n.t('admin.operation_failed') + ': ' + error.message, 'error');
             }
         }
         
-        async function pauseTask(uid, qid) {
+        async function batchResumeTasks(selectedRows, table) {
+            // 只选择 PAUSED 状态的任务
+            const pausedTasks = selectedRows.filter(r => r.status === 'PAUSED');
+            if (pausedTasks.length === 0) {
+                DataTable.showToast('请选择已暂停的任务', 'warning');
+                return;
+            }
+            
+            const confirmMsg = i18n.t('admin.batch_confirm_resume', { count: pausedTasks.length });
+            if (!confirm(confirmMsg)) return;
+            
+            const items = pausedTasks.map(row => ({
+                uid: row.uid,
+                query_id: row.query_id
+            }));
+            
             try {
-                const response = await fetchWithAuth('/api/admin/tasks/pause', {
+                const response = await fetchWithAuth('/api/admin/tasks/batch_resume', {
                     method: 'POST',
-                    body: JSON.stringify({ uid, query_id: qid })
+                    body: JSON.stringify({ items })
                 });
                 const data = await response.json();
-                alert(data.message || (data.success ? i18n.t('admin.operation_success') : i18n.t('admin.operation_failed')));
-                loadTasks();
+                
+                if (data.success) {
+                    DataTable.showToast(data.message || i18n.t('admin.operation_success'), 'success');
+                    table.clearSelection();
+                    loadTasks();
+                } else {
+                    DataTable.showToast(data.message || i18n.t('admin.operation_failed'), 'error');
+                }
             } catch (error) {
-                alert(i18n.t('admin.operation_failed') + ': ' + error.message);
+                DataTable.showToast(i18n.t('admin.operation_failed') + ': ' + error.message, 'error');
             }
         }
         
-        async function resumeTask(uid, qid) {
+        async function batchTerminateTasks(selectedRows, table) {
+            // 只选择 RUNNING 或 PAUSED 状态的任务
+            const activeTasks = selectedRows.filter(r => r.status === 'RUNNING' || r.status === 'PAUSED');
+            if (activeTasks.length === 0) {
+                DataTable.showToast('请选择运行中或已暂停的任务', 'warning');
+                return;
+            }
+            
+            const confirmMsg = i18n.t('admin.batch_confirm_terminate', { count: activeTasks.length });
+            if (!confirm(confirmMsg)) return;
+            
+            const items = activeTasks.map(row => ({
+                uid: row.uid,
+                query_id: row.query_id
+            }));
+            
             try {
-                const response = await fetchWithAuth('/api/admin/tasks/resume', {
+                const response = await fetchWithAuth('/api/admin/tasks/batch_terminate', {
                     method: 'POST',
-                    body: JSON.stringify({ uid, query_id: qid })
+                    body: JSON.stringify({ items })
                 });
                 const data = await response.json();
-                alert(data.message || (data.success ? i18n.t('admin.operation_success') : i18n.t('admin.operation_failed')));
-                loadTasks();
+                
+                if (data.success) {
+                    DataTable.showToast(data.message || i18n.t('admin.operation_success'), 'success');
+                    table.clearSelection();
+                    loadTasks();
+                } else {
+                    DataTable.showToast(data.message || i18n.t('admin.operation_failed'), 'error');
+                }
             } catch (error) {
-                alert(i18n.t('admin.operation_failed') + ': ' + error.message);
+                DataTable.showToast(i18n.t('admin.operation_failed') + ': ' + error.message, 'error');
             }
         }
         
@@ -212,9 +423,14 @@
             window.location.href = '/admin/login.html';
         }
         
-        loadTasks();
-        setInterval(loadTasks, 10000);
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initTasksTable();
+            loadTasks();
+            schedule();
+        });
     </script>
 </body>
 </html>
+
 

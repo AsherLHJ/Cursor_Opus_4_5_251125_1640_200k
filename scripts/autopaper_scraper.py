@@ -1,22 +1,31 @@
 #!/usr/bin/env python3
 """
-AutoPaperWeb 高并发压力测试脚本 - HTTP API 版本
+AutoPaperWeb 高并发压力测试脚本 - HTTP API 版本 (含蒸馏功能)
 
 测试场景:
-1. 注册100个用户 (autoTest1~autoTest100)，设置权限=2，余额=30000
-2. 前50用户 (autoTest1~50) 同时发起查询
-3. 前50查询全部完成后:
-   - 后50用户 (autoTest51~100) 开始查询
-   - 前50用户同时下载CSV和BIB结果
+1. 注册300个用户 (autoTest1~autoTest300)，设置权限=2，余额=30000
+2. 前100用户 (autoTest1~100) 同时发起查询
+3. 每个查询完成后，该用户立即发起蒸馏任务
+4. 每个蒸馏完成后，立即下载CSV和BIB结果
 
 查询参数:
 - 研究问题: 人机交互相关的任何研究
 - 数据源: ANNU REV NEUROSCI, TRENDS NEUROSCI, ISMAR
 - 年份范围: 2020-2025
 
+蒸馏参数:
+- 蒸馏研究问题: 使用了EEG和EMG的硬件的研究
+- 蒸馏研究要求: (空)
+
 使用方法:
-  # 本地测试
+  # 本地测试 (全部100个活跃用户)
   python scripts/autopaper_scraper.py --base-url http://localhost:18080
+
+  # 测试前10个用户
+  python scripts/autopaper_scraper.py --start-id 1 --end-id 10
+
+  # 测试前50个用户
+  python scripts/autopaper_scraper.py --start-id 1 --end-id 50
 
   # 生产环境测试
   python scripts/autopaper_scraper.py --production
@@ -61,7 +70,8 @@ ADMIN_PASSWORD = "Paper2025"
 TEST_USER_PASSWORD = "123456"
 TEST_USER_PERMISSION = 2
 TEST_USER_BALANCE = 30000.0
-TOTAL_USERS = 100
+TOTAL_USERS = 300  # 总用户数（用于注册）
+ACTIVE_TEST_USERS = 100  # 实际参与测试的用户数（前100个）
 
 # 查询参数
 SEARCH_QUESTION = "人机交互相关的任何研究"
@@ -70,20 +80,23 @@ SEARCH_JOURNALS = ["ANNU REV NEUROSCI", "TRENDS NEUROSCI", "ISMAR"]
 SEARCH_START_YEAR = "2020"
 SEARCH_END_YEAR = "2025"
 
+# 蒸馏参数
+DISTILL_QUESTION = "使用了EEG和EMG的硬件的研究"
+DISTILL_REQUIREMENTS = ""
+
 # 下载目录
 DEFAULT_DOWNLOAD_DIR = Path(r"C:\Users\Asher\Downloads\testDownloadFile")
 
 # 并发配置
-PHASE1_USER_COUNT = 50  # 第一阶段用户数 (1-50)
-PHASE2_USER_COUNT = 50  # 第二阶段用户数 (51-100)
 SETUP_CONCURRENCY = 20   # 账户设置并发数
-QUERY_CONCURRENCY = 50   # 查询并发数
-DOWNLOAD_CONCURRENCY = 50  # 下载并发数
+QUERY_CONCURRENCY = 100  # 查询并发数
+DOWNLOAD_CONCURRENCY = 100  # 下载并发数
+PIPELINE_CONCURRENCY = 100  # 查询->蒸馏->下载管道并发数
 
 # 轮询配置
 PROGRESS_POLL_INTERVAL = 5  # 进度轮询间隔(秒)
 DOWNLOAD_POLL_INTERVAL = 1  # 下载状态轮询间隔(秒)
-PROGRESS_TIMEOUT = 3600     # 查询超时时间(秒)
+PROGRESS_TIMEOUT = 3600     # 查询/蒸馏超时时间(秒)
 DOWNLOAD_TIMEOUT = 300      # 下载超时时间(秒)
 
 # 结果文件
@@ -103,20 +116,38 @@ class TestAccount:
     user_id: int = 0
     uid: int = 0
     token: str = ""
+    
+    # 查询相关字段
     query_id: str = ""
     query_start_time: Optional[datetime] = None
     query_end_time: Optional[datetime] = None
     query_completed: bool = False
+    
+    # 蒸馏相关字段
+    distill_query_id: str = ""
+    distill_start_time: Optional[datetime] = None
+    distill_end_time: Optional[datetime] = None
+    distill_completed: bool = False
+    
+    # 下载相关字段
     csv_downloaded: bool = False
     bib_downloaded: bool = False
     download_start_time: Optional[datetime] = None
     download_end_time: Optional[datetime] = None
+    
+    # 错误记录
     errors: List[str] = field(default_factory=list)
     
     @property
     def query_duration(self) -> Optional[float]:
         if self.query_start_time and self.query_end_time:
             return (self.query_end_time - self.query_start_time).total_seconds()
+        return None
+    
+    @property
+    def distill_duration(self) -> Optional[float]:
+        if self.distill_start_time and self.distill_end_time:
+            return (self.distill_end_time - self.distill_start_time).total_seconds()
         return None
     
     @property
@@ -133,11 +164,11 @@ class TestResult:
     end_time: Optional[datetime] = None
     phase1_start: Optional[datetime] = None
     phase1_end: Optional[datetime] = None
-    phase2_start: Optional[datetime] = None
-    phase2_end: Optional[datetime] = None
     total_accounts: int = 0
     successful_queries: int = 0
     failed_queries: int = 0
+    successful_distillations: int = 0
+    failed_distillations: int = 0
     successful_downloads: int = 0
     failed_downloads: int = 0
 
@@ -320,6 +351,42 @@ class APIClient:
         return data.get('history', [])
     
     # -------------------------------------------------------------------------
+    # 蒸馏 API
+    # -------------------------------------------------------------------------
+    
+    def estimate_distillation_cost(self, uid: int, original_query_id: str) -> Dict:
+        """估算蒸馏费用"""
+        payload = {
+            'uid': uid,
+            'original_query_id': original_query_id
+        }
+        response = self.session.post(
+            self._url('/api/estimate_distillation_cost'),
+            json=payload,
+            timeout=self.timeout
+        )
+        return self._handle_response(response, "估算蒸馏费用")
+    
+    def start_distillation(self, uid: int, original_query_id: str,
+                           question: str, requirements: str = "") -> str:
+        """发起蒸馏任务，返回新的query_id"""
+        payload = {
+            'uid': uid,
+            'original_query_id': original_query_id,
+            'question': question,
+            'requirements': requirements
+        }
+        response = self.session.post(
+            self._url('/api/start_distillation'),
+            json=payload,
+            timeout=self.timeout
+        )
+        data = self._handle_response(response, "开始蒸馏")
+        if not data.get('success'):
+            raise APIError(f"开始蒸馏失败: {data.get('message', '未知错误')}")
+        return data.get('query_id', '')
+    
+    # -------------------------------------------------------------------------
     # 下载 API (异步队列模式)
     # -------------------------------------------------------------------------
     
@@ -420,7 +487,7 @@ class ConcurrencyTest:
     def run(self):
         """执行完整测试流程"""
         print("=" * 70)
-        print("AutoPaperWeb 高并发压力测试")
+        print("AutoPaperWeb 高并发压力测试 (含蒸馏功能)")
         print("=" * 70)
         print(f"服务器地址: {self.client.base_url}")
         print(f"下载目录: {self.download_dir}")
@@ -429,17 +496,17 @@ class ConcurrencyTest:
         print(f"  - 研究问题: {SEARCH_QUESTION}")
         print(f"  - 数据源: {', '.join(SEARCH_JOURNALS)}")
         print(f"  - 年份范围: {SEARCH_START_YEAR} - {SEARCH_END_YEAR}")
+        print(f"蒸馏参数:")
+        print(f"  - 蒸馏研究问题: {DISTILL_QUESTION}")
+        print(f"  - 蒸馏研究要求: {DISTILL_REQUIREMENTS or '(空)'}")
         print("=" * 70)
         
         try:
             # 阶段0: 初始化账户
             self._setup_accounts()
             
-            # 阶段1: 前50用户并发查询
-            self._phase1_query()
-            
-            # 阶段2: 后50查询 + 前50下载
-            self._phase2_query_and_download()
+            # 阶段1: 查询 -> 蒸馏 -> 下载
+            self._phase1_query_distill_download()
             
             # 生成报告
             self.result.end_time = datetime.now()
@@ -470,7 +537,7 @@ class ConcurrencyTest:
             print(f"        ✗ 管理员登录失败: {e}")
             raise
         
-        # 2. 创建账户对象
+        # 2. 创建账户对象 (只创建测试范围内的用户)
         total_users = self.end_id - self.start_id + 1
         for i in range(self.start_id, self.end_id + 1):
             username = f"autoTest{i}"
@@ -558,52 +625,112 @@ class ConcurrencyTest:
         self.client.admin_update_permission(self.admin_token, account.uid, TEST_USER_PERMISSION)
     
     # -------------------------------------------------------------------------
-    # 阶段1: 前50用户并发查询
+    # 阶段1: 查询 -> 蒸馏 -> 下载
     # -------------------------------------------------------------------------
     
-    def _phase1_query(self):
-        """阶段1: 前50用户并发查询"""
+    def _phase1_query_distill_download(self):
+        """阶段1: 查询 -> 蒸馏 -> 下载 完整流程"""
         print("\n" + "=" * 70)
-        print("[阶段1] 前50用户并发查询")
+        print("[阶段1] 查询 -> 蒸馏 -> 下载")
         print("=" * 70)
         
         self.result.phase1_start = datetime.now()
         
-        # 获取前50个有效账户
-        phase1_accounts = [acc for acc in self.accounts[:PHASE1_USER_COUNT] if acc.uid > 0]
-        print(f"  参与查询的账户数: {len(phase1_accounts)}")
+        # 获取有效账户
+        active_accounts = [acc for acc in self.accounts if acc.uid > 0]
+        print(f"  参与测试的账户数: {len(active_accounts)}")
         
-        if not phase1_accounts:
+        if not active_accounts:
             print("  ✗ 没有可用账户，跳过阶段1")
             return
         
-        # 并发发起查询
-        print(f"  [1/2] 并发发起 {len(phase1_accounts)} 个查询...")
+        # 1. 并发发起所有查询
+        print(f"\n  [1/3] 并发发起 {len(active_accounts)} 个查询...")
         with ThreadPoolExecutor(max_workers=QUERY_CONCURRENCY) as executor:
             futures = {executor.submit(self._start_query, acc): acc 
-                       for acc in phase1_accounts}
+                       for acc in active_accounts}
+            started_count = 0
             for future in as_completed(futures):
                 acc = futures[future]
                 try:
                     future.result()
+                    if acc.query_id:
+                        started_count += 1
                 except Exception as e:
                     acc.errors.append(f"发起查询失败: {e}")
         
-        started = sum(1 for acc in phase1_accounts if acc.query_id)
-        print(f"        ✓ 成功发起: {started}/{len(phase1_accounts)}")
+        print(f"        ✓ 成功发起: {started_count}/{len(active_accounts)}")
         
-        # 轮询等待所有查询完成
-        print(f"  [2/2] 等待所有查询完成...")
-        self._wait_for_queries(phase1_accounts)
+        # 2. 每个账户独立执行 查询->蒸馏->下载 管道
+        print(f"\n  [2/3] 执行 查询等待->蒸馏->下载 管道 (并发数: {PIPELINE_CONCURRENCY})...")
+        accounts_with_query = [acc for acc in active_accounts if acc.query_id]
         
-        completed = sum(1 for acc in phase1_accounts if acc.query_completed)
-        self.result.successful_queries += completed
-        self.result.failed_queries += len(phase1_accounts) - completed
+        with ThreadPoolExecutor(max_workers=PIPELINE_CONCURRENCY) as executor:
+            futures = {executor.submit(self._query_distill_download_pipeline, acc): acc 
+                       for acc in accounts_with_query}
+            
+            completed_count = 0
+            for future in as_completed(futures):
+                completed_count += 1
+                acc = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    acc.errors.append(f"管道执行失败: {e}")
+                
+                if completed_count % 10 == 0 or completed_count == len(accounts_with_query):
+                    # 实时统计
+                    query_done = sum(1 for a in accounts_with_query if a.query_completed)
+                    distill_done = sum(1 for a in accounts_with_query if a.distill_completed)
+                    download_done = sum(1 for a in accounts_with_query if a.csv_downloaded and a.bib_downloaded)
+                    print(f"        进度: {completed_count}/{len(accounts_with_query)} 管道完成 "
+                          f"| 查询:{query_done} | 蒸馏:{distill_done} | 下载:{download_done}")
+        
+        # 3. 统计结果
+        print(f"\n  [3/3] 统计结果...")
+        self.result.successful_queries = sum(1 for acc in active_accounts if acc.query_completed)
+        self.result.failed_queries = len(active_accounts) - self.result.successful_queries
+        self.result.successful_distillations = sum(1 for acc in active_accounts if acc.distill_completed)
+        self.result.failed_distillations = sum(1 for acc in active_accounts if acc.query_completed) - self.result.successful_distillations
+        self.result.successful_downloads = sum(1 for acc in active_accounts if acc.csv_downloaded and acc.bib_downloaded)
+        self.result.failed_downloads = sum(1 for acc in active_accounts if acc.distill_completed) - self.result.successful_downloads
         
         self.result.phase1_end = datetime.now()
         duration = (self.result.phase1_end - self.result.phase1_start).total_seconds()
         
-        print(f"\n[阶段1] 完成 - 成功: {completed}/{len(phase1_accounts)}, 耗时: {duration:.1f}秒")
+        print(f"\n[阶段1] 完成 - 耗时: {duration:.1f}秒")
+        print(f"        查询成功: {self.result.successful_queries}/{len(active_accounts)}")
+        print(f"        蒸馏成功: {self.result.successful_distillations}/{self.result.successful_queries}")
+        print(f"        下载成功: {self.result.successful_downloads}/{self.result.successful_distillations}")
+    
+    def _query_distill_download_pipeline(self, account: TestAccount):
+        """单个账户的完整流程: 等待查询完成 -> 蒸馏 -> 下载"""
+        
+        # 1. 等待查询完成
+        self._wait_for_single_query(account)
+        if not account.query_completed:
+            return
+        
+        # 2. 发起蒸馏
+        try:
+            self._start_distillation_for_account(account)
+        except Exception as e:
+            account.errors.append(f"发起蒸馏失败: {e}")
+            return
+        
+        if not account.distill_query_id:
+            return
+        
+        # 3. 等待蒸馏完成
+        self._wait_for_distillation(account)
+        if not account.distill_completed:
+            return
+        
+        # 4. 下载蒸馏结果
+        try:
+            self._download_distill_results(account)
+        except Exception as e:
+            account.errors.append(f"下载蒸馏结果失败: {e}")
     
     def _start_query(self, account: TestAccount):
         """为单个账户发起查询"""
@@ -618,177 +745,86 @@ class ConcurrencyTest:
         )
         account.query_id = query_id
     
-    def _wait_for_queries(self, accounts: List[TestAccount], timeout: int = PROGRESS_TIMEOUT):
-        """等待一组查询完成"""
-        pending = [acc for acc in accounts if acc.query_id and not acc.query_completed]
+    def _wait_for_single_query(self, account: TestAccount, timeout: int = PROGRESS_TIMEOUT):
+        """等待单个查询完成"""
+        if not account.query_id:
+            account.errors.append("无查询ID")
+            return
+        
         start_time = time.time()
-        
-        while pending and (time.time() - start_time) < timeout:
-            # 并发检查进度
-            with ThreadPoolExecutor(max_workers=len(pending)) as executor:
-                futures = {executor.submit(self._check_query_progress, acc): acc 
-                           for acc in pending}
-                for future in as_completed(futures):
-                    acc = futures[future]
-                    try:
-                        future.result()
-                    except Exception as e:
-                        acc.errors.append(f"检查进度失败: {e}")
+        while (time.time() - start_time) < timeout:
+            try:
+                progress = self.client.get_query_progress(account.uid, account.query_id)
+                if progress.get('completed'):
+                    account.query_completed = True
+                    account.query_end_time = datetime.now()
+                    return
+            except Exception as e:
+                # 忽略临时错误，继续轮询
+                pass
             
-            # 更新待处理列表
-            pending = [acc for acc in pending if not acc.query_completed]
-            
-            if pending:
-                completed = len(accounts) - len(pending)
-                print(f"        进度: {completed}/{len(accounts)} 完成, "
-                      f"等待中: {len(pending)}")
-                time.sleep(PROGRESS_POLL_INTERVAL)
+            time.sleep(PROGRESS_POLL_INTERVAL)
         
-        # 超时处理
-        for acc in pending:
-            acc.errors.append("查询超时")
+        account.errors.append("查询超时")
     
-    def _check_query_progress(self, account: TestAccount):
-        """检查单个查询的进度"""
-        progress = self.client.get_query_progress(account.uid, account.query_id)
-        
-        if progress.get('completed'):
-            account.query_completed = True
-            account.query_end_time = datetime.now()
-    
-    # -------------------------------------------------------------------------
-    # 阶段2: 后50查询 + 前50下载
-    # -------------------------------------------------------------------------
-    
-    def _phase2_query_and_download(self):
-        """阶段2: 后50用户查询 + 前50用户下载"""
-        print("\n" + "=" * 70)
-        print("[阶段2] 后50用户查询 + 前50用户下载")
-        print("=" * 70)
-        
-        self.result.phase2_start = datetime.now()
-        
-        # 获取各组账户
-        phase1_accounts = [acc for acc in self.accounts[:PHASE1_USER_COUNT] 
-                          if acc.uid > 0 and acc.query_completed]
-        phase2_accounts = [acc for acc in self.accounts[PHASE1_USER_COUNT:PHASE1_USER_COUNT + PHASE2_USER_COUNT] 
-                          if acc.uid > 0]
-        
-        print(f"  后50查询账户数: {len(phase2_accounts)}")
-        print(f"  前50下载账户数: {len(phase1_accounts)}")
-        
-        # 使用两个线程并行执行
-        query_thread = threading.Thread(
-            target=self._run_phase2_queries, 
-            args=(phase2_accounts,),
-            name="Phase2-Query"
+    def _start_distillation_for_account(self, account: TestAccount):
+        """为单个账户发起蒸馏"""
+        account.distill_start_time = datetime.now()
+        distill_query_id = self.client.start_distillation(
+            uid=account.uid,
+            original_query_id=account.query_id,
+            question=DISTILL_QUESTION,
+            requirements=DISTILL_REQUIREMENTS
         )
-        download_thread = threading.Thread(
-            target=self._run_phase2_downloads, 
-            args=(phase1_accounts,),
-            name="Phase2-Download"
-        )
-        
-        # 启动两个任务
-        query_thread.start()
-        download_thread.start()
-        
-        # 等待完成
-        query_thread.join()
-        download_thread.join()
-        
-        self.result.phase2_end = datetime.now()
-        duration = (self.result.phase2_end - self.result.phase2_start).total_seconds()
-        
-        # 统计结果
-        query_success = sum(1 for acc in phase2_accounts if acc.query_completed)
-        download_success = sum(1 for acc in phase1_accounts if acc.csv_downloaded and acc.bib_downloaded)
-        
-        self.result.successful_queries += query_success
-        self.result.failed_queries += len(phase2_accounts) - query_success
-        self.result.successful_downloads = download_success
-        self.result.failed_downloads = len(phase1_accounts) - download_success
-        
-        print(f"\n[阶段2] 完成 - 查询成功: {query_success}/{len(phase2_accounts)}, "
-              f"下载成功: {download_success}/{len(phase1_accounts)}, 耗时: {duration:.1f}秒")
+        account.distill_query_id = distill_query_id
     
-    def _run_phase2_queries(self, accounts: List[TestAccount]):
-        """执行阶段2的查询任务"""
-        if not accounts:
+    def _wait_for_distillation(self, account: TestAccount, timeout: int = PROGRESS_TIMEOUT):
+        """等待蒸馏任务完成"""
+        if not account.distill_query_id:
+            account.errors.append("无蒸馏查询ID")
             return
         
-        print(f"\n  [查询线程] 开始发起 {len(accounts)} 个查询...")
+        start_time = time.time()
+        while (time.time() - start_time) < timeout:
+            try:
+                progress = self.client.get_query_progress(account.uid, account.distill_query_id)
+                if progress.get('completed'):
+                    account.distill_completed = True
+                    account.distill_end_time = datetime.now()
+                    return
+            except Exception as e:
+                # 忽略临时错误，继续轮询
+                pass
+            
+            time.sleep(PROGRESS_POLL_INTERVAL)
         
-        # 并发发起查询
-        with ThreadPoolExecutor(max_workers=QUERY_CONCURRENCY) as executor:
-            futures = {executor.submit(self._start_query, acc): acc 
-                       for acc in accounts}
-            for future in as_completed(futures):
-                acc = futures[future]
-                try:
-                    future.result()
-                except Exception as e:
-                    acc.errors.append(f"发起查询失败: {e}")
-        
-        started = sum(1 for acc in accounts if acc.query_id)
-        print(f"  [查询线程] 成功发起: {started}/{len(accounts)}")
-        
-        # 等待查询完成
-        print(f"  [查询线程] 等待查询完成...")
-        self._wait_for_queries(accounts)
-        
-        completed = sum(1 for acc in accounts if acc.query_completed)
-        print(f"  [查询线程] 完成: {completed}/{len(accounts)}")
+        account.errors.append("蒸馏超时")
     
-    def _run_phase2_downloads(self, accounts: List[TestAccount]):
-        """执行阶段2的下载任务"""
-        if not accounts:
-            return
-        
-        print(f"\n  [下载线程] 开始下载 {len(accounts)} 个用户的结果...")
-        
-        # 并发下载
-        with ThreadPoolExecutor(max_workers=DOWNLOAD_CONCURRENCY) as executor:
-            futures = {executor.submit(self._download_results, acc): acc 
-                       for acc in accounts}
-            completed = 0
-            for future in as_completed(futures):
-                completed += 1
-                acc = futures[future]
-                try:
-                    future.result()
-                except Exception as e:
-                    acc.errors.append(f"下载失败: {e}")
-                if completed % 10 == 0 or completed == len(accounts):
-                    success = sum(1 for a in accounts if a.csv_downloaded and a.bib_downloaded)
-                    print(f"  [下载线程] 进度: {completed}/{len(accounts)}, 成功: {success}")
-        
-        success = sum(1 for acc in accounts if acc.csv_downloaded and acc.bib_downloaded)
-        print(f"  [下载线程] 完成: {success}/{len(accounts)}")
-    
-    def _download_results(self, account: TestAccount):
-        """下载单个账户的CSV和BIB结果"""
+    def _download_distill_results(self, account: TestAccount):
+        """下载蒸馏结果"""
         account.download_start_time = datetime.now()
+        
+        # 使用蒸馏的query_id下载
+        query_id_for_download = account.distill_query_id
         
         # 尝试使用异步下载API
         try:
-            self._download_with_async_api(account)
+            self._download_with_async_api(account, query_id_for_download)
         except Exception as async_error:
             # 如果异步API失败，回退到同步API
-            print(f"      {account.username}: 异步下载失败，尝试同步下载...")
             try:
-                self._download_with_sync_api(account)
+                self._download_with_sync_api(account, query_id_for_download)
             except Exception as sync_error:
                 raise APIError(f"异步和同步下载都失败: {async_error} / {sync_error}")
         
         account.download_end_time = datetime.now()
     
-    def _download_with_async_api(self, account: TestAccount):
-        """使用异步队列API下载"""
+    def _download_with_async_api(self, account: TestAccount, query_id: str):
+        """使用异步队列API下载（支持指定query_id）"""
         for file_type in ['csv', 'bib']:
             # 创建下载任务
             task_id = self.client.create_download_task(
-                account.uid, account.query_id, file_type)
+                account.uid, query_id, file_type)
             
             # 轮询等待就绪
             start_time = time.time()
@@ -810,9 +846,9 @@ class ConcurrencyTest:
             # 下载文件
             content = self.client.download_file(task_id)
             
-            # 保存文件
+            # 保存文件 - 使用蒸馏查询ID作为文件名的一部分
             suffix = 'csv' if file_type == 'csv' else 'bib'
-            filename = f"{account.username}_Result.{suffix}"
+            filename = f"{account.username}_Distill_Result.{suffix}"
             filepath = self.download_dir / filename
             filepath.write_bytes(content)
             
@@ -822,17 +858,17 @@ class ConcurrencyTest:
             else:
                 account.bib_downloaded = True
     
-    def _download_with_sync_api(self, account: TestAccount):
-        """使用同步API下载（备选方案）"""
+    def _download_with_sync_api(self, account: TestAccount, query_id: str):
+        """使用同步API下载（备选方案，支持指定query_id）"""
         # 下载CSV
-        content = self.client.download_csv_sync(account.uid, account.query_id)
-        filepath = self.download_dir / f"{account.username}_Result.csv"
+        content = self.client.download_csv_sync(account.uid, query_id)
+        filepath = self.download_dir / f"{account.username}_Distill_Result.csv"
         filepath.write_bytes(content)
         account.csv_downloaded = True
         
         # 下载BIB
-        content = self.client.download_bib_sync(account.uid, account.query_id)
-        filepath = self.download_dir / f"{account.username}_Result.bib"
+        content = self.client.download_bib_sync(account.uid, query_id)
+        filepath = self.download_dir / f"{account.username}_Distill_Result.bib"
         filepath.write_bytes(content)
         account.bib_downloaded = True
     
@@ -853,19 +889,39 @@ class ConcurrencyTest:
         print(f"  - 测试账户数: {self.result.total_accounts}")
         print(f"  - 查询成功: {self.result.successful_queries}")
         print(f"  - 查询失败: {self.result.failed_queries}")
+        print(f"  - 蒸馏成功: {self.result.successful_distillations}")
+        print(f"  - 蒸馏失败: {self.result.failed_distillations}")
         print(f"  - 下载成功: {self.result.successful_downloads}")
         print(f"  - 下载失败: {self.result.failed_downloads}")
         
         # 阶段统计
         if self.result.phase1_start and self.result.phase1_end:
             phase1_duration = (self.result.phase1_end - self.result.phase1_start).total_seconds()
-            print(f"\n阶段1 (前50用户查询):")
+            print(f"\n阶段1 (查询->蒸馏->下载):")
             print(f"  - 耗时: {phase1_duration:.1f} 秒")
         
-        if self.result.phase2_start and self.result.phase2_end:
-            phase2_duration = (self.result.phase2_end - self.result.phase2_start).total_seconds()
-            print(f"\n阶段2 (后50查询 + 前50下载):")
-            print(f"  - 耗时: {phase2_duration:.1f} 秒")
+        # 性能统计
+        query_durations = [acc.query_duration for acc in self.accounts if acc.query_duration]
+        distill_durations = [acc.distill_duration for acc in self.accounts if acc.distill_duration]
+        download_durations = [acc.download_duration for acc in self.accounts if acc.download_duration]
+        
+        if query_durations:
+            print(f"\n查询耗时统计:")
+            print(f"  - 平均: {sum(query_durations)/len(query_durations):.1f} 秒")
+            print(f"  - 最短: {min(query_durations):.1f} 秒")
+            print(f"  - 最长: {max(query_durations):.1f} 秒")
+        
+        if distill_durations:
+            print(f"\n蒸馏耗时统计:")
+            print(f"  - 平均: {sum(distill_durations)/len(distill_durations):.1f} 秒")
+            print(f"  - 最短: {min(distill_durations):.1f} 秒")
+            print(f"  - 最长: {max(distill_durations):.1f} 秒")
+        
+        if download_durations:
+            print(f"\n下载耗时统计:")
+            print(f"  - 平均: {sum(download_durations)/len(download_durations):.1f} 秒")
+            print(f"  - 最短: {min(download_durations):.1f} 秒")
+            print(f"  - 最长: {max(download_durations):.1f} 秒")
         
         # 保存详细报告到CSV
         self._save_csv_report()
@@ -889,9 +945,9 @@ class ConcurrencyTest:
         with open(TEST_REPORT_FILE, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerow([
-                'username', 'uid', 'query_id',
-                'query_start_time', 'query_end_time', 'query_duration_sec',
-                'query_completed',
+                'username', 'uid', 
+                'query_id', 'query_start_time', 'query_end_time', 'query_duration_sec', 'query_completed',
+                'distill_query_id', 'distill_start_time', 'distill_end_time', 'distill_duration_sec', 'distill_completed',
                 'csv_downloaded', 'bib_downloaded',
                 'download_start_time', 'download_end_time', 'download_duration_sec',
                 'errors'
@@ -906,6 +962,11 @@ class ConcurrencyTest:
                     acc.query_end_time.isoformat() if acc.query_end_time else '',
                     f"{acc.query_duration:.1f}" if acc.query_duration else '',
                     acc.query_completed,
+                    acc.distill_query_id,
+                    acc.distill_start_time.isoformat() if acc.distill_start_time else '',
+                    acc.distill_end_time.isoformat() if acc.distill_end_time else '',
+                    f"{acc.distill_duration:.1f}" if acc.distill_duration else '',
+                    acc.distill_completed,
                     acc.csv_downloaded,
                     acc.bib_downloaded,
                     acc.download_start_time.isoformat() if acc.download_start_time else '',
@@ -922,24 +983,33 @@ class ConcurrencyTest:
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
-        description="AutoPaperWeb 高并发压力测试脚本",
+        description="AutoPaperWeb 高并发压力测试脚本 (含蒸馏功能)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 本地测试
+  # 本地测试 (全部100个活跃用户)
   python scripts/autopaper_scraper.py
   
   # 指定本地端口
   python scripts/autopaper_scraper.py --base-url http://localhost:18080
+  
+  # 测试前10个用户
+  python scripts/autopaper_scraper.py --start-id 1 --end-id 10
+  
+  # 测试前50个用户
+  python scripts/autopaper_scraper.py --start-id 1 --end-id 50
   
   # 生产环境测试
   python scripts/autopaper_scraper.py --production
   
   # 自定义下载目录
   python scripts/autopaper_scraper.py --download-dir "D:\\Downloads\\test"
-  
-  # 测试部分用户
-  python scripts/autopaper_scraper.py --start-id 1 --end-id 10
+
+测试流程:
+  1. 注册/登录指定范围的用户
+  2. 所有用户同时发起查询任务
+  3. 每个查询完成后，自动发起蒸馏任务
+  4. 每个蒸馏完成后，自动下载CSV和BIB结果
 """
     )
     
@@ -966,8 +1036,8 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         '--end-id',
         type=int,
-        default=TOTAL_USERS,
-        help=f"结束用户ID (默认: {TOTAL_USERS})"
+        default=ACTIVE_TEST_USERS,
+        help=f"结束用户ID (默认: {ACTIVE_TEST_USERS})"
     )
     
     parser.add_argument(

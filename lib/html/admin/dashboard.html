@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="admin.nav_dashboard">监控大盘 - AutoPaperWeb Admin</title>
+    <link rel="stylesheet" href="/static/css/data-table.css">
     <script src="/static/js/i18n.js"></script>
+    <script src="/static/js/data-table.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -158,18 +160,68 @@
         .status-paused { background: #fef3c7; color: #92400e; }
         
         .refresh-btn {
-            background: #0f3460;
+            background: linear-gradient(135deg, #4a9eff 0%, #0066cc 100%);
             color: white;
             border: none;
             padding: 0.5rem 1rem;
             border-radius: 6px;
             cursor: pointer;
             font-size: 0.9rem;
+            transition: all 0.2s ease;
         }
         
-        .refresh-btn:hover { background: #16213e; }
+        .refresh-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(74, 158, 255, 0.3);
+        }
         
-        #lastUpdate { color: #999; font-size: 0.85rem; margin-left: 1rem; }
+        .refresh-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+            box-shadow: 0 4px 12px rgba(108, 117, 125, 0.3);
+        }
+        
+        .refresh-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .refresh-interval {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .refresh-interval select {
+            padding: 0.4rem 0.8rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            background: white;
+            cursor: pointer;
+        }
+        
+        .refresh-interval select:focus {
+            outline: none;
+            border-color: #4a9eff;
+        }
+        
+        #lastUpdate { color: #999; font-size: 0.85rem; }
+        
+        /* 覆盖 DataTable 样式以匹配页面风格 */
+        .data-table-wrapper { margin-top: 1rem; }
     </style>
 </head>
 <body>
@@ -193,8 +245,23 @@
     </nav>
     
     <div class="container">
-        <div style="margin-bottom: 1rem; display: flex; align-items: center;">
-            <button class="refresh-btn" onclick="refreshData()">🔄 <span data-i18n="admin.refresh">刷新数据</span></button>
+        <div class="refresh-controls">
+            <button id="refreshBtn" class="refresh-btn" onclick="refreshData()">
+                🔄 <span data-i18n="admin.refresh_now">立即刷新</span>
+            </button>
+            <button id="autoToggleBtn" class="refresh-btn btn-secondary" onclick="toggleAutoRefresh()">
+                ⏸️ <span id="autoToggleText" data-i18n="admin.pause_auto_refresh">暂停自动刷新</span>
+            </button>
+            <div class="refresh-interval">
+                <label for="refreshInterval" data-i18n="admin.refresh_interval">刷新间隔:</label>
+                <select id="refreshInterval" onchange="updateRefreshInterval()">
+                    <option value="1000" data-i18n="admin.interval_1s">1秒</option>
+                    <option value="2000" data-i18n="admin.interval_2s">2秒</option>
+                    <option value="5000" selected data-i18n="admin.interval_5s">5秒</option>
+                    <option value="10000" data-i18n="admin.interval_10s">10秒</option>
+                    <option value="30000" data-i18n="admin.interval_30s">30秒</option>
+                </select>
+            </div>
             <span id="lastUpdate"></span>
         </div>
         
@@ -235,21 +302,7 @@
         
         <div class="panel">
             <h2>🔄 <span data-i18n="admin.task_queue_title">活跃任务队列</span></h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th data-i18n="admin.query_id">查询ID</th>
-                        <th data-i18n="admin.task_user">用户</th>
-                        <th data-i18n="admin.task_status">状态</th>
-                        <th data-i18n="admin.pending_blocks">待处理Blocks</th>
-                        <th data-i18n="admin.completed">已完成</th>
-                        <th data-i18n="admin.user_actions">操作</th>
-                    </tr>
-                </thead>
-                <tbody id="taskList">
-                    <tr><td colspan="6" style="text-align:center;color:#999;" data-i18n="admin.loading">加载中...</td></tr>
-                </tbody>
-            </table>
+            <div id="activeTasksTable"></div>
         </div>
     </div>
     
@@ -265,14 +318,121 @@
         
         // 语言切换
         document.getElementById('langToggle').onclick = function() {
-            const newLang = i18n.lang === 'zh' ? 'en' : 'zh';
+            const newLang = i18n.getLang() === 'zh' ? 'en' : 'zh';
             i18n.setLang(newLang);
+            i18n.applyI18n();
+            if (window.apw_afterLangChange) {
+                window.apw_afterLangChange(newLang);
+            }
         };
+        
+        // 自动刷新控制
+        let autoRefresh = true;
+        let timer = null;
+        let refreshInterval = 5000;
+        
+        // 初始化活跃任务 DataTable
+        let activeTasksTable = null;
+        let tasksData = [];
+        
+        function initActiveTasksTable() {
+            activeTasksTable = new DataTable({
+                containerId: 'activeTasksTable',
+                columns: [
+                    { 
+                        key: 'query_id', 
+                        label: i18n.t('admin.query_id'),
+                        sortable: true, 
+                        searchable: true,
+                        render: (row) => `<code style="font-size:0.85rem;">${row.query_id}</code>`
+                    },
+                    { 
+                        key: 'uid', 
+                        label: i18n.t('admin.task_user_uid'),
+                        sortable: true,
+                        searchable: true
+                    },
+                    { 
+                        key: 'state', 
+                        label: i18n.t('admin.task_status'),
+                        sortable: true,
+                        filterable: true,
+                        filterOptions: [
+                            { value: 'RUNNING', label: 'RUNNING' },
+                            { value: 'PAUSED', label: 'PAUSED' },
+                            { value: 'DONE', label: 'DONE' }
+                        ],
+                        render: (row) => `<span class="status-badge status-${(row.state || 'running').toLowerCase()}">${row.state || 'UNKNOWN'}</span>`
+                    },
+                    { 
+                        key: 'pending_blocks', 
+                        label: i18n.t('admin.pending_blocks'),
+                        sortable: true
+                    },
+                    { 
+                        key: 'progress', 
+                        label: i18n.t('admin.completed'),
+                        sortable: false,
+                        render: (row) => `${row.finished_blocks || 0} / ${row.total_blocks || 0}`
+                    }
+                ],
+                pageSizes: [20, 50, 100],
+                defaultPageSize: 20,
+                selectable: true,
+                idKey: 'query_id',
+                searchFieldSelector: true,
+                filterCentered: true,
+                filterLabelPrefix: i18n.t('admin.status_filter'),
+                batchActions: [
+                    { 
+                        label: i18n.t('admin.batch_terminate'), 
+                        className: 'batch-btn-danger', 
+                        onClick: batchTerminateTasks 
+                    }
+                ],
+                emptyMessage: i18n.t('admin.no_active_tasks')
+            });
+        }
         
         // 语言切换回调
         window.apw_afterLangChange = function(lang) {
+            // 重新初始化表格以更新列标签
+            initActiveTasksTable();
+            if (tasksData.length > 0) {
+                activeTasksTable.setData(tasksData);
+                activeTasksTable.render();
+            }
+            updateAutoToggleText();
             refreshData();
         };
+        
+        // 刷新控制函数
+        function schedule() {
+            clearInterval(timer);
+            if (autoRefresh) {
+                timer = setInterval(refreshData, refreshInterval);
+            }
+        }
+        
+        function updateAutoToggleText() {
+            const autoToggleText = document.getElementById('autoToggleText');
+            autoToggleText.textContent = autoRefresh ? i18n.t('admin.pause_auto_refresh') : i18n.t('admin.resume_auto_refresh');
+        }
+        
+        function toggleAutoRefresh() {
+            autoRefresh = !autoRefresh;
+            updateAutoToggleText();
+            const autoToggleBtn = document.getElementById('autoToggleBtn');
+            autoToggleBtn.classList.toggle('btn-secondary', autoRefresh);
+            schedule();
+        }
+        
+        function updateRefreshInterval() {
+            refreshInterval = parseInt(document.getElementById('refreshInterval').value);
+            if (autoRefresh) {
+                schedule();
+            }
+        }
         
         async function fetchWithAuth(url, options = {}) {
             const headers = {
@@ -294,7 +454,13 @@
                     document.getElementById('workers').textContent = data.active_workers || 0;
                     document.getElementById('activeTasks').textContent = data.active_queries || 0;
                     
-                    updateTaskList(data.tasks || []);
+                    // 更新活跃任务表格
+                    tasksData = data.tasks || [];
+                    if (activeTasksTable) {
+                        activeTasksTable.setData(tasksData);
+                        activeTasksTable.render();
+                    }
+                    
                     updateHealthList(data.health || {});
                     
                     document.getElementById('lastUpdate').textContent = 
@@ -303,30 +469,6 @@
             } catch (error) {
                 console.error('刷新数据失败:', error);
             }
-        }
-        
-        function updateTaskList(tasks) {
-            const tbody = document.getElementById('taskList');
-            if (!tasks.length) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#999;">${i18n.t('admin.no_active_tasks')}</td></tr>`;
-                return;
-            }
-            
-            tbody.innerHTML = tasks.map(t => `
-                <tr>
-                    <td><code>${t.query_id}</code></td>
-                    <td>${t.uid}</td>
-                    <td><span class="status-badge status-${t.state?.toLowerCase()}">${t.state}</span></td>
-                    <td>${t.pending_blocks || 0}</td>
-                    <td>${t.finished_blocks || 0} / ${t.total_blocks || 0}</td>
-                    <td>
-                        <button onclick="terminateTask(${t.uid}, '${t.query_id}')" 
-                                style="padding:0.25rem 0.5rem;font-size:0.8rem;cursor:pointer;">
-                            ${i18n.t('admin.task_terminate')}
-                        </button>
-                    </td>
-                </tr>
-            `).join('');
         }
         
         function updateHealthList(health) {
@@ -346,19 +488,36 @@
             `).join('');
         }
         
-        async function terminateTask(uid, qid) {
-            if (!confirm(i18n.t('admin.confirm_terminate'))) return;
+        async function batchTerminateTasks(selectedRows, table) {
+            if (selectedRows.length === 0) {
+                DataTable.showToast(i18n.t('admin.no_active_tasks'), 'warning');
+                return;
+            }
+            
+            const confirmMsg = i18n.t('admin.batch_confirm_terminate', { count: selectedRows.length });
+            if (!confirm(confirmMsg)) return;
+            
+            const items = selectedRows.map(row => ({
+                uid: row.uid,
+                query_id: row.query_id
+            }));
             
             try {
-                const response = await fetchWithAuth('/api/admin/tasks/terminate', {
+                const response = await fetchWithAuth('/api/admin/tasks/batch_terminate', {
                     method: 'POST',
-                    body: JSON.stringify({ uid, query_id: qid })
+                    body: JSON.stringify({ items })
                 });
                 const data = await response.json();
-                alert(data.message || (data.success ? i18n.t('admin.terminate_sent') : i18n.t('admin.operation_failed')));
-                refreshData();
+                
+                if (data.success) {
+                    DataTable.showToast(data.message || i18n.t('admin.operation_success'), 'success');
+                    table.clearSelection();
+                    refreshData();
+                } else {
+                    DataTable.showToast(data.message || i18n.t('admin.operation_failed'), 'error');
+                }
             } catch (error) {
-                alert(i18n.t('admin.operation_failed') + ': ' + error.message);
+                DataTable.showToast(i18n.t('admin.operation_failed') + ': ' + error.message, 'error');
             }
         }
         
@@ -368,10 +527,12 @@
             window.location.href = '/admin/login.html';
         }
         
-        // 初始加载和定时刷新
-        refreshData();
-        setInterval(refreshData, 5000);
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            initActiveTasksTable();
+            refreshData();
+            schedule();
+        });
     </script>
 </body>
 </html>
-

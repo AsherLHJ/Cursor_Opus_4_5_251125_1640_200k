@@ -99,21 +99,19 @@ patch_config() {
     log "[5/10] 配置：设置为云端模式..."
     cd /opt/AutoPaperWeb_Server
     
-    # 强制设置为云端模式
+    # 强制设置为云端模式（仅修改local_develop_mode，保留unit_test_mode原值以支持云端测试）
     if command -v jq >/dev/null 2>&1; then
         tmpfile=$(mktemp)
-        if jq '.local_develop_mode=false | .unit_test_mode=false' config.json >"$tmpfile"; then
+        if jq '.local_develop_mode=false' config.json >"$tmpfile"; then
             mv "$tmpfile" config.json
-            log "  - 已使用jq将local_develop_mode和unit_test_mode置为false"
+            log "  - 已使用jq将local_develop_mode置为false"
         else
             rm -f "$tmpfile"
             log "  - jq修改失败，回退到sed方案"
             sed -i 's/"local_develop_mode"\s*:\s*true/"local_develop_mode": false/g' config.json || true
-            sed -i 's/"unit_test_mode"\s*:\s*true/"unit_test_mode": false/g' config.json || true
         fi
     else
         sed -i 's/"local_develop_mode"\s*:\s*true/"local_develop_mode": false/g' config.json || true
-        sed -i 's/"unit_test_mode"\s*:\s*true/"unit_test_mode": false/g' config.json || true
         log "  - 未检测到jq，已用sed将配置修改为云端模式"
     fi
 }
