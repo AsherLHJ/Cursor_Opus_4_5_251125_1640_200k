@@ -1,9 +1,9 @@
-import secrets
-
 import bcrypt
 
 from ..load_data.db_reader import _get_connection
 from ..load_data import db_reader
+from ..redis.user_session import UserSession
+from ..redis.connection import redis_ping
 
 
 def hash_password(password: str) -> str:
@@ -62,11 +62,16 @@ def register_user(username: str, password: str, initial_balance: int = 0, initia
 
 def login_user(username: str, password: str) -> dict:
     """
-    用户登录
+    用户登录 (修复37: 使用Redis存储会话token)
+    
     返回: {'success': bool, 'message': str, 'uid': int, 'token': str, 'balance': int, 'permission': int}
     """
     if not username or not password:
         return {'success': False, 'message': '用户名和密码不能为空'}
+    
+    # 检查Redis可用性
+    if not redis_ping():
+        return {'success': False, 'message': '系统服务暂时不可用，请稍后重试'}
     
     conn = _get_connection()
     try:
@@ -85,8 +90,12 @@ def login_user(username: str, password: str) -> dict:
             if not verify_password(password, stored_password):
                 return {'success': False, 'message': '密码错误'}
             
-            # 生成简单的会话token（实际项目中应使用更安全的方式）
-            token = secrets.token_hex(32)
+            # 修复37: 使用UserSession创建会话并存储到Redis
+            # Token存储在Redis中，服务器端可验证
+            token = UserSession.create_session(uid)
+            
+            if not token:
+                return {'success': False, 'message': '创建会话失败，请稍后重试'}
             
             return {
                 'success': True, 

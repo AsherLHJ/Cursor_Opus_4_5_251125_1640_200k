@@ -6,7 +6,7 @@
 - **最后修复时间**: 2025-12-02
 - **指导文件**: 新架构项目重构完整指导文件20251130.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 三十六轮Bug修复
+- **状态**: ✅ 重构完成 + 三十七轮Bug修复
 
 ---
 
@@ -598,6 +598,70 @@
 || 2025-12-02 | 修复34 | 压力测试脚本蒸馏功能扩展（查询->蒸馏->下载完整流程） | scripts/autopaper_scraper.py |
 || 2025-12-02 | 修复35 | 公告栏、维护模式与页面样式统一 | db_schema.py, system_settings_dao.py, system_api.py, admin_api.py, server.py, control.html, login.html, index.html, billing.html, maintenance.html(新), i18n.js |
 || 2025-12-02 | 修复36 | AI回复语言适配（中/英）+CSV排序（相关在前）+清理前端遗留旧API调用 | index.html, query_api.py, paper_processor.py, search_paper.py, download_worker.py, server.py, export.py |
+|| 2025-12-02 | 修复37 | 用户Token认证安全加固（修复严重安全漏洞） | user_session.py(新), user_auth.py(新), connection.py, auth.py, user_api.py, query_api.py, server.py, index.html, billing.html |
+|| 2025-12-02 | 文档同步 | 架构文档同步更新（修复24-37内容） | 数据库关联图, 端到端时序图, 管理员时序图, 项目重构指导文件 |
+
+---
+
+## 架构文档同步更新 (2025-12-02)
+
+### 任务背景
+根据修复24-37的内容，同步更新4个架构设计文档，确保文档与代码实现保持一致。
+
+### 更新内容
+
+#### 1. 新架构数据库关联图20251202.mmd
+- **新增MySQL表**: SystemSettings（系统配置表）
+- **新增Redis Key**:
+  - `UserSession`: `user:session:{token}` (String, TTL 24h) - 用户登录Token
+  - `DOIIndex`: `idx:doi_to_block` (Hash) - DOI反向索引
+  - `DistillBlock`: `distill:{uid}:{qid}:{index}` (Hash, TTL 7天) - 蒸馏专用Block
+  - `TerminateSignal`: `query:{uid}:{qid}:terminate_signal` (String, TTL 7天) - 任务终止信号
+  - `SystemConfig`: `sys:config:{key}` (String) - 系统配置缓存
+- **新增数据流关系**:
+  - UserInfo → UserSession (Login Create Token)
+  - DOIIndex → PaperBlock (Index Lookup)
+  - DistillBlock → QueryResultCache (Distill Worker)
+  - SystemSettings → SystemConfig (Preload Script)
+
+#### 2. 新架构端到端业务时序图20251202.mmd
+- **更新第1章**: 用户登录流程添加Token创建和Redis存储
+- **新增第1.5章**: 公告栏与维护模式检查
+- **更新第3章**: 提交查询任务添加language参数
+- **更新第4章**: 任务执行循环添加AI语言适配逻辑
+- **更新第6章**: 蒸馏任务流程重写，添加蒸馏专用Block创建
+- **更新第7章**: 结果下载添加Token验证、CSV排序、Is_Relevant本地化
+- **新增第8章**: API请求Token认证通用流程
+
+#### 3. 新架构管理员时序图20251202.mmd
+- **更新第4章**: 任务管理使用terminate_signal替代pause_signal进行终止
+- **新增第5章**: 批量操作（5个批量API: batch_balance/batch_permission/batch_terminate/batch_pause/batch_resume）
+- **新增第6章**: 系统配置管理（公告栏/维护模式/蒸馏系数/权限范围/注册开关/调试开关）
+
+#### 4. 新架构项目重构完整指导文件20251130.txt
+- **更新第1章**: 添加用户Token认证机制说明
+- **新增第9.5章**: API请求Token认证规范
+- **新增第9.6章**: 公告栏与维护模式
+- **更新第9章**: 废弃旧下载API说明
+- **更新第14章**: 蒸馏专用Block设计 + DOI反向索引 + 蒸馏费率传递优化
+- **更新第16章**: 批量操作API + DataTable组件 + 刷新控制功能
+- **新增第17.5章**: AI语言适配机制
+- **新增第17.6章**: Redis Key完整汇总
+- **更新第17.4章**: system_settings表SQL定义
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 6 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `新架构数据库关联图20251202.mmd` - 新增Redis Key和MySQL表
+- `新架构端到端业务时序图20251202.mmd` - 更新/新增7个章节
+- `新架构管理员时序图20251202.mmd` - 更新/新增3个章节
+- `新架构项目重构完整指导文件20251130.txt` - 更新/新增8个章节
+- `RefactoryDocs/INTERFACE_SUMMARY.md` - 补充修复37内容和架构文档更新记录
+- `RefactoryDocs/PROGRESS_LOG.md` - 添加架构文档同步更新记录
 
 ---
 
@@ -1621,6 +1685,123 @@ def _relevance_sort_key(item):
 ### API变更
 - **已删除** `/api/download_csv` - 旧架构同步下载CSV（使用 `/api/download/create` 替代）
 - **已删除** `/api/download_bib` - 旧架构同步下载BIB（使用 `/api/download/create` 替代）
+
+---
+
+## 修复轮次三十七：用户Token认证安全加固 (2025-12-02)
+
+### 问题清单
+1. **严重安全漏洞**: `auth.py` 中生成Token后未存储到Redis，导致后端无法验证Token
+2. 前端可随意伪造uid调用任意API，没有真正的认证机制
+3. 用户可以访问/操作其他用户的任务和数据
+
+### 问题分析
+
+#### 37a: Token生成但未验证
+- **代码位置**: `lib/webserver/auth.py` 第79行
+- **问题**: `login_user` 函数使用 `secrets.token_urlsafe(32)` 生成token，但只返回给前端，未存储到Redis
+- **后果**: 后端API无法验证token是否有效，任何人只要知道uid就能调用任意API
+- **源代码注释**: "实际项目中应使用更安全的方式"表明开发者知道这是问题但未修复
+
+#### 37b: 前端直接传递uid
+- **问题**: 所有API调用（查询、下载、余额等）都从localStorage读取uid并传递给后端
+- **后果**: 攻击者可以修改localStorage中的userId为任意值，访问其他用户的数据
+
+#### 37c: 没有统一的认证层
+- **问题**: 每个API处理函数直接从payload获取uid，没有中间件验证
+- **后果**: 无法统一管理认证逻辑，容易出现遗漏
+
+### 修复内容
+
+#### 37a: 新建 Redis 用户会话模块
+- **文件**: `lib/redis/user_session.py` (新建)
+- **功能**: 
+  - `generate_token()`: 生成安全随机Token
+  - `create_session(uid)`: 创建会话并存储到Redis (key: `user:session:{token}`, value: uid)
+  - `get_session_uid(token)`: 验证Token并获取uid，同时刷新TTL
+  - `destroy_session(token)`: 销毁会话（登出时使用）
+  - `is_valid_session(token)`: 检查会话是否有效
+- **TTL**: 24小时 (TTL_USER_SESSION)
+
+#### 37b: 新建 Redis TTL常量
+- **文件**: `lib/redis/connection.py`
+- **新增**: `TTL_USER_SESSION = 24 * 3600`
+
+#### 37c: 新建用户认证模块
+- **文件**: `lib/webserver/user_auth.py` (新建)
+- **功能**:
+  - `extract_token_from_headers(headers)`: 从Authorization头提取Token
+  - `require_auth(headers)`: 验证Token并返回 (success, uid, error)
+  - 支持 `Authorization: Bearer {token}` 格式
+
+#### 37d: 修改登录流程
+- **文件**: `lib/webserver/auth.py`
+- **修改**: `login_user` 函数调用 `UserSession.create_session(uid)` 存储Token
+
+#### 37e: 修改用户API
+- **文件**: `lib/webserver/user_api.py`
+- **修改**: 
+  - 除 `/api/register` 和 `/api/login` 外，所有端点添加Token验证
+  - 使用 `require_auth(headers)` 获取验证后的uid
+  - 不再信任payload中的uid
+
+#### 37f: 修改查询API
+- **文件**: `lib/webserver/query_api.py`
+- **修改**: 
+  - 所有需要认证的端点添加Token验证
+  - 使用 `require_auth(headers)` 获取验证后的uid
+  - 公开数据端点（tags、journals、count_papers）保持不验证
+
+#### 37g: 修改下载API
+- **文件**: `lib/webserver/server.py`
+- **修改**: 
+  - `_handle_download_create`: 添加Token验证
+  - `_handle_download_status`: 添加Token验证 + 任务归属验证
+  - `_handle_download_file`: 支持URL参数传递Token（因为文件下载是浏览器跳转，无法设置header）
+
+#### 37h: 修改前端 index.html
+- **新增**: `authFetch(url, options)` 辅助函数
+  - 自动添加 `Authorization: Bearer {token}` 头
+  - 401响应自动跳转登录页
+- **修改**: 27个fetch调用改用authFetch
+- **移除**: payload中不再传递uid参数
+
+#### 37i: 修改前端 billing.html
+- **新增**: `authFetch` 辅助函数
+- **修改**: 余额获取和账单加载使用authFetch
+- **修改**: 登出时同时清除userToken
+
+### 新增 Redis Key 格式
+| Key 格式 | 类型 | 说明 | TTL |
+|----------|------|------|-----|
+| `user:session:{token}` | String | 用户会话Token→uid映射 | 24小时 |
+
+### 安全改进对比
+| 方面 | 修复前 | 修复后 |
+|------|--------|--------|
+| Token验证 | ❌ 无 | ✅ Redis存储验证 |
+| uid来源 | payload（可伪造） | Token解析（后端控制） |
+| 任务归属 | ❌ 无验证 | ✅ uid必须匹配 |
+| 数据隔离 | ❌ 无 | ✅ 只能访问自己的数据 |
+| 会话管理 | ❌ 无 | ✅ 24小时过期 |
+| 登出安全 | ❌ 仅清除前端 | ✅ 可销毁Redis会话 |
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 新增 | 2 |
+| 修改 | 8 |
+
+### 修改文件清单
+- `lib/redis/user_session.py` (新建) - 用户会话管理
+- `lib/webserver/user_auth.py` (新建) - 用户认证验证
+- `lib/redis/connection.py` - 新增 TTL_USER_SESSION
+- `lib/webserver/auth.py` - 登录时存储Token到Redis
+- `lib/webserver/user_api.py` - 所有端点添加Token验证
+- `lib/webserver/query_api.py` - 所有端点添加Token验证
+- `lib/webserver/server.py` - 下载API添加Token验证
+- `lib/html/index.html` - 所有fetch改用authFetch
+- `lib/html/billing.html` - 所有fetch改用authFetch
 
 ---
 

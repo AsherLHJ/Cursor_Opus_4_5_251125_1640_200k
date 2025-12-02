@@ -6,7 +6,7 @@
 
 **最后更新**: 2025-12-02  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 三十六轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 三十七轮Bug修复 + 架构文档同步更新
 
 ---
 
@@ -31,6 +31,7 @@
 - `lib/redis/billing.py` - 计费队列
 - `lib/redis/download.py` - 下载队列
 - `lib/redis/admin.py` - 管理员会话
+- `lib/redis/user_session.py` - 用户会话管理（修复37新增）
 - `lib/redis/init_loader.py` - Redis初始化加载
 
 #### 3. DAO层 (阶段四)
@@ -63,6 +64,7 @@
 
 #### 7. API层 (阶段八)
 - `lib/webserver/admin_api.py` - 管理员API处理
+- `lib/webserver/user_auth.py` - 用户Token认证验证（修复37新增）
 - `lib/webserver/server.py` - 集成新API
 
 #### 8. 蒸馏系统 (阶段九)
@@ -154,6 +156,15 @@ lib/html/
 
 ### 管理员
 - `admin:session:{token}` (String, 24h)
+
+### 用户会话（修复37新增）
+- `user:session:{token}` (String, 24h) - 用户会话Token→uid映射
+
+### DOI反向索引（修复26新增）
+- `idx:doi_to_block` (Hash) - DOI→block_key映射，O(1)查询
+
+### 蒸馏专用Block（修复29新增）
+- `distill:{uid}:{qid}:{index}` (Hash, TTL 7天) - 蒸馏专用Block，Value为JSON{"bib", "price"}
 
 ---
 
@@ -990,6 +1001,86 @@ AI API
 
 ---
 
+## 修复37: 用户Token认证安全加固 (2025-12-02)
+
+### 问题清单
+1. **严重安全漏洞**: `auth.py` 中生成Token后未存储到Redis，导致后端无法验证Token
+2. 前端可随意伪造uid调用任意API，没有真正的认证机制
+3. 用户可以访问/操作其他用户的任务和数据
+
+### 修复内容
+
+#### 37a: 新建 Redis 用户会话模块
+- **文件**: `lib/redis/user_session.py` (新建)
+- **功能**:
+  - `generate_token()`: 生成安全随机Token
+  - `create_session(uid)`: 创建会话并存储到Redis
+  - `get_session_uid(token)`: 验证Token并获取uid
+  - `destroy_session(token)`: 销毁会话
+  - `is_valid_session(token)`: 检查会话是否有效
+- **TTL**: 24小时
+
+#### 37b-37i: 认证机制集成
+|| 文件 | 修改内容 |
+||------|----------|
+|| `lib/redis/connection.py` | 新增 `TTL_USER_SESSION = 24 * 3600` |
+|| `lib/webserver/user_auth.py` (新建) | Token提取和验证函数 |
+|| `lib/webserver/auth.py` | 登录时调用 `UserSession.create_session(uid)` |
+|| `lib/webserver/user_api.py` | 所有端点添加Token验证 |
+|| `lib/webserver/query_api.py` | 所有端点添加Token验证 |
+|| `lib/webserver/server.py` | 下载API添加Token验证 |
+|| `lib/html/index.html` | 27个fetch调用改用authFetch |
+|| `lib/html/billing.html` | fetch调用改用authFetch |
+
+### 安全改进对比
+|| 方面 | 修复前 | 修复后 |
+||------|--------|--------|
+|| Token验证 | 无 | Redis存储验证 |
+|| uid来源 | payload（可伪造） | Token解析（后端控制） |
+|| 任务归属 | 无验证 | uid必须匹配 |
+|| 数据隔离 | 无 | 只能访问自己的数据 |
+|| 会话管理 | 无 | 24小时过期 |
+
+### 新增Redis Key
+- `user:session:{token}` (String, TTL 24h) - 用户会话Token→uid映射
+
+---
+
+## 架构文档同步更新 (2025-12-02)
+
+根据修复24-37的内容，同步更新了以下架构文档：
+
+### 更新的文件
+1. `新架构数据库关联图20251202.mmd`
+   - 新增 UserSession、DOIIndex、DistillBlock、TerminateSignal Redis Key
+   - 新增 SystemSettings MySQL表
+   - 新增数据流关系
+
+2. `新架构端到端业务时序图20251202.mmd`
+   - 更新用户登录流程（Token认证）
+   - 新增公告栏与维护模式检查章节
+   - 更新任务执行循环（AI语言适配）
+   - 更新蒸馏任务流程（蒸馏专用Block）
+   - 更新结果下载（Token验证+CSV排序）
+   - 新增API请求Token认证通用流程章节
+
+3. `新架构管理员时序图20251202.mmd`
+   - 更新任务管理（使用terminate_signal）
+   - 新增批量操作章节（5个批量API）
+   - 新增系统配置管理章节（公告栏/维护模式）
+
+4. `新架构项目重构完整指导文件20251130.txt`
+   - 更新第1章：用户Token认证机制
+   - 新增第9.5章：API请求Token认证规范
+   - 新增第9.6章：公告栏与维护模式
+   - 更新第14章：蒸馏专用Block设计+DOI反向索引
+   - 更新第16章：批量操作API+DataTable+刷新控制
+   - 新增第17.5章：AI语言适配机制
+   - 新增第17.6章：Redis Key完整汇总
+   - 更新第17.4章：system_settings表SQL定义
+
+---
+
 ## 恢复指南
 
 如果你是新的Agent会话，请：
@@ -997,7 +1088,7 @@ AI API
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `RefactoryDocs/前端重构设计文档20251129.md` 了解前端重构规划
 4. 查看 `需要手动操作的事项.txt` 了解待完成操作
-5. 项目重构已基本完成，经过三十六轮Bug修复，可进行测试
+5. 项目重构已基本完成，经过三十七轮Bug修复，可进行测试
 
 ---
 

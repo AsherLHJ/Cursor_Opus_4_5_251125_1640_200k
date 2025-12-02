@@ -34,7 +34,7 @@
             "port": 3306,
             "user": "user_20251028",
             "password": "PaperUser2025",
-            "name": "paperdb_20251130"
+            "name": "paperdb_20251202"
         }
     },
     "redis": {

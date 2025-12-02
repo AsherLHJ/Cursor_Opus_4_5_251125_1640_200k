@@ -388,9 +388,9 @@
                 }
 
                 function checkLogin() {
-                        const userId = localStorage.getItem('userId');
+                        const token = localStorage.getItem('userToken');
                         const username = localStorage.getItem('username');
-                        if (!userId || !username) {
+                        if (!token || !username) {
                                 window.location.href = '/login.html';
                                 return false;
                         }
@@ -398,14 +398,45 @@
                         return true;
                 }
 
-                // 余额获取（与 index 保持一致）
+                /**
+                 * 修复37: 带认证的 fetch 辅助函数
+                 * 自动添加 Authorization: Bearer {token} 头
+                 * 如果收到 401 响应，自动跳转到登录页面
+                 */
+                async function authFetch(url, options = {}) {
+                    const token = localStorage.getItem('userToken');
+                    
+                    if (!token) {
+                        window.location.href = '/login.html';
+                        throw new Error('未登录');
+                    }
+                    
+                    const headers = {
+                        ...(options.headers || {}),
+                        'Authorization': `Bearer ${token}`
+                    };
+                    
+                    const response = await fetch(url, { ...options, headers });
+                    
+                    if (response.status === 401) {
+                        localStorage.removeItem('userToken');
+                        localStorage.removeItem('userId');
+                        localStorage.removeItem('username');
+                        window.location.href = '/login.html';
+                        throw new Error('登录已过期，请重新登录');
+                    }
+                    
+                    return response;
+                }
+
+                // 余额获取（与 index 保持一致）- 修复37: 使用带认证的 fetch
                 let userBalanceCache = null;
                 let lastBalanceFetchTs = 0;
                 async function fetchUserBalance(){
-                    const uid = parseInt(localStorage.getItem('userId') || '0', 10);
                     const balanceEl = document.getElementById('userBalance');
                     if (!balanceEl) return;
-                    if (!uid){
+                    const token = localStorage.getItem('userToken');
+                    if (!token){
                         balanceEl.textContent = i18n.getLang()==='zh' ? '请登录' : 'Login required';
                         return;
                     }
@@ -416,7 +447,8 @@
                     }
                     try{
                         balanceEl.textContent = i18n.getLang()==='zh' ? '加载中...' : 'Loading...';
-                        const res = await fetch('/api/user_info?uid=' + uid);
+                        // 修复37: 使用带认证的 fetch（uid从token获取）
+                        const res = await authFetch('/api/user_info');
                         if (!res.ok) throw new Error('HTTP ' + res.status);
                         const data = await res.json();
                         if (data.success && data.user_info && typeof data.user_info.balance !== 'undefined'){
@@ -461,13 +493,14 @@
         // 账单数据表格实例
         let billingTable = null;
         
-        // 加载账单数据
+        // 加载账单数据 - 修复37: 使用带认证的 fetch
         async function loadBilling() {
-            const userId = localStorage.getItem('userId');
-            if (!userId) return;
+            const token = localStorage.getItem('userToken');
+            if (!token) return;
 
             try {
-                const response = await fetch(`/api/billing?uid=${userId}`);
+                // 修复37: 使用带认证的 fetch（uid从token获取）
+                const response = await authFetch('/api/billing');
                 const data = await response.json();
 
                 document.getElementById('loadingState').style.display = 'none';
@@ -540,9 +573,10 @@
             }
         }
 
-        // 退出登录
+        // 退出登录 - 修复37: 同时删除 userToken
         document.getElementById('logoutBtn').addEventListener('click', (e) => {
             e.preventDefault();
+            localStorage.removeItem('userToken');
             localStorage.removeItem('userId');
             localStorage.removeItem('username');
             window.location.href = '/login.html';

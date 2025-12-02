@@ -76,6 +76,21 @@ classDiagram
             +datetime end_time
             +varchar status
         }
+
+        class SystemSettings {
+            +varchar setting_key (PK)
+            +text setting_value
+            +datetime updated_at
+            Note: 系统配置持久化存储
+            Note: 包含permission_min/max
+            Note: distill_rate蒸馏系数
+            Note: registration_enabled注册开关
+            Note: debug_console_enabled调试开关
+            Note: announcement_enabled公告栏开关
+            Note: announcement_content公告内容
+            Note: maintenance_mode维护模式
+            Note: maintenance_message维护公告
+        }
     }
 
     %% ==========================================
@@ -100,6 +115,13 @@ classDiagram
             Type: ZSet
             Member: query_id
             Score: timestamp
+        }
+        class UserSession {
+            Key: user:session:<token>
+            Type: String
+            Value: uid
+            TTL: 24h
+            Note: 用户登录Token映射(修复37)
         }
 
         %% --- Admin Data ---
@@ -145,13 +167,27 @@ classDiagram
             Type: Hash
             Field: DOI
             Value: Compressed_Bib_String
+            TTL: 永不过期
+        }
+        class DOIIndex {
+            Key: idx:doi_to_block
+            Type: Hash
+            Field: DOI
+            Value: block_key
+            Note: DOI反向索引O(1)查询(修复26)
+        }
+        class SystemConfig {
+            Key: sys:config:<key>
+            Type: String
+            Value: config_value
+            Note: 系统配置Redis缓存
         }
 
         %% --- Task & Queue ---
         class TaskQueue {
             Key: task:<uid>:<qid>:pending_blocks
             Type: List
-            Value: BlockKey (meta:...)
+            Value: BlockKey (meta:... 或 distill:...)
         }
         class QueryStatus {
             Key: query:<uid>:<qid>:status
@@ -170,6 +206,24 @@ classDiagram
             Key: query:<uid>:<qid>:pause_signal
             Type: String
             Value: "1"
+            Note: 暂停信号(可恢复)
+        }
+        class TerminateSignal {
+            Key: query:<uid>:<qid>:terminate_signal
+            Type: String
+            Value: "1"
+            TTL: 7天
+            Note: 终止信号(优先级高于暂停,不可恢复)
+        }
+
+        %% --- Distillation (修复29-31) ---
+        class DistillBlock {
+            Key: distill:<uid>:<qid>:<index>
+            Type: Hash
+            Field: DOI
+            Value: JSON(bib, price)
+            TTL: 7天
+            Note: 蒸馏任务专用Block
         }
 
         %% --- Billing & Monitoring ---
@@ -186,7 +240,7 @@ classDiagram
         class DownloadTaskStatus {
             Key: download:<task_id>:status
             Type: Hash
-            Fields: state, uid, qid, type, created_at
+            Fields: state, uid, qid, type, created_at, language
             Note: state=PENDING/PROCESSING/READY/FAILED
         }
         class DownloadTaskFile {
@@ -206,12 +260,15 @@ classDiagram
     ContentList ..> JournalPrice : Preload Script
     InfoTag ..> TagInfo : Preload Script
     InfoPaperWithTag ..> TagIndex : Preload Script
-    PaperInfo ..> PaperBlock : Preload Script\n(Full Load / Lazy Load)
+    PaperInfo ..> PaperBlock : Preload Script\n(Full Load)
+    PaperInfo ..> DOIIndex : Preload Script\n(Build Index)
     ContentListYearNumber ..> JournalInfo : Preload Script
+    SystemSettings ..> SystemConfig : Preload Script\n(MySQL -> Redis)
 
     %% 2. User Authentication & Lazy Loading
     UserInfo "1" -- "0..1" UserInfoCache : Lazy Load (Read Miss)\nWrite Behind (Update)
     UserInfo "1" -- "0..1" UserBalance : Lazy Load (Read Miss)\nWrite Behind (Update)
+    UserInfo ..> UserSession : Login Create Token\n(修复37)
 
     %% 3. Admin Authentication
     AdminInfo ..> AdminSession : Login Create
@@ -223,9 +280,12 @@ classDiagram
 
     %% 5. Task Execution Flow
     TaskQueue ..> PaperBlock : Worker Reads Data
+    TaskQueue ..> DistillBlock : Distill Worker Reads Data
     PaperBlock ..> QueryResultCache : Worker Computes & Writes
+    DistillBlock ..> QueryResultCache : Distill Worker Writes
     QueryResultCache ..> SearchResult : Archiver Thread\n(Async Archive DONE)
     QueryStatus ..> QueryLog : Archiver Thread\n(Update Status)
+    DOIIndex ..> PaperBlock : O(1) Lookup\n(修复26)
 
     %% 6. Download Flow (Async Queue)
     DownloadQueue ..> DownloadTaskStatus : DownloadWorker\n(Update Status)

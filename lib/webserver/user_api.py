@@ -1,5 +1,5 @@
 """
-用户相关API处理模块
+用户相关API处理模块 (修复37: 添加Token认证)
 负责用户注册、登录、余额、历史记录等操作
 """
 
@@ -10,6 +10,9 @@ from ..load_data import db_reader
 from ..redis.system_cache import SystemCache
 from ..redis.user_cache import UserCache
 from .auth import register_user, login_user, get_user_info
+from .user_auth import (
+    require_auth, get_uid_from_request, logout_user, extract_token_from_headers
+)
 
 
 def handle_user_api(path: str, method: str, headers: Dict, payload: Dict) -> Tuple[int, Dict]:
@@ -36,23 +39,23 @@ def handle_user_api(path: str, method: str, headers: Dict, payload: Dict) -> Tup
             return _handle_login(payload)
         
         if path == '/api/logout':
-            return 200, {'success': True, 'message': '已登出'}
+            return _handle_logout(headers)
     
     # ============================================================
-    # GET 请求
+    # GET 请求 (需要认证)
     # ============================================================
     if method == 'GET':
         if path == '/api/user_info':
-            return _handle_get_user_info(payload, headers)
+            return _handle_get_user_info(headers)
         
         if path == '/api/history' or path == '/api/user_history':
-            return _handle_get_history(payload)
+            return _handle_get_history(headers, payload)
         
         if path == '/api/balance' or path == '/api/user_balance':
-            return _handle_get_balance(payload)
+            return _handle_get_balance(headers)
         
         if path == '/api/billing':
-            return _handle_get_billing(payload)
+            return _handle_get_billing(headers)
     
     return 404, {'success': False, 'error': 'not_found'}
 
@@ -84,20 +87,28 @@ def _handle_login(payload: Dict) -> Tuple[int, Dict]:
     return 200, result
 
 
-def _handle_get_user_info(payload: Dict, headers: Dict) -> Tuple[int, Dict]:
-    """获取用户信息"""
+def _handle_logout(headers: Dict) -> Tuple[int, Dict]:
+    """
+    处理用户登出 (修复37: 销毁Redis会话)
+    """
+    token = extract_token_from_headers(headers)
+    if token:
+        logout_user(headers)
+    
+    return 200, {'success': True, 'message': '已登出'}
+
+
+def _handle_get_user_info(headers: Dict) -> Tuple[int, Dict]:
+    """
+    获取用户信息 (修复37: 需要Token认证)
+    
+    用户只能获取自己的信息，uid从Token中提取
+    """
     try:
-        uid = payload.get('uid')
-        if uid is None:
-            return 400, {'success': False, 'error': 'missing_uid'}
-        
-        try:
-            uid = int(uid)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_uid'}
-        
-        if uid <= 0:
-            return 400, {'success': False, 'error': 'invalid_uid'}
+        # 验证认证
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
         
         # get_user_info 已经返回包含 success 和 user_info 的完整响应
         result = get_user_info(uid)
@@ -109,20 +120,17 @@ def _handle_get_user_info(payload: Dict, headers: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'get_user_info_failed', 'message': str(e)}
 
 
-def _handle_get_balance(payload: Dict) -> Tuple[int, Dict]:
-    """获取用户余额"""
+def _handle_get_balance(headers: Dict) -> Tuple[int, Dict]:
+    """
+    获取用户余额 (修复37: 需要Token认证)
+    
+    用户只能获取自己的余额
+    """
     try:
-        uid = payload.get('uid')
-        if uid is None:
-            return 400, {'success': False, 'error': 'missing_uid'}
-        
-        try:
-            uid = int(uid)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_uid'}
-        
-        if uid <= 0:
-            return 400, {'success': False, 'error': 'invalid_uid'}
+        # 验证认证
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
         
         # 优先从Redis获取，回退MySQL
         balance = UserCache.get_balance(uid)
@@ -137,20 +145,17 @@ def _handle_get_balance(payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'get_balance_failed', 'message': str(e)}
 
 
-def _handle_get_history(payload: Dict) -> Tuple[int, Dict]:
-    """获取用户历史记录"""
+def _handle_get_history(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
+    """
+    获取用户历史记录 (修复37: 需要Token认证)
+    
+    用户只能获取自己的历史记录
+    """
     try:
-        uid = payload.get('uid')
-        if uid is None:
-            return 400, {'success': False, 'error': 'missing_uid'}
-        
-        try:
-            uid = int(uid)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_uid'}
-        
-        if uid <= 0:
-            return 400, {'success': False, 'error': 'invalid_uid'}
+        # 验证认证
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
         
         # 分页参数
         page = int(payload.get('page', 1))
@@ -175,22 +180,19 @@ def _handle_get_history(payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'get_history_failed', 'message': str(e)}
 
 
-def _handle_get_billing(payload: Dict) -> Tuple[int, Dict]:
-    """获取用户账单记录"""
+def _handle_get_billing(headers: Dict) -> Tuple[int, Dict]:
+    """
+    获取用户账单记录 (修复37: 需要Token认证)
+    
+    用户只能获取自己的账单
+    """
     import datetime
     
     try:
-        uid = payload.get('uid')
-        if uid is None:
-            return 400, {'success': False, 'error': 'missing_uid'}
-        
-        try:
-            uid = int(uid)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_uid'}
-        
-        if uid <= 0:
-            return 400, {'success': False, 'error': 'invalid_uid'}
+        # 验证认证
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
         
         # 获取账单记录
         try:
@@ -218,4 +220,3 @@ def _handle_get_billing(payload: Dict) -> Tuple[int, Dict]:
         return 200, {'success': True, 'records': billing_records}
     except Exception as e:
         return 500, {'success': False, 'error': 'billing_failed', 'message': str(e)}
-

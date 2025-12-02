@@ -305,7 +305,8 @@ python scripts/autopaper_scraper.py --base-url "https://autopapersearch.com/"
 |----------|----------|---------|------|
 | 用户信息 | 8小时 | `user:{uid}:info` | MySQL回源 |
 | 用户余额 | 8小时 | `user:{uid}:balance` | MySQL回源 |
-| 管理员会话 | 24小时 | `admin:session:{token}` | 登录超时需重新认证 |
+| 用户会话 | 24小时 | `user:session:{token}` | 用户登录超时需重新认证 |
+| 管理员会话 | 24小时 | `admin:session:{token}` | 管理员登录超时需重新认证 |
 | 查询结果 | **7天** | `result:{uid}:{qid}` | 过期后蒸馏自动回源MySQL |
 | 下载文件 | 5分钟 | `download:{task_id}:file` | 临时文件，下载后自动清理 |
 | 文献Block | 永不过期 | `meta:{Journal}:{Year}` | 核心数据，常驻内存 |

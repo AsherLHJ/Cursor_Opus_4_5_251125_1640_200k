@@ -1,8 +1,7 @@
-我现在要做的事情：
-1）按照新架构的业务流程想象，依次重构MySQL数据库的各个表，确保仅MySQL中存放更新频率低、体积大的数据。
-2）设计Redis内数据存放的方式。以16G缓存为上限。所有需要被频繁调取的数据必须放在Redis中。
-3）注：MySQL使用编码：utf8mb4，排序方式：utf8mb4_0900_ai_ci
-现在我正在本文档中一点点地撰写新架构下MySQL和Redis各自的数据存储方式，以下是我正在写的重构构思的正文部分（按照新架构的业务流程进行）。
+新架构项目重构指导手册
+2025-12-02版
+
+
 ===1. 用户注册和登录===
 用户注册和登录的server进程首先访问Redis中与MySQL的表user_info相关的数据，如果在Redis中没有找到，则直接访问MySQL进行读写，奉行“缓存未命中则回源 MySQL 加载”的策略（Lazy Loading）。在从MySQL加载后，要把数据同时写入Redis，写入 Redis 时设置一个较长的过期时间（TTL，如8小时），表user_info相关的数据过期之前必须先按照以下规则同步写回MySQL：
 Redis数据过期前写回MySQL的策略：a）可被写回的数据：balance。b）不可写回的数据：其他所有数据。c）只有确认了数据被成功写回MySQL后，Redis中的对应数据才能成功被过期删除，否则多次尝试写回（条件C仅对“过期删除”策略有效）。
@@ -37,6 +36,14 @@ mysql> select * from user_info limit 1;
 - **UserInfo Hash**: `user:{uid}:info` (存储 username, permission 等，TTL 8小时，访问延期)。
 - **Balance String/Hash**: `user:{uid}:balance` (存储当前余额，独立 Key 以支持高频原子操作，TTL 8小时)。
 - **策略**: 读操作优先查 Redis，MISS 则回源 MySQL 并写入 Redis。写操作（如充值）先更新 MySQL 再更新/删除 Redis。扣费操作（高频）走 Billing System（见第11章）。
+3）**用户Token认证机制（修复37新增）**：
+- 用户登录成功后，后端生成安全随机Token（`secrets.token_urlsafe(32)`）
+- Token存储到Redis: `user:session:{token}` → uid（TTL 24小时）
+- 前端在localStorage中保存token，所有API请求需携带Authorization头：`Authorization: Bearer {token}`
+- 后端验证Token有效性后从Redis获取uid，不再信任前端传递的uid参数
+- 登出时销毁Redis中的会话记录
+- **Redis Key**: `user:session:{token}` (String, Value=uid, TTL 24小时)
+- **安全改进**: 修复了原有架构中Token生成但未验证的严重安全漏洞，现在所有需认证的API都会验证Token
 ===2. 用户登录后，主页刷新历史记录===
 1）**Redis Key**: `user:{uid}:history` (ZSet, Score=Timestamp, Member=query_index)。
 2）**存储内容**: 仅存储 `query_index` 的列表。
@@ -290,7 +297,57 @@ e. **文件下载**：前端检测到状态为 `READY` 后，调用 `GET /api/do
   - 响应：`{state: "PENDING"|"PROCESSING"|"READY"|"FAILED", progress: 0-100}`
 - `GET /api/download/file?task_id=xxx` - 下载文件
   - 响应：文件内容（Content-Disposition 头）
-- **兼容旧API**：保留 `/api/download_csv` 和 `/api/download_bib`，内部调用新机制并同步等待。
+- **废弃旧API（修复36）**：已删除 `/api/download_csv` 和 `/api/download_bib` 旧架构同步下载API，统一使用异步下载机制。
+===9.5. API请求Token认证规范（修复37新增）===
+为了解决原有架构中前端可随意伪造uid调用任意API的严重安全漏洞，新架构实现了完整的Token认证机制：
+1）**Token格式**: `Authorization: Bearer {token}`
+   - Token通过HTTP请求头传递
+   - Token为64字符的安全随机字符串
+2）**认证流程**:
+   a. 后端从请求头的Authorization字段提取Token
+   b. 查询Redis `user:session:{token}` 获取uid
+   c. uid存在且Token未过期则认证通过，继续处理业务逻辑
+   d. uid不存在或Token过期则返回401 Unauthorized
+   e. 认证通过后刷新Token的TTL（访问延期）
+3）**受保护端点**: 除以下公开端点外，所有`/api/*`端点都需要Token认证
+   - `/api/login`, `/api/register` - 用户登录注册
+   - `/api/tags`, `/api/journals`, `/api/count_papers` - 公开数据查询
+   - `/api/registration_status` - 注册开关状态
+   - `/api/system_announcement` - 公告栏内容
+   - `/api/maintenance_status` - 维护模式状态
+4）**Redis Key设计**:
+   - Key: `user:session:{token}` (String)
+   - Value: uid (用户ID)
+   - TTL: 24小时（每次访问刷新）
+5）**前端实现**:
+   - 登录成功后将token存入localStorage
+   - 封装`authFetch(url, options)`辅助函数自动添加Authorization头
+   - 401响应时自动跳转登录页
+6）**文件下载特殊处理**:
+   - 浏览器跳转下载无法设置header
+   - `/api/download/file` 支持URL参数传递Token：`?task_id=xxx&token=xxx`
+===9.6. 公告栏与维护模式（修复35新增）===
+1）**公告栏功能**:
+   - 管理员在 `/admin/control.html` 开启公告栏并设置内容
+   - 用户页面（login.html, index.html）加载时调用 `/api/system_announcement`
+   - 公告内容显示在页面顶部横幅中
+   - 支持中英文切换
+2）**维护模式功能**:
+   - 管理员开启维护模式后，用户页面检测到会跳转到 `/maintenance.html`
+   - 维护页面显示维护公告内容（支持自定义）
+   - 管理员页面不受维护模式影响
+   - 维护模式下所有用户API请求被拦截
+3）**系统配置项**（存储在MySQL `system_settings`表和Redis `sys:config:*`）:
+   - `announcement_enabled`: 公告栏开关（默认false）
+   - `announcement_content`: 公告内容（默认空）
+   - `maintenance_mode`: 维护模式开关（默认false）
+   - `maintenance_message`: 维护公告内容（默认中英文双语提示）
+4）**API接口**:
+   - `GET /api/system_announcement` → `{enabled: bool, content: string}`
+   - `GET /api/maintenance_status` → `{maintenance_mode: bool, message: string}`
+5）**检查时机**:
+   - 用户页面加载时主动检查维护模式状态
+   - 若处于维护模式，前端JavaScript自动重定向到 `/maintenance.html`
 ===10. 安全与多用户隔离设计（安全修正案）===
 为了防止多用户环境下的数据串扰（如用户 B 下载用户 A 的结果），必须强制执行以下隔离规范：
 1）**Redis Key 命名空间隔离**：
@@ -389,7 +446,34 @@ d. 只有当 MySQL 更新成功后，才从 Redis Queue 中截断（Trim）已�
 - 从 `result:{uid}:{parent_qid}` 获取该 DOI 的 `block_key`。
 - 从 `meta:{block_key}` 获取 Bib/Abstract。
 - 执行 AI 判断。
-- **扣费**：应用 0.1 倍费率，流程同 Billing System。
+- **扣费**：应用蒸馏费率（从`sys:config:distill_rate`动态获取，默认0.1），流程同 Billing System。
+4）**蒸馏专用Block设计（修复29-31新增）**:
+   - **问题**: 原设计使用 `meta:` 格式完整Block，导致Worker处理整个Block中的所有论文，而非仅相关DOI
+   - **解决方案**: 创建 `distill:{uid}:{qid}:{index}` 格式的蒸馏专用Block
+   - **Redis Key格式**: `distill:{uid}:{qid}:{block_index}` (Hash, TTL 7天)
+   - **Field**: DOI
+   - **Value**: JSON `{"bib": "原始Bib字符串", "price": 期刊单价}`
+   - **优势**: Worker从Block直接读取价格，0次额外Redis查询，精确控制处理范围
+   - **Block大小**: 每个Block最多100个DOI
+5）**蒸馏费率传递优化（IOPS优化版）**:
+   - 预估阶段计算 `doi_prices` 字典（DOI→价格映射），返回三元组 `(dois, cost, doi_prices)`
+   - `_handle_start_distillation` 传递 `doi_prices` 给 `process_papers_for_distillation`
+   - `distillation_producer` 将价格信息嵌入Block的Value中
+   - `DistillWorker.__init__` 初始化时缓存蒸馏费率（1次Redis调用）
+   - Worker处理时从Block解析价格（0次额外调用）
+   - **IOPS效果**:
+     - 预估阶段: 3次Redis调用（与文献数量N无关）
+     - Worker阶段: 0次额外Redis调用
+     - 蒸馏费率: 1次（初始化时缓存）
+6）**DOI反向索引（修复26新增）**:
+   - **问题**: 蒸馏时需要根据DOI查找对应的block_key，原实现遍历所有Block，复杂度O(n*m)
+   - **解决方案**: 新增DOI反向索引
+   - **Redis Key**: `idx:doi_to_block` (Hash)
+   - **Field**: DOI
+   - **Value**: block_key (如 "meta:NATURE:2024")
+   - **构建时机**: Redis初始化时自动构建（阶段3.5）
+   - **查询方法**: `PaperBlocks.get_block_key_by_doi(doi)` O(1)查询
+   - **批量查询**: `PaperBlocks.batch_get_block_keys(dois)` Pipeline批量获取
 ===15. 部署架构与网络拓扑===
 1) **网络架构**:
 - **DNS**: 阿里云解析 -> ECS 公网 IP
@@ -416,8 +500,29 @@ d. 只有当 MySQL 更新成功后，才从 Redis Queue 中截断（Trim）已�
 - **系统监控大盘**:
 - **任务监控**: 实时 TPM/RPM (滑动窗口)、Redis 队列积压数、活跃 Worker 数。
 - **健康监控**: Redis/MySQL 连接状态、Billing Queue 积压报警。
-- **系统控制**: 新增 `control.html` 页面，提供“用户注册开关”等全局配置的实时切换 (API: `/api/admin/toggle_registration`)。
-4) **废弃**:
+- **系统控制**: 新增 `control.html` 页面，提供"用户注册开关"等全局配置的实时切换 (API: `/api/admin/toggle_registration`)。
+- **公告栏管理**: 在 `control.html` 页面管理公告栏开关和内容。
+- **维护模式管理**: 在 `control.html` 页面管理维护模式开关和维护公告内容。
+4) **批量操作API（修复32新增）**:
+   - `POST /api/admin/users/batch_balance` - 批量调整余额
+     - 请求：`{items: [{uid}], operation: "increase"|"decrease"|"set", amount: number}`
+     - 响应：`{success: true, message: "...", success_count: N}`
+   - `POST /api/admin/users/batch_permission` - 批量调整权限
+     - 请求：`{items: [{uid}], permission: number}`
+     - 响应：`{success: true, message: "...", success_count: N}`
+   - `POST /api/admin/tasks/batch_terminate` - 批量终止任务
+     - 请求：`{items: [{uid, query_id}]}`
+     - 响应：`{success: true, message: "...", success_count: N, workers_stopped: M}`
+   - `POST /api/admin/tasks/batch_pause` - 批量暂停任务
+   - `POST /api/admin/tasks/batch_resume` - 批量恢复任务
+5) **DataTable组件（修复32新增）**:
+   - 管理员页面（dashboard/users/tasks）使用可复用DataTable组件
+   - 支持分页、排序、搜索、筛选功能
+   - 支持全选/勾选和批量操作
+   - 操作成功后使用Toast提示替代alert弹窗
+6) **刷新控制功能（修复33新增）**:
+   - dashboard/users/tasks页面支持：立即刷新、暂停/继续自动刷新、刷新间隔选择（1/2/5/10/30秒）
+7) **废弃**:
 - 删除 `AutoPaperSearchControlPanelAdmin.html`。
 - 移除所有未经过鉴权的旧版管理接口。
 ===17. DB_tools 重构与数据库初始化流程===
@@ -475,6 +580,7 @@ DB_tools/
 - 读取 `InfoList.Tag.csv`，全量同步 `info_tag` 表。
 - 读取 `InfoList.PaperWithTag.csv`，导入 `info_paper_with_tag` 表。
 ### 17.4 关键表 SQL 定义 (Reference)
+**注：以下SQL定义包含修复35新增的system_settings表**
 ```sql
 -- 1. 用户表
 CREATE TABLE IF NOT EXISTS user_info (
@@ -555,4 +661,73 @@ rpm_limit INT DEFAULT 3000,
 tpm_limit BIGINT DEFAULT 500000,
 is_active TINYINT(1) DEFAULT 1
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- 11. 系统配置表 (修复17/35新增)
+CREATE TABLE IF NOT EXISTS system_settings (
+setting_key VARCHAR(100) PRIMARY KEY,
+setting_value TEXT,
+updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+-- 系统配置默认值:
+-- permission_min: 0 (权限最小值)
+-- permission_max: 10 (权限最大值)
+-- distill_rate: 0.1 (蒸馏费率系数)
+-- registration_enabled: true (用户注册开关)
+-- debug_console_enabled: false (调试日志开关)
+-- announcement_enabled: false (公告栏开关)
+-- announcement_content: "" (公告内容)
+-- maintenance_mode: false (维护模式开关)
+-- maintenance_message: "系统维护中..." (维护公告)
 ```
+### 17.5 AI语言适配机制（修复36新增）
+为了让AI的回复语言与用户界面语言保持一致，新架构实现了语言适配机制：
+1）**数据流**:
+   - 前端 `startSearch`/`startDistillation` 传递 `language: i18n.getLang()` ('zh'/'en')
+   - 后端存入 `search_params.language`
+   - Worker读取 `search_params.language`，替换 `system_prompt` 中的 `{language}` 占位符
+2）**语言映射**（位于 `lib/process/search_paper.py`）:
+   - `zh` → `中文`
+   - `en` → `English`
+3）**CSV下载优化**:
+   - 按相关性排序：相关(Y)在前，不相关(N)在后
+   - Is_Relevant列本地化：
+     - zh模式: "符合" / "不符"
+     - en模式: "Relevant" / "Irrelevant"
+4）**BIB文件**: 不包含任何头信息注释，直接输出BIB条目
+5）**config.json中的system_prompt配置**:
+   - 包含 `{language}` 占位符
+   - 示例: `"请用{language}回复。分析以下摘要..."`
+### 17.6 Redis Key 完整汇总（修复24-37更新）
+以下是新架构中所有Redis Key的完整列表：
+**用户数据**:
+- `user:{uid}:info` (Hash, TTL 8h) - 用户基本信息
+- `user:{uid}:balance` (String, TTL 8h) - 用户余额
+- `user:{uid}:history` (ZSet) - 查询历史
+- `user:session:{token}` (String, TTL 24h) - 用户登录会话Token（修复37）
+**管理员数据**:
+- `admin:session:{token}` (String, TTL 24h) - 管理员会话
+- `admin:{uid}:info` (Hash, TTL 8h) - 管理员缓存
+**系统元数据（永不过期）**:
+- `sys:tags:info` (Hash) - 标签元数据
+- `sys:tag_journals:{Tag}` (Set) - 标签-期刊索引
+- `sys:journals:info` (Hash) - 期刊信息
+- `sys:journals:price` (Hash) - 期刊价格
+- `sys:year_number:{Name}` (String) - 年份统计
+- `sys:config:{key}` (String) - 系统配置缓存
+**文献数据（永不过期）**:
+- `meta:{JournalName}:{Year}` (Hash) - 文献Block
+- `idx:doi_to_block` (Hash) - DOI反向索引（修复26）
+**任务与队列**:
+- `task:{uid}:{qid}:pending_blocks` (List) - 待处理Block队列
+- `query:{uid}:{qid}:status` (Hash) - 任务状态
+- `query:{uid}:{qid}:pause_signal` (String) - 暂停信号
+- `query:{uid}:{qid}:terminate_signal` (String, TTL 7天) - 终止信号
+- `progress:{uid}:{qid}:finished_count` (String) - 进度计数
+- `result:{uid}:{qid}` (Hash, TTL 7天) - 查询结果缓存
+**蒸馏专用（修复29）**:
+- `distill:{uid}:{qid}:{index}` (Hash, TTL 7天) - 蒸馏专用Block
+**计费**:
+- `billing_queue:{uid}` (List) - 消费流水队列
+**下载队列**:
+- `download_queue` (List) - 全局下载任务队列
+- `download:{task_id}:status` (Hash) - 下载任务状态
+- `download:{task_id}:file` (String, TTL 5min) - 下载文件内容

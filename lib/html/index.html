@@ -2300,6 +2300,43 @@
       return true;
     }
 
+    /**
+     * 修复37: 带认证的 fetch 辅助函数
+     * 自动添加 Authorization: Bearer {token} 头
+     * 如果收到 401 响应，自动跳转到登录页面
+     * 
+     * @param {string} url - 请求 URL
+     * @param {Object} options - fetch 选项
+     * @returns {Promise<Response>}
+     */
+    async function authFetch(url, options = {}) {
+      const token = localStorage.getItem('userToken');
+      
+      if (!token) {
+        window.location.href = '/login.html';
+        throw new Error('未登录');
+      }
+      
+      // 合并 headers
+      const headers = {
+        ...(options.headers || {}),
+        'Authorization': `Bearer ${token}`
+      };
+      
+      const response = await fetch(url, { ...options, headers });
+      
+      // 如果收到 401，说明 token 已失效
+      if (response.status === 401) {
+        localStorage.removeItem('userToken');
+        localStorage.removeItem('userId');
+        localStorage.removeItem('username');
+        window.location.href = '/login.html';
+        throw new Error('登录已过期，请重新登录');
+      }
+      
+      return response;
+    }
+
     // 退出登录
     document.getElementById('logoutBtn').addEventListener('click', function(e) {
       e.preventDefault();
@@ -2328,7 +2365,8 @@
       }
       try {
         balanceEl.textContent = i18n.t('index.loading_short');
-        const res = await fetch('/api/user_info?uid=' + uid);
+        // 修复37: 使用带认证的 fetch
+        const res = await authFetch('/api/user_info');
         if (!res.ok) {
           throw new Error(`HTTP ${res.status}`);
         }
@@ -2908,15 +2946,15 @@
 
     // 静默加载历史记录（用于语言切换时更新）
     async function loadHistoryQuietly() {
-      const uid = localStorage.getItem('userId');
       const token = localStorage.getItem('userToken');
       
-      if (!uid || !token) {
+      if (!token) {
         return;
       }
       
       try {
-        const response = await fetch(`/api/query_history?uid=${uid}`);
+        // 修复37: 使用带认证的 fetch（uid从token中获取）
+        const response = await authFetch('/api/query_history');
         if (!response.ok) {
           return;
         }
@@ -3159,7 +3197,8 @@
     
         console.log('准备发送请求到 /api/start_search');
     
-        // 安全原则：不传递费用参数，由后端独立计算
+        // 安全原则：不传递费用参数和uid，由后端独立计算和从token获取
+        // 修复37: uid从token中获取，不再在payload中传递
         const payload = {
           question,
           requirements,
@@ -3167,11 +3206,11 @@
           start_year: startYear,
           end_year: endYear,
           selected_journals: selectedNames,
-          uid,
           language: i18n.getLang()  // 修复36: 传递当前语言 ('zh' 或 'en')
         };
     
-        const res = await fetch('/api/start_search', {
+        // 修复37: 使用带认证的 fetch
+        const res = await authFetch('/api/start_search', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -3314,13 +3353,9 @@
       // 开始轮询
       currentProgressInterval = setInterval(async () => {
         try {
-          const uid = localStorage.getItem('userId');
-
-          // 并发获取进度与暂停状态
-          const progressReq = fetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}&uid=${encodeURIComponent(uid || '')}`);
-          const historyReq = uid
-            ? fetch(`/api/query_history?uid=${encodeURIComponent(uid)}`)
-            : null;
+          // 修复37: 并发获取进度与暂停状态（使用带认证的 fetch）
+          const progressReq = authFetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}`);
+          const historyReq = authFetch('/api/query_history');
 
           const [progressRes, historyRes] = await Promise.all([
             progressReq,
@@ -3419,12 +3454,11 @@
       }
       
       try {
-        // 使用普通用户API而非管理员API
-        const response = await fetch('/api/cancel_query', {
+        // 修复37: 使用带认证的 fetch（uid从token获取）
+        const response = await authFetch('/api/cancel_query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            uid: parseInt(uid, 10),
             query_id: currentQueryIndex
           })
         });
@@ -3504,12 +3538,12 @@
 
         const newShouldPause = !isPaused;
 
-        const updateResponse = await fetch('/api/update_pause_status', {
+        // 修复37: 使用带认证的 fetch（uid从token获取）
+        const updateResponse = await authFetch('/api/update_pause_status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             query_id: currentQueryIndex,
-            uid: parseInt(uid, 10),
             should_pause: newShouldPause
           })
         });
@@ -3573,10 +3607,10 @@
       loadHistory();
     }
 
-    // 通用异步下载函数（使用新的异步队列API）
+    // 通用异步下载函数（使用新的异步队列API）- 修复37: 使用带认证的 fetch
     async function downloadWithAsyncQueue(btn, queryId, downloadType) {
-      const uid = localStorage.getItem('userId');
-      if (!uid) {
+      const token = localStorage.getItem('userToken');
+      if (!token) {
         showError(i18n.t('index.login_required'));
         return;
       }
@@ -3589,14 +3623,13 @@
         btn.disabled = true;
         btn.innerHTML = `<span class="spinner-small"></span> ${i18n.t('index.download_generating')}`;
         
-        // 创建下载任务
-        const createResp = await fetch('/api/download/create', {
+        // 修复37: 创建下载任务（使用带认证的 fetch，uid从token获取）
+        const createResp = await authFetch('/api/download/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             query_id: queryId,
-            type: downloadType,
-            uid: parseInt(uid)
+            type: downloadType
           })
         });
         
@@ -3612,7 +3645,8 @@
         const maxAttempts = 120; // 最多等待2分钟
         
         while (attempts < maxAttempts) {
-          const statusResp = await fetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
+          // 修复37: 使用带认证的 fetch
+          const statusResp = await authFetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
           const status = await statusResp.json();
           
           if (status.state === 'READY') {
@@ -3691,11 +3725,11 @@
         const isPaused = pauseBtn.textContent.includes(i18n.t('index.resume'));
         const action = isPaused ? 'resume' : 'pause';
         
-        const response = await fetch('/api/update_pause_status', {
+        // 修复37: 使用带认证的 fetch（uid从token获取）
+        const response = await authFetch('/api/update_pause_status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            uid: parseInt(uid),
             query_id: queryIndex,
             should_pause: action === 'pause'
           })
@@ -3728,11 +3762,11 @@
       }
       
       try {
-        const response = await fetch('/api/cancel_query', {
+        // 修复37: 使用带认证的 fetch（uid从token获取）
+        const response = await authFetch('/api/cancel_query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            uid: parseInt(uid, 10),
             query_id: queryIndex
           })
         });
@@ -3802,14 +3836,13 @@
       showInfo(i18n.t('index.download_generating'));
       
       try {
-        // 创建下载任务
-        const createResp = await fetch('/api/download/create', {
+        // 修复37: 创建下载任务（使用带认证的 fetch，uid从token获取）
+        const createResp = await authFetch('/api/download/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             query_id: queryIndex,
-            type: 'csv',
-            uid: parseInt(uid)
+            type: 'csv'
           })
         });
         
@@ -3825,11 +3858,12 @@
         const maxAttempts = 120;
         
         while (attempts < maxAttempts) {
-          const statusResp = await fetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
+          // 修复37: 使用带认证的 fetch
+          const statusResp = await authFetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
           const status = await statusResp.json();
           
           if (status.state === 'READY') {
-            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}`;
+            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}&token=${encodeURIComponent(localStorage.getItem('userToken'))}`;
             showSuccess(i18n.t('index.download_success'));
             break;
           } else if (status.state === 'FAILED') {
@@ -3849,10 +3883,10 @@
       }
     };
     
-    // 下载历史任务BIB（使用异步队列API）
+    // 下载历史任务BIB（使用异步队列API）- 修复37: 使用带认证的 fetch
     window.downloadHistoryBib = async function(queryIndex, timestamp) {
-      const uid = localStorage.getItem('userId');
-      if (!uid) {
+      const token = localStorage.getItem('userToken');
+      if (!token) {
         showError(i18n.t('index.login_required'));
         return;
       }
@@ -3861,14 +3895,13 @@
       showInfo(i18n.t('index.download_generating'));
       
       try {
-        // 创建下载任务
-        const createResp = await fetch('/api/download/create', {
+        // 修复37: 创建下载任务（使用带认证的 fetch，uid从token获取）
+        const createResp = await authFetch('/api/download/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             query_id: queryIndex,
-            type: 'bib',
-            uid: parseInt(uid)
+            type: 'bib'
           })
         });
         
@@ -3884,11 +3917,12 @@
         const maxAttempts = 120;
         
         while (attempts < maxAttempts) {
-          const statusResp = await fetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
+          // 修复37: 使用带认证的 fetch
+          const statusResp = await authFetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
           const status = await statusResp.json();
           
           if (status.state === 'READY') {
-            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}`;
+            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}&token=${encodeURIComponent(localStorage.getItem('userToken'))}`;
             showSuccess(i18n.t('index.download_success'));
             break;
           } else if (status.state === 'FAILED') {
@@ -3927,8 +3961,8 @@
       
       window.historyProgressIntervals[queryIndex] = setInterval(async () => {
         try {
-          const uid = localStorage.getItem('userId');
-          const response = await fetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}&uid=${encodeURIComponent(uid || '')}`);
+          // 修复37: 使用带认证的 fetch（uid从token获取）
+          const response = await authFetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}`);
           if (!response.ok) return;
           
           const data = await response.json();
@@ -3964,9 +3998,8 @@
                   // 查找对应的历史卡片
                   const card = document.querySelector(`[data-history-qid="${queryIndex}"]`);
                   if (card) {
-                    // 获取历史记录数据
-                    const uid = localStorage.getItem('userId');
-                    const historyResponse = await fetch(`/api/query_history?uid=${encodeURIComponent(uid)}`);
+                    // 修复37: 获取历史记录数据（使用带认证的 fetch）
+                    const historyResponse = await authFetch('/api/query_history');
                     const historyJson = await historyResponse.json();
                     if (historyJson.success && Array.isArray(historyJson.logs)) {
                       const historyData = historyJson.logs.find(l => l.query_id === queryIndex);
@@ -4155,7 +4188,8 @@
       historyLoading.style.display = 'block';
       
       try {
-        const response = await fetch(`/api/query_history?uid=${uid}`);
+        // 修复37: 使用带认证的 fetch（uid从token获取）
+        const response = await authFetch('/api/query_history');
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
@@ -4529,10 +4563,10 @@
       return card;
     }
 
-    // 加载历史详情
+    // 加载历史详情 - 修复37: 使用带认证的 fetch
     async function loadHistoryDetails(queryIndex) {
-      const uid = localStorage.getItem('userId');
-      const response = await fetch(`/api/get_query_info?uid=${uid}&query_id=${queryIndex}`);
+      // 修复37: 使用带认证的 fetch（uid从token获取）
+      const response = await authFetch(`/api/get_query_info?query_id=${queryIndex}`);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -4979,15 +5013,13 @@
       const startBtn = document.querySelector(`#${cardId} .btn-orange`);
       
       try {
-        const uid = parseInt(localStorage.getItem('userId') || '0', 10);
-        if (!uid || !queryIndex) return;
+        if (!queryIndex) return;
 
-        // 获取费用估算信息（只需调用一次）
-        const response = await fetch('/api/estimate_distillation_cost', {
+        // 修复37: 获取费用估算信息（使用带认证的 fetch，uid从token获取）
+        const response = await authFetch('/api/estimate_distillation_cost', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            uid: uid,
             original_query_id: queryIndex
           })
         });
@@ -5053,20 +5085,14 @@
       }
       
       try {
-        const uid = parseInt(localStorage.getItem('userId'), 10);
-        if (!uid) {
-          showError(i18n.t('index.login_missing'));
-          return;
-        }
-        
-        const response = await fetch('/api/start_distillation', {
+        // 修复37: 使用带认证的 fetch（uid从token获取）
+        const response = await authFetch('/api/start_distillation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             original_query_id: queryIndex,
             question: question,
             requirements: requirements || '',
-            uid,
             language: i18n.getLang()  // 修复36: 传递当前语言 ('zh' 或 'en')
           })
         });
@@ -5225,17 +5251,14 @@
       
       pauseBtn.addEventListener('click', async () => {
         try {
-          const uid = localStorage.getItem('userId');
-          if (!uid) return;
-          
           const isPaused = pauseBtn.textContent.includes(i18n.t('index.resume'));
           const action = isPaused ? 'resume' : 'pause';
           
-          const response = await fetch('/api/update_pause_status', {
+          // 修复37: 使用带认证的 fetch（uid从token获取）
+          const response = await authFetch('/api/update_pause_status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              uid,
               query_id: queryIndex,
               should_pause: action === 'pause'
             })
@@ -5264,8 +5287,8 @@
       
       const pollInterval = setInterval(async () => {
         try {
-          const uid = localStorage.getItem('userId');
-          const response = await fetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}&uid=${encodeURIComponent(uid || '')}`);
+          // 修复37: 使用带认证的 fetch（uid从token获取）
+          const response = await authFetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}`);
           if (!response.ok) return;
           
           const data = await response.json();
@@ -5317,10 +5340,10 @@
       loadHistory();
     }
 
-    // 下载蒸馏结果 - CSV（使用异步队列API）
+    // 下载蒸馏结果 - CSV（使用异步队列API）- 修复37: 使用带认证的 fetch
     window.downloadDistillationCSV = async function(queryIndex) {
-      const uid = localStorage.getItem('userId');
-      if (!uid) {
+      const token = localStorage.getItem('userToken');
+      if (!token) {
         showError(i18n.t('index.login_required'));
         return;
       }
@@ -5328,14 +5351,13 @@
       showInfo(i18n.t('index.download_generating'));
       
       try {
-        // 创建下载任务
-        const createResp = await fetch('/api/download/create', {
+        // 修复37: 创建下载任务（使用带认证的 fetch，uid从token获取）
+        const createResp = await authFetch('/api/download/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             query_id: queryIndex,
-            type: 'csv',
-            uid: parseInt(uid)
+            type: 'csv'
           })
         });
         
@@ -5351,11 +5373,12 @@
         const maxAttempts = 120;
         
         while (attempts < maxAttempts) {
-          const statusResp = await fetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
+          // 修复37: 使用带认证的 fetch
+          const statusResp = await authFetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
           const status = await statusResp.json();
           
           if (status.state === 'READY') {
-            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}`;
+            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}&token=${encodeURIComponent(localStorage.getItem('userToken'))}`;
             showSuccess(i18n.t('index.download_success'));
             break;
           } else if (status.state === 'FAILED') {
@@ -5375,10 +5398,10 @@
       }
     };
 
-    // 下载蒸馏结果 - BIB（使用异步队列API）
+    // 下载蒸馏结果 - BIB（使用异步队列API）- 修复37: 使用带认证的 fetch
     window.downloadDistillationBIB = async function(queryIndex) {
-      const uid = localStorage.getItem('userId');
-      if (!uid) {
+      const token = localStorage.getItem('userToken');
+      if (!token) {
         showError(i18n.t('index.login_required'));
         return;
       }
@@ -5386,14 +5409,13 @@
       showInfo(i18n.t('index.download_generating'));
       
       try {
-        // 创建下载任务
-        const createResp = await fetch('/api/download/create', {
+        // 修复37: 创建下载任务（使用带认证的 fetch，uid从token获取）
+        const createResp = await authFetch('/api/download/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             query_id: queryIndex,
-            type: 'bib',
-            uid: parseInt(uid)
+            type: 'bib'
           })
         });
         
@@ -5409,11 +5431,12 @@
         const maxAttempts = 120;
         
         while (attempts < maxAttempts) {
-          const statusResp = await fetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
+          // 修复37: 使用带认证的 fetch
+          const statusResp = await authFetch(`/api/download/status?task_id=${encodeURIComponent(taskId)}`);
           const status = await statusResp.json();
           
           if (status.state === 'READY') {
-            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}`;
+            window.location.href = `/api/download/file?task_id=${encodeURIComponent(taskId)}&token=${encodeURIComponent(localStorage.getItem('userToken'))}`;
             showSuccess(i18n.t('index.download_success'));
             break;
           } else if (status.state === 'FAILED') {

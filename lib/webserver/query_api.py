@@ -1,5 +1,5 @@
 """
-查询任务相关API处理模块
+查询任务相关API处理模块 (修复37: 添加Token认证)
 负责查询任务提交、状态查询、暂停/恢复、结果获取等操作
 """
 
@@ -23,6 +23,7 @@ from ..load_data.query_dao import (
     resume_query,
     cancel_query
 )
+from .user_auth import require_auth  # 修复37: 导入用户认证模块
 
 
 # ============================================================
@@ -140,7 +141,7 @@ def _calculate_distill_cost(uid: int, original_qid: str) -> Tuple[List[str], flo
 
 def handle_query_api(path: str, method: str, headers: Dict, payload: Dict) -> Tuple[int, Dict]:
     """
-    处理查询任务相关的API请求
+    处理查询任务相关的API请求 (修复37: 添加Token认证)
     
     Args:
         path: 请求路径
@@ -152,30 +153,31 @@ def handle_query_api(path: str, method: str, headers: Dict, payload: Dict) -> Tu
         (status_code, response_dict)
     """
     # ============================================================
-    # POST 请求
+    # POST 请求（需要认证的端点）
     # ============================================================
     if method == 'POST':
         if path == '/api/start_search':
-            return _handle_start_search(payload)
+            return _handle_start_search(headers, payload)
         
         if path == '/api/start_distillation':
-            return _handle_start_distillation(payload)
+            return _handle_start_distillation(headers, payload)
         
         if path == '/api/estimate_distillation_cost':
-            return _handle_estimate_distillation_cost(payload)
+            return _handle_estimate_distillation_cost(headers, payload)
         
         if path == '/api/update_pause_status':
-            return _handle_update_pause_status(payload)
+            return _handle_update_pause_status(headers, payload)
         
         if path == '/api/pause_query':
-            return _handle_pause_query(payload)
+            return _handle_pause_query(headers, payload)
         
         if path == '/api/resume_query':
-            return _handle_resume_query(payload)
+            return _handle_resume_query(headers, payload)
         
         if path == '/api/cancel_query':
-            return _handle_cancel_query(payload)
+            return _handle_cancel_query(headers, payload)
         
+        # 以下端点不需要认证（公开数据）
         if path == '/api/update':
             return _handle_update_config(payload)
         
@@ -186,27 +188,28 @@ def handle_query_api(path: str, method: str, headers: Dict, payload: Dict) -> Tu
             return _handle_count_papers(payload)
         
         if path == '/api/query_status':
-            return _handle_get_query_status(payload)
+            return _handle_get_query_status(headers, payload)
     
     # ============================================================
     # GET 请求
     # ============================================================
     if method == 'GET':
         if path == '/api/query_status':
-            return _handle_get_query_status(payload)
+            return _handle_get_query_status(headers, payload)
         
         if path == '/api/query_result':
-            return _handle_get_query_result(payload)
+            return _handle_get_query_result(headers, payload)
         
         if path == '/api/query_history':
-            return _handle_get_query_history(payload)
+            return _handle_get_query_history(headers)
         
         if path == '/api/query_progress':
-            return _handle_get_query_progress(payload)
+            return _handle_get_query_progress(headers, payload)
         
         if path == '/api/get_query_info':
-            return _handle_get_query_info(payload)
+            return _handle_get_query_info(headers, payload)
         
+        # 以下端点不需要认证（公开数据）
         if path == '/api/tags':
             return _handle_get_tags(payload)
         
@@ -216,9 +219,18 @@ def handle_query_api(path: str, method: str, headers: Dict, payload: Dict) -> Tu
     return 404, {'success': False, 'error': 'not_found'}
 
 
-def _handle_start_search(payload: Dict) -> Tuple[int, Dict]:
-    """处理开始搜索请求"""
+def _handle_start_search(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
+    """
+    处理开始搜索请求 (修复37: 需要Token认证)
+    
+    用户只能使用自己的账户发起查询
+    """
     try:
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
+        
         question = str(payload.get('question') or '').strip()
         requirements = str(payload.get('requirements') or '').strip()
         include_all_years = bool(payload.get('include_all_years'))
@@ -273,15 +285,6 @@ def _handle_start_search(payload: Dict) -> Tuple[int, Dict]:
             if not selected_folders:
                 return 400, {'success': False, 'error': 'no_selected_folders'}
         
-        # 验证 UID
-        uid_raw = payload.get('uid')
-        try:
-            uid = int(uid_raw)
-        except Exception:
-            uid = 0
-        if uid <= 0:
-            return 400, {'success': False, 'error': 'invalid_uid'}
-        
         # 构建搜索参数
         search_params = {
             'journals': selected_items,
@@ -333,13 +336,19 @@ def _handle_start_search(payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'start_search_failed', 'message': str(e)}
 
 
-def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
+def _handle_start_distillation(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
     """
-    处理开始蒸馏请求
+    处理开始蒸馏请求 (修复37: 需要Token认证)
     
     安全原则：使用后端 _calculate_distill_cost 函数计算费用（纯Redis操作）
+    用户只能使用自己的账户发起蒸馏
     """
     try:
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
+        
         question = str(payload.get('question') or '').strip()
         requirements = str(payload.get('requirements') or '').strip()
         language = str(payload.get('language') or 'zh').strip()  # 修复36: 接收语言参数
@@ -351,14 +360,6 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
         
         # 保持字符串类型（新架构格式如 Q20251127102812_74137bb4）
         original_query_id = str(original_query_id)
-        
-        uid_raw = payload.get('uid')
-        try:
-            uid = int(uid_raw)
-        except Exception:
-            uid = 0
-        if uid <= 0:
-            return 400, {'success': False, 'error': 'invalid_uid'}
         
         # 使用后端费用计算函数（纯Redis操作，替代get_prices_by_dois）
         # 修复31: 返回doi_prices，传递给Worker避免重复查询
@@ -408,24 +409,21 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'start_distillation_failed', 'message': str(e)}
 
 
-def _handle_estimate_distillation_cost(payload: Dict) -> Tuple[int, Dict]:
+def _handle_estimate_distillation_cost(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
     """
-    估算蒸馏费用
+    估算蒸馏费用 (修复37: 需要Token认证)
     
     安全原则：使用后端 _calculate_distill_cost 函数计算费用（纯Redis操作）
     """
     try:
-        uid_raw = payload.get('uid')
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
+        
         # 同时支持 original_query_id 和 original_query_index 参数名
         original_query_id = payload.get('original_query_id') or payload.get('original_query_index')
         
-        try:
-            uid = int(uid_raw)
-        except Exception:
-            uid = 0
-        
-        if uid <= 0:
-            return 400, {'success': False, 'error': 'invalid_uid'}
         if not original_query_id:
             return 400, {'success': False, 'error': 'missing_original_query_id'}
         
@@ -464,19 +462,22 @@ def _handle_estimate_distillation_cost(payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'estimate_distillation_failed', 'message': str(e)}
 
 
-def _handle_get_query_status(payload: Dict) -> Tuple[int, Dict]:
-    """获取查询状态"""
+def _handle_get_query_status(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
+    """
+    获取查询状态 (修复37: 需要Token认证)
+    
+    用户只能查看自己的任务状态
+    """
     try:
-        uid = payload.get('uid')
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
+        
         qid = payload.get('query_id') or payload.get('query_index')
         
-        if not uid or not qid:
+        if not qid:
             return 400, {'success': False, 'error': 'missing_parameters'}
-        
-        try:
-            uid = int(uid)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_uid'}
         
         status = get_query_progress(uid, str(qid))
         return 200, {'success': True, **(status or {})}
@@ -484,19 +485,22 @@ def _handle_get_query_status(payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'get_status_failed', 'message': str(e)}
 
 
-def _handle_get_query_result(payload: Dict) -> Tuple[int, Dict]:
-    """获取查询结果"""
+def _handle_get_query_result(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
+    """
+    获取查询结果 (修复37: 需要Token认证)
+    
+    用户只能查看自己的任务结果
+    """
     try:
-        uid = payload.get('uid')
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
+        
         qid = payload.get('query_id') or payload.get('query_index')
         
-        if not uid or not qid:
+        if not qid:
             return 400, {'success': False, 'error': 'missing_parameters'}
-        
-        try:
-            uid = int(uid)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_uid'}
         
         # 先从 Redis 获取结果
         results = ResultCache.get_all_results(uid, str(qid))
@@ -510,42 +514,43 @@ def _handle_get_query_result(payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'get_result_failed', 'message': str(e)}
 
 
-def _handle_update_pause_status(payload: Dict) -> Tuple[int, Dict]:
+def _handle_update_pause_status(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
     """
-    更新暂停状态
+    更新暂停状态 (修复37: 需要Token认证)
     
     新架构修复：同时支持 query_id 和 query_index 参数名，
     不再强制转int，使用字符串类型的query_id
+    用户只能操作自己的任务
     """
     try:
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
+        
         # 同时支持 query_id 和 query_index 参数名
         query_id = payload.get('query_id') or payload.get('query_index')
-        uid = payload.get('uid')
         should_pause = payload.get('should_pause')
         
-        if not query_id or uid is None or should_pause is None:
+        if not query_id or should_pause is None:
             return 400, {'success': False, 'error': 'missing_parameters'}
         
         try:
-            uid = int(uid)
             should_pause = bool(should_pause)
         except (ValueError, TypeError):
             return 400, {'success': False, 'error': 'invalid_parameters'}
-        
-        if uid <= 0:
-            return 400, {'success': False, 'error': 'invalid_uid'}
         
         # query_id 保持字符串类型（新架构格式如 Q20251127102812_74137bb4）
         qid = str(query_id)
         
         if should_pause:
-            success = pause_query(uid, qid)
-            msg = 'paused' if success else 'pause_failed'
+            op_success = pause_query(uid, qid)
+            msg = 'paused' if op_success else 'pause_failed'
         else:
-            success = resume_query(uid, qid)
-            msg = 'resumed' if success else 'resume_failed'
+            op_success = resume_query(uid, qid)
+            msg = 'resumed' if op_success else 'resume_failed'
         
-        if success:
+        if op_success:
             return 200, {'success': True, 'message': 'pause_status_updated'}
         else:
             return 400, {'success': False, 'error': 'update_failed', 'message': msg}
@@ -703,23 +708,26 @@ def _handle_get_tags(payload: Dict = None) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'get_tags_failed', 'message': str(e)}
 
 
-def _handle_pause_query(payload: Dict) -> Tuple[int, Dict]:
-    """暂停查询任务"""
+def _handle_pause_query(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
+    """
+    暂停查询任务 (修复37: 需要Token认证)
+    
+    用户只能暂停自己的任务
+    """
     try:
-        uid = payload.get('uid')
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
+        
         qid = payload.get('query_id') or payload.get('query_index')
         
-        if not uid or not qid:
+        if not qid:
             return 400, {'success': False, 'error': 'missing_parameters'}
         
-        try:
-            uid = int(uid)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_uid'}
-        
-        success = pause_query(uid, str(qid))
-        msg = 'Query paused' if success else 'Failed to pause'
-        if success:
+        op_success = pause_query(uid, str(qid))
+        msg = 'Query paused' if op_success else 'Failed to pause'
+        if op_success:
             return 200, {'success': True, 'message': msg}
         else:
             return 400, {'success': False, 'error': 'pause_failed', 'message': msg}
@@ -727,23 +735,26 @@ def _handle_pause_query(payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'pause_query_failed', 'message': str(e)}
 
 
-def _handle_resume_query(payload: Dict) -> Tuple[int, Dict]:
-    """恢复查询任务"""
+def _handle_resume_query(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
+    """
+    恢复查询任务 (修复37: 需要Token认证)
+    
+    用户只能恢复自己的任务
+    """
     try:
-        uid = payload.get('uid')
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
+        
         qid = payload.get('query_id') or payload.get('query_index')
         
-        if not uid or not qid:
+        if not qid:
             return 400, {'success': False, 'error': 'missing_parameters'}
         
-        try:
-            uid = int(uid)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_uid'}
-        
-        success = resume_query(uid, str(qid))
-        msg = 'Query resumed' if success else 'Failed to resume'
-        if success:
+        op_success = resume_query(uid, str(qid))
+        msg = 'Query resumed' if op_success else 'Failed to resume'
+        if op_success:
             return 200, {'success': True, 'message': msg}
         else:
             return 400, {'success': False, 'error': 'resume_failed', 'message': msg}
@@ -751,23 +762,26 @@ def _handle_resume_query(payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'resume_query_failed', 'message': str(e)}
 
 
-def _handle_cancel_query(payload: Dict) -> Tuple[int, Dict]:
-    """取消查询任务"""
+def _handle_cancel_query(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
+    """
+    取消查询任务 (修复37: 需要Token认证)
+    
+    用户只能取消自己的任务
+    """
     try:
-        uid = payload.get('uid')
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
+        
         qid = payload.get('query_id') or payload.get('query_index')
         
-        if not uid or not qid:
+        if not qid:
             return 400, {'success': False, 'error': 'missing_parameters'}
         
-        try:
-            uid = int(uid)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_uid'}
-        
-        success = cancel_query(uid, str(qid))
-        msg = 'Query cancelled' if success else 'Failed to cancel'
-        if success:
+        op_success = cancel_query(uid, str(qid))
+        msg = 'Query cancelled' if op_success else 'Failed to cancel'
+        if op_success:
             return 200, {'success': True, 'message': msg}
         else:
             return 400, {'success': False, 'error': 'cancel_failed', 'message': msg}
@@ -775,20 +789,17 @@ def _handle_cancel_query(payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'cancel_query_failed', 'message': str(e)}
 
 
-def _handle_get_query_history(payload: Dict) -> Tuple[int, Dict]:
-    """获取查询历史"""
+def _handle_get_query_history(headers: Dict) -> Tuple[int, Dict]:
+    """
+    获取查询历史 (修复37: 需要Token认证)
+    
+    用户只能查看自己的查询历史
+    """
     try:
-        uid = payload.get('uid')
-        if not uid:
-            return 400, {'success': False, 'error': 'missing_uid'}
-        
-        try:
-            uid = int(uid)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_uid'}
-        
-        if uid <= 0:
-            return 400, {'success': False, 'error': 'invalid_uid'}
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
         
         # 获取查询历史
         logs = db_reader.get_query_logs_by_uid(uid)
@@ -840,22 +851,24 @@ def _handle_get_query_history(payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'history_failed', 'message': str(e)}
 
 
-def _handle_get_query_progress(payload: Dict) -> Tuple[int, Dict]:
-    """获取查询进度"""
+def _handle_get_query_progress(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
+    """
+    获取查询进度 (修复37: 需要Token认证)
+    
+    用户只能查看自己的任务进度
+    """
     try:
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
+        
         qid = payload.get('query_index') or payload.get('query_id')
-        uid_raw = payload.get('uid')
         
         if not qid:
             return 400, {'success': False, 'error': 'missing_query_index'}
         
-        # 从前端获取uid（新架构：前端传递uid以正确构建Redis Key）
-        try:
-            uid = int(uid_raw) if uid_raw else 0
-        except (ValueError, TypeError):
-            uid = 0
-        
-        # 获取进度
+        # 获取进度（使用Token认证后的uid）
         status = get_query_progress(uid, str(qid)) or {}
         
         return 200, {
@@ -866,25 +879,28 @@ def _handle_get_query_progress(payload: Dict) -> Tuple[int, Dict]:
             'finished_blocks': status.get('finished_blocks', 0),
             'finished_papers': status.get('finished_papers', 0),
             'is_paused': status.get('is_paused', False),
-            'current_balance': UserCache.get_balance(uid) if uid > 0 else None
+            'current_balance': UserCache.get_balance(uid)
         }
     except Exception as e:
         return 500, {'success': False, 'error': 'progress_failed', 'message': str(e)}
 
 
-def _handle_get_query_info(payload: Dict) -> Tuple[int, Dict]:
-    """获取查询详情"""
+def _handle_get_query_info(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
+    """
+    获取查询详情 (修复37: 需要Token认证)
+    
+    用户只能查看自己的任务详情
+    """
     try:
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return 401, {'success': False, 'error': error, 'message': '请先登录'}
+        
         qid = payload.get('query_index') or payload.get('query_id')
-        uid = payload.get('uid')
         
         if not qid:
             return 400, {'success': False, 'error': 'missing_query_index'}
-        
-        try:
-            uid = int(uid) if uid else 0
-        except (ValueError, TypeError):
-            uid = 0
         
         # 从数据库获取查询信息
         from ..load_data.query_dao import get_query_log
@@ -893,8 +909,8 @@ def _handle_get_query_info(payload: Dict) -> Tuple[int, Dict]:
         if not row:
             return 404, {'success': False, 'error': 'query_not_found'}
         
-        # 验证归属
-        if uid > 0 and row.get('uid') != uid:
+        # 验证归属（确保用户只能访问自己的任务）
+        if row.get('uid') != uid:
             return 403, {'success': False, 'error': 'access_denied'}
         
         def fmt_time(v):

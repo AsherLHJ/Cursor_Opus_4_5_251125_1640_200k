@@ -1,0 +1,165 @@
+sequenceDiagram
+    autonumber
+    actor Admin as Admin (管理员)
+    participant Server as Server (Admin API)
+    participant Redis as Redis (Cache/Queue)
+    participant MySQL as MySQL (DB)
+
+    Note over Admin, MySQL: === 1. 管理员登录 ===
+    Admin->>Server: 访问 /admin/login.html -> 提交账号密码
+    Server->>MySQL: SELECT * FROM admin_info WHERE username=...
+    MySQL-->>Server: 返回管理员信息
+    Server->>Server: 验证密码 (Bcrypt)
+    Server->>Redis: SET admin:session:{token} (创建管理员会话)
+    Server-->>Admin: 登录成功 (Set-Cookie)
+
+    Note over Admin, MySQL: === 2. 系统监控大盘 (Dashboard) ===
+    Admin->>Server: 获取监控数据 (Get Dashboard)
+    
+    par 队列监控
+        Server->>Redis: KEYS task:*:pending_blocks (扫描活跃任务队列)
+        Server->>Redis: LLEN task:{uid}:{qid}:pending_blocks (获取堆积任务数)
+        Server->>Redis: LLEN billing_queue:{uid} (获取待同步账单数)
+    and 流量监控 (TPM/RPM)
+        Server->>Server: 读取内存中的滑动窗口 (Sliding Window)
+        Note right of Server: 获取实时 TPM (Tokens Per Minute) <br/> 和 RPM (Requests Per Minute)
+    and 资源监控
+        Server->>Server: 统计活跃 Worker 线程数
+    end
+    
+    Server-->>Admin: 返回监控大盘数据 (JSON)
+
+    Note over Admin, MySQL: === 3. 用户管理 (User Management) ===
+    Admin->>Server: 获取用户列表
+    Server->>MySQL: SELECT uid, username, balance, permission FROM user_info
+    MySQL-->>Server: 返回用户列表
+    Server-->>Admin: 展示用户列表 (DataTable支持分页/排序/搜索)
+
+    Admin->>Server: 修改用户余额 (充值/扣款)
+    Server->>MySQL: UPDATE user_info SET balance = new_value WHERE uid=...
+    Server->>Redis: DEL user:{uid}:balance (删除缓存, 强制下次读取回源)
+    Server->>Redis: SET user:{uid}:balance new_value (或直接更新缓存)
+    Server-->>Admin: 操作成功 (Toast提示)
+
+    Admin->>Server: 修改并发权限 (Permission)
+    Server->>Redis: GET sys:config:permission_min (获取权限范围)
+    Server->>Redis: GET sys:config:permission_max
+    Server->>Server: 验证权限值在允许范围内
+    Server->>MySQL: UPDATE user_info SET permission = new_value WHERE uid=...
+    Server->>Redis: HSET user:{uid}:info permission new_value (更新缓存)
+    Server-->>Admin: 操作成功 (Toast提示)
+
+    Note over Admin, MySQL: === 4. 任务管理 (修复8: 使用terminate_signal) ===
+    Admin->>Server: 查看某用户的正在运行任务
+    Server->>Redis: KEYS task:{uid}:*:pending_blocks
+    Server-->>Admin: 返回任务ID列表 (DataTable支持筛选)
+
+    Admin->>Server: 暂停任务 (Pause)
+    Server->>Redis: SET query:{uid}:{qid}:pause_signal "1"
+    Note right of Server: Worker检测到pause_signal<br/>将Block推回队列后退出
+    Server-->>Admin: 暂停指令已发送
+
+    Admin->>Server: 恢复任务 (Resume)
+    Server->>Redis: DEL query:{uid}:{qid}:pause_signal
+    Server->>Server: 重新启动Worker线程
+    Server-->>Admin: 恢复指令已发送
+
+    Admin->>Server: 强制终止任务 (Terminate)
+    Server->>Redis: SET query:{uid}:{qid}:terminate_signal "1" (TTL 7天)
+    Note right of Server: terminate_signal优先级高于pause_signal<br/>Worker检测到后立即退出不推回Block
+    Server->>Redis: DEL task:{uid}:{qid}:pending_blocks (清空待处理队列)
+    Server->>Server: stop_workers_for_query(uid, qid) (停止所有活跃Worker)
+    Server->>Redis: HSET query:{uid}:{qid}:status state=CANCELLED
+    Server-->>Admin: 终止指令已发送 (Toast提示)
+
+    Note over Admin, MySQL: === 5. 批量操作 (修复32) ===
+    Admin->>Server: 批量调整余额 (POST /api/admin/users/batch_balance)
+    Note right of Server: {items: [{uid}], operation: "increase"|"decrease"|"set", amount: N}
+    loop 每个选中用户
+        Server->>MySQL: UPDATE user_info SET balance = ... WHERE uid=...
+        Server->>Redis: DEL user:{uid}:balance (清除缓存)
+    end
+    Server-->>Admin: 返回成功数量 {success_count: N} (Toast提示)
+
+    Admin->>Server: 批量调整权限 (POST /api/admin/users/batch_permission)
+    Note right of Server: {items: [{uid}], permission: N}
+    Server->>Redis: GET sys:config:permission_min/max (验证范围)
+    loop 每个选中用户
+        Server->>MySQL: UPDATE user_info SET permission = ... WHERE uid=...
+        Server->>Redis: HSET user:{uid}:info permission ... (更新缓存)
+    end
+    Server-->>Admin: 返回成功数量 {success_count: N} (Toast提示)
+
+    Admin->>Server: 批量终止任务 (POST /api/admin/tasks/batch_terminate)
+    Note right of Server: {items: [{uid, query_id}]}
+    loop 每个选中任务
+        Server->>Redis: SET query:{uid}:{qid}:terminate_signal "1" (TTL 7天)
+        Server->>Redis: DEL task:{uid}:{qid}:pending_blocks
+        Server->>Server: stop_workers_for_query(uid, qid)
+        Server->>Redis: HSET query:{uid}:{qid}:status state=CANCELLED
+    end
+    Server-->>Admin: 返回成功数量和停止的Worker数 (Toast提示)
+
+    Admin->>Server: 批量暂停任务 (POST /api/admin/tasks/batch_pause)
+    loop 每个状态为RUNNING的任务
+        Server->>Redis: SET query:{uid}:{qid}:pause_signal "1"
+        Server->>Redis: HSET query:{uid}:{qid}:status state=PAUSED
+    end
+    Server-->>Admin: 返回成功数量 (Toast提示)
+
+    Admin->>Server: 批量恢复任务 (POST /api/admin/tasks/batch_resume)
+    loop 每个状态为PAUSED的任务
+        Server->>Redis: DEL query:{uid}:{qid}:pause_signal
+        Server->>Server: 重新启动Worker线程
+        Server->>Redis: HSET query:{uid}:{qid}:status state=RUNNING
+    end
+    Server-->>Admin: 返回成功数量 (Toast提示)
+
+    Note over Admin, MySQL: === 6. 系统配置管理 (修复17/35) ===
+    Admin->>Server: 获取系统配置 (GET /api/admin/settings)
+    Server->>Redis: GET sys:config:* (优先从Redis获取)
+    alt Redis缓存未命中
+        Server->>MySQL: SELECT * FROM system_settings
+        Server->>Redis: SET sys:config:* (写入缓存)
+    end
+    Server-->>Admin: 返回所有配置项
+    Note right of Server: 包含: permission_min/max, distill_rate,<br/>registration_enabled, debug_console_enabled,<br/>announcement_enabled/content,<br/>maintenance_mode/message
+
+    Admin->>Server: 更新公告栏设置 (POST /api/admin/settings)
+    Note right of Server: {announcement_enabled: true, announcement_content: "..."}
+    Server->>MySQL: UPDATE system_settings SET value = ... WHERE key = ...
+    Server->>Redis: SET sys:config:announcement_enabled ...
+    Server->>Redis: SET sys:config:announcement_content ...
+    Server-->>Admin: 配置更新成功 (Toast提示)
+
+    Admin->>Server: 开启维护模式 (POST /api/admin/settings)
+    Note right of Server: {maintenance_mode: true, maintenance_message: "..."}
+    Server->>MySQL: UPDATE system_settings SET value = ... WHERE key = ...
+    Server->>Redis: SET sys:config:maintenance_mode "true"
+    Server->>Redis: SET sys:config:maintenance_message "..."
+    Server-->>Admin: 维护模式已开启 (Toast提示)
+    Note right of Server: 用户访问时将被重定向到 /maintenance.html
+
+    Admin->>Server: 调整蒸馏系数 (POST /api/admin/settings)
+    Note right of Server: {distill_rate: 0.1}
+    Server->>MySQL: UPDATE system_settings SET value = '0.1' WHERE key = 'distill_rate'
+    Server->>Redis: SET sys:config:distill_rate "0.1"
+    Server-->>Admin: 配置更新成功 (Toast提示)
+
+    Admin->>Server: 调整权限范围 (POST /api/admin/settings)
+    Note right of Server: {permission_min: 0, permission_max: 10}
+    Server->>MySQL: UPDATE system_settings ...
+    Server->>Redis: SET sys:config:permission_min "0"
+    Server->>Redis: SET sys:config:permission_max "10"
+    Server-->>Admin: 配置更新成功 (Toast提示)
+
+    Admin->>Server: 切换注册开关 (POST /api/admin/toggle_registration)
+    Server->>MySQL: UPDATE system_settings SET value = !current WHERE key = 'registration_enabled'
+    Server->>Redis: SET sys:config:registration_enabled ...
+    Server-->>Admin: 注册开关状态已切换 (Toast提示)
+
+    Admin->>Server: 切换调试日志开关 (POST /api/admin/settings)
+    Note right of Server: {debug_console_enabled: true/false}
+    Server->>MySQL: UPDATE system_settings ...
+    Server->>Redis: SET sys:config:debug_console_enabled ...
+    Server-->>Admin: 调试日志开关已切换 (Toast提示)

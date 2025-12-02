@@ -24,6 +24,7 @@ from .query_api import handle_query_api
 from .system_api import handle_system_api
 from .admin_api import handle_admin_api
 from .static_handler import serve_static_file, HTML_DIR, STATIC_DIR, safe_join
+from .user_auth import require_auth, extract_token_from_headers  # 修复37: 用户认证
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -74,11 +75,11 @@ class RequestHandler(BaseHTTPRequestHandler):
             status, response = handle_query_api(path, 'GET', headers_dict, payload)
             return self._send_json(status, response)
         
-        # 新版下载 API（异步队列模式）
+        # 新版下载 API（异步队列模式）- 修复37: 需要认证
         if path == '/api/download/status':
-            return self._handle_download_status(payload)
+            return self._handle_download_status(headers_dict, payload)
         if path == '/api/download/file':
-            return self._handle_download_file(payload)
+            return self._handle_download_file(headers_dict, payload)
         
         # ============================================================
         # 静态文件服务
@@ -169,9 +170,9 @@ class RequestHandler(BaseHTTPRequestHandler):
             status, response = handle_query_api(path, 'POST', headers_dict, payload)
             return self._send_json(status, response)
         
-        # 新版下载 API（异步队列模式）
+        # 新版下载 API（异步队列模式）- 修复37: 需要认证
         if path == '/api/download/create':
-            return self._handle_download_create(payload)
+            return self._handle_download_create(headers_dict, payload)
         
         # 系统 API
         if path == '/api/admin/config':
@@ -275,22 +276,32 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
     # ============================================================
-    # 下载 API 处理方法（异步队列模式）
+    # 下载 API 处理方法（异步队列模式）- 修复37: 添加Token认证
     # ============================================================
     
-    def _handle_download_create(self, payload: dict):
+    def _handle_download_create(self, headers: dict, payload: dict):
         """
-        创建下载任务
+        创建下载任务 (修复37: 需要Token认证)
         
         POST /api/download/create
         请求：{query_id, type: "csv"|"bib"}
         响应：{success: true, task_id: "..."}
+        
+        用户只能下载自己的任务结果
         """
         from ..redis.download import DownloadQueue
         
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return self._send_json(401, {
+                'success': False, 
+                'error': error,
+                'message': '请先登录'
+            })
+        
         query_id = payload.get('query_id') or payload.get('query_index')
         download_type = payload.get('type', 'csv')
-        uid = payload.get('uid')
         
         if not query_id:
             return self._send_json(400, {
@@ -298,21 +309,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 'error': 'missing_query_id'
             })
         
-        if not uid:
-            return self._send_json(400, {
-                'success': False, 
-                'error': 'missing_uid'
-            })
-        
-        try:
-            uid = int(uid)
-        except (TypeError, ValueError):
-            return self._send_json(400, {
-                'success': False, 
-                'error': 'invalid_uid'
-            })
-        
-        # 创建下载任务
+        # 创建下载任务（使用认证后的uid）
         task_id = DownloadQueue.create_task(uid, str(query_id), download_type)
         
         if task_id:
@@ -327,14 +324,25 @@ class RequestHandler(BaseHTTPRequestHandler):
                 'error': 'create_task_failed'
             })
     
-    def _handle_download_status(self, payload: dict):
+    def _handle_download_status(self, headers: dict, payload: dict):
         """
-        查询下载任务状态
+        查询下载任务状态 (修复37: 需要Token认证)
         
         GET /api/download/status?task_id=xxx
         响应：{success: true, state: "PENDING"|"PROCESSING"|"READY"|"FAILED", ...}
+        
+        用户只能查询自己的下载任务状态
         """
         from ..redis.download import DownloadQueue
+        
+        # 修复37: 验证认证，从Token获取uid
+        success, uid, error = require_auth(headers)
+        if not success:
+            return self._send_json(401, {
+                'success': False, 
+                'error': error,
+                'message': '请先登录'
+            })
         
         task_id = payload.get('task_id')
         
@@ -346,29 +354,60 @@ class RequestHandler(BaseHTTPRequestHandler):
         
         status = DownloadQueue.get_task_status(task_id)
         
-        if status:
-            return self._send_json(200, {
-                'success': True,
-                'state': status.get('state', 'UNKNOWN'),
-                'uid': status.get('uid'),
-                'qid': status.get('qid'),
-                'type': status.get('type'),
-                'error': status.get('error', ''),
-            })
-        else:
+        if not status:
             return self._send_json(404, {
                 'success': False,
                 'error': 'task_not_found'
             })
-    
-    def _handle_download_file(self, payload: dict):
-        """
-        下载已生成的文件
         
-        GET /api/download/file?task_id=xxx
+        # 修复37: 验证任务归属
+        task_uid = status.get('uid')
+        if task_uid and int(task_uid) != uid:
+            return self._send_json(403, {
+                'success': False,
+                'error': 'access_denied'
+            })
+        
+        return self._send_json(200, {
+            'success': True,
+            'state': status.get('state', 'UNKNOWN'),
+            'uid': status.get('uid'),
+            'qid': status.get('qid'),
+            'type': status.get('type'),
+            'error': status.get('error', ''),
+        })
+    
+    def _handle_download_file(self, headers: dict, payload: dict):
+        """
+        下载已生成的文件 (修复37: 需要Token认证)
+        
+        GET /api/download/file?task_id=xxx&token=xxx
         响应：文件内容（带 Content-Disposition 头）
+        
+        用户只能下载自己的文件
+        
+        注意：由于文件下载是通过 window.location.href 跳转实现的，
+        无法在请求头中传递 token，因此支持从 URL 参数中获取 token。
         """
         from ..redis.download import DownloadQueue, DOWNLOAD_STATE_READY
+        from ..redis.user_session import UserSession
+        
+        # 修复37: 验证认证 - 优先从 headers 获取，其次从 URL 参数获取
+        success, uid, error = require_auth(headers)
+        if not success:
+            # 尝试从 URL 参数获取 token
+            url_token = payload.get('token')
+            if url_token:
+                uid = UserSession.get_session_uid(url_token)
+                if uid:
+                    success = True
+        
+        if not success or not uid:
+            return self._send_json(401, {
+                'success': False, 
+                'error': 'unauthorized',
+                'message': '请先登录'
+            })
         
         task_id = payload.get('task_id')
         
@@ -385,6 +424,14 @@ class RequestHandler(BaseHTTPRequestHandler):
             return self._send_json(404, {
                 'success': False,
                 'error': 'task_not_found'
+            })
+        
+        # 修复37: 验证任务归属
+        task_uid = status.get('uid')
+        if task_uid and int(task_uid) != uid:
+            return self._send_json(403, {
+                'success': False,
+                'error': 'access_denied'
             })
         
         if status.get('state') != DOWNLOAD_STATE_READY:
