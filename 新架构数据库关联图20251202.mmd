@@ -200,7 +200,7 @@ classDiagram
             Field: DOI
             Value: JSON_Result
             TTL: 7天
-            Note: 过期后蒸馏回源MySQL
+            Note: 过期后蒸馏/下载回源MySQL(修复40)
         }
         class PauseSignal {
             Key: query:<uid>:<qid>:pause_signal
@@ -287,10 +287,12 @@ classDiagram
     QueryStatus ..> QueryLog : Archiver Thread\n(Update Status)
     DOIIndex ..> PaperBlock : O(1) Lookup\n(修复26)
 
-    %% 6. Download Flow (Async Queue)
+    %% 6. Download Flow (Async Queue, 修复40: MySQL回源)
     DownloadQueue ..> DownloadTaskStatus : DownloadWorker\n(Update Status)
     QueryResultCache ..> DownloadTaskFile : DownloadWorker\n(Generate File)
+    SearchResult ..> DownloadTaskFile : DownloadWorker\n(MySQL Fallback 修复40)
     PaperBlock ..> DownloadTaskFile : DownloadWorker\n(Pipeline Batch Get)
+    DOIIndex ..> DownloadTaskFile : DownloadWorker\n(Get block_key 修复40)
 
     %% 7. Foreign Keys / Logical Links
     InfoPaperWithTag --> ContentList : FK Name

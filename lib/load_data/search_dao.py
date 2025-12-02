@@ -79,7 +79,10 @@ def get_all_results(uid: int, query_id: str) -> Dict[str, Dict]:
     获取查询的所有结果
     
     优先从 Redis 读取，未命中则从 MySQL 读取
+    修复40：MySQL 回源时使用 DOI 反向索引补充 block_key 字段
     """
+    from ..redis.paper_blocks import PaperBlocks
+    
     # 优先从 Redis
     if redis_ping():
         cached = ResultCache.get_all_results(uid, query_id)
@@ -96,8 +99,18 @@ def get_all_results(uid: int, query_id: str) -> Dict[str, Dict]:
             WHERE uid = %s AND query_id = %s
         """, (uid, query_id))
         
+        rows = cursor.fetchall()
+        cursor.close()
+        
+        if not rows:
+            return {}
+        
+        # 修复40：使用 DOI 反向索引批量获取 block_key
+        dois = [row['doi'] for row in rows]
+        block_keys = PaperBlocks.batch_get_block_keys(dois)
+        
         results = {}
-        for row in cursor.fetchall():
+        for row in rows:
             doi = row['doi']
             ai_result = row['ai_result']
             if isinstance(ai_result, str):
@@ -105,9 +118,11 @@ def get_all_results(uid: int, query_id: str) -> Dict[str, Dict]:
                     ai_result = json.loads(ai_result)
                 except Exception:
                     pass
-            results[doi] = {'ai_result': ai_result}
+            results[doi] = {
+                'ai_result': ai_result,
+                'block_key': block_keys.get(doi, '')  # 修复40：补充 block_key
+            }
         
-        cursor.close()
         return results
     finally:
         conn.close()

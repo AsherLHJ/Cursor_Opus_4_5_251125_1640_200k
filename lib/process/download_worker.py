@@ -26,6 +26,7 @@ from ..redis.result_cache import ResultCache
 from ..redis.paper_blocks import PaperBlocks
 from ..redis.connection import redis_ping
 from ..load_data.query_dao import get_query_log  # 修复36补充: 获取查询语言设置
+from ..load_data import search_dao  # 修复40: 使用search_dao.get_all_results实现MySQL回源
 
 # 修复36补充: CSV相关性文本的语言映射
 RELEVANT_TEXT = {
@@ -129,9 +130,10 @@ class DownloadWorker:
         
         使用 Pipeline 批量获取 Bib 数据
         修复36补充：根据语言模式输出相关性文本（中文：符合/不符，英文：Relevant/Irrelevant）
+        修复40：支持 Redis 过期/清空后从 MySQL 回源
         """
-        # 获取所有结果
-        results = ResultCache.get_all_results(uid, qid)
+        # 获取所有结果（优先 Redis，MISS 时回源 MySQL）
+        results = search_dao.get_all_results(uid, qid)
         if not results:
             return None
         
@@ -244,9 +246,10 @@ class DownloadWorker:
         生成BIB文件内容（仅包含相关文献）
         
         使用 Pipeline 批量获取 Bib 数据
+        修复40：支持 Redis 过期/清空后从 MySQL 回源
         """
-        # 获取所有结果
-        results = ResultCache.get_all_results(uid, qid)
+        # 获取所有结果（优先 Redis，MISS 时回源 MySQL）
+        results = search_dao.get_all_results(uid, qid)
         if not results:
             return None
         

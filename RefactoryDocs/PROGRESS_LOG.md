@@ -6,7 +6,7 @@
 - **最后修复时间**: 2025-12-02
 - **指导文件**: 新架构项目重构完整指导文件20251130.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 三十九轮Bug修复
+- **状态**: ✅ 重构完成 + 四十轮Bug修复
 
 ---
 
@@ -602,6 +602,7 @@
 || 2025-12-02 | 文档同步 | 架构文档同步更新（修复24-37内容） | 数据库关联图, 端到端时序图, 管理员时序图, 项目重构指导文件 |
 || 2025-12-02 | 修复38 | 蒸馏功能语言参数变量名遮蔽问题修复 | paper_processor.py, query_api.py |
 || 2025-12-02 | 修复39 | 查询/蒸馏任务结果文件BUG修复与query_id显示功能 | download_worker.py, paper_blocks.py, index.html, i18n.js |
+|| 2025-12-02 | 修复40 | 下载功能MySQL回源机制（Redis数据过期/清空后仍可下载） | download_worker.py, search_dao.py |
 
 ---
 
@@ -1907,6 +1908,73 @@ def _relevance_sort_key(item):
 - `lib/redis/paper_blocks.py` - 蒸馏Block JSON解析
 - `lib/html/index.html` - 添加query_id显示 + CSS样式
 - `lib/html/static/js/i18n.js` - 添加翻译词条
+
+---
+
+## 修复轮次四十：下载功能MySQL回源机制 (2025-12-02)
+
+### 问题清单
+1. Redis 持久化数据被清空后，历史查询任务结果无法下载
+2. `download_worker.py` 使用 `ResultCache.get_all_results()` 只从 Redis 读取，无 MySQL 回源
+3. Redis `result:*` 缓存7天TTL过期后同样无法下载
+
+### 问题分析
+
+#### 40a: 根因
+- **根因**: `download_worker.py` 的 `_generate_csv_file()` 和 `_generate_bib_file()` 直接使用 `ResultCache.get_all_results()`
+- **问题**: `ResultCache.get_all_results()` 只查询 Redis `result:{uid}:{qid}`，没有回源逻辑
+- **存在方案**: `search_dao.get_all_results()` **已实现 Redis→MySQL 回源**，但未被 download_worker 使用
+
+#### Redis TTL 设置
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `TTL_RESULT` | 7天 | `result:{uid}:{qid}` Redis 缓存过期时间 |
+| MySQL 归档 | 任务完成时 | 任务完成后异步归档到 `search_result` 表 |
+
+### 修复内容
+
+#### 40a: 修改 download_worker.py
+- **文件**: `lib/process/download_worker.py`
+- **修改**:
+  - 导入 `from ..load_data import search_dao`
+  - `_generate_csv_file()` 中 `ResultCache.get_all_results()` → `search_dao.get_all_results()`
+  - `_generate_bib_file()` 中 `ResultCache.get_all_results()` → `search_dao.get_all_results()`
+
+#### 40b: 增强 search_dao.get_all_results()
+- **文件**: `lib/load_data/search_dao.py`
+- **修改**: MySQL 回源时使用 DOI 反向索引批量获取 `block_key`
+- **原因**: MySQL `search_result` 表没有 `block_key` 列，需要从 `idx:doi_to_block` 补充
+
+### 修复后的数据流
+```
+下载请求 → search_dao.get_all_results(uid, qid)
+    ↓
+  [Step 1] 查询 Redis result:{uid}:{qid}
+    ↓ (MISS)
+  [Step 2] 回源 MySQL search_result 表
+    ↓
+  [Step 3] 使用 DOI 反向索引补充 block_key
+    ↓
+返回完整数据 {doi: {ai_result, block_key}}
+```
+
+### 修复效果
+| 场景 | 修复前 | 修复后 |
+|------|--------|--------|
+| Redis数据存在 | ✅ 正常下载 | ✅ 正常下载 |
+| Redis数据7天TTL过期 | ❌ 无结果数据 | ✅ 回源MySQL |
+| Redis被清空 | ❌ 无结果数据 | ✅ 回源MySQL |
+| Source/Year字段 | N/A | ✅ 通过block_key正确解析 |
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 2 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `lib/process/download_worker.py` - 导入search_dao + 替换get_all_results调用
+- `lib/load_data/search_dao.py` - 增强MySQL回源时的block_key获取
 
 ---
 

@@ -6,7 +6,7 @@
 
 **最后更新**: 2025-12-02  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 三十九轮Bug修复 + 架构文档同步更新
+**完成阶段**: 阶段一至阶段十（全部完成）+ 四十轮Bug修复 + 架构文档同步更新
 
 ---
 
@@ -1126,9 +1126,63 @@ AI API
 
 ---
 
+## 修复40: 下载功能MySQL回源机制 (2025-12-02)
+
+### 问题描述
+- **现象**: 用户执行 `deploy_autopaperweb.sh` 清空 Redis 持久化数据后，历史查询任务结果无法下载
+- **日志**: `[DownloadWorker-1] 失败: DL... (无结果数据)`
+- **根因**: `download_worker.py` 直接使用 `ResultCache.get_all_results()`，该方法只从 Redis 读取，无 MySQL 回源
+
+### Redis TTL 设置
+| 参数 | 值 | 说明 |
+|------|-----|------|
+| `TTL_RESULT` | 7天 | `result:{uid}:{qid}` Redis 缓存过期时间 |
+| MySQL 归档 | 任务完成时 | 任务完成后异步归档到 `search_result` 表 |
+
+### 修复内容
+
+#### 40a: 修改 `download_worker.py` 使用支持回源的方法
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/process/download_worker.py` | 导入 `search_dao` 模块 |
+| `lib/process/download_worker.py` | `_generate_csv_file()` 改用 `search_dao.get_all_results()` |
+| `lib/process/download_worker.py` | `_generate_bib_file()` 改用 `search_dao.get_all_results()` |
+
+#### 40b: 增强 `search_dao.get_all_results()` 的MySQL回源逻辑
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/load_data/search_dao.py` | MySQL回源时使用DOI反向索引批量获取 `block_key` |
+| `lib/load_data/search_dao.py` | 返回数据结构包含 `ai_result` 和 `block_key` 两个字段 |
+
+### 修复后的数据流
+```
+下载请求 → search_dao.get_all_results(uid, qid)
+    ↓
+  [Step 1] 查询 Redis result:{uid}:{qid}
+    ↓ (MISS)
+  [Step 2] 回源 MySQL search_result 表
+    ↓
+  [Step 3] 使用 DOI 反向索引补充 block_key
+    ↓
+返回完整数据 {doi: {ai_result, block_key}}
+```
+
+### 修改文件清单
+| 文件 | 说明 |
+|------|------|
+| `lib/process/download_worker.py` | 导入search_dao + 替换get_all_results调用 |
+| `lib/load_data/search_dao.py` | 增强MySQL回源时的block_key获取 |
+
+### 修复效果
+- ✅ Redis 数据过期后（7天TTL），下载仍可从 MySQL 回源
+- ✅ Redis 被清空后，已归档的历史任务仍可下载
+- ✅ 回源时自动补充 `block_key`，确保 CSV 的 Source/Year 字段正确
+
+---
+
 ## 架构文档同步更新 (2025-12-02)
 
-根据修复24-37的内容，同步更新了以下架构文档：
+根据修复24-40的内容，同步更新了以下架构文档：
 
 ### 更新的文件
 1. `新架构数据库关联图20251202.mmd`
@@ -1168,7 +1222,7 @@ AI API
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `RefactoryDocs/前端重构设计文档20251129.md` 了解前端重构规划
 4. 查看 `需要手动操作的事项.txt` 了解待完成操作
-5. 项目重构已基本完成，经过三十九轮Bug修复，可进行测试
+5. 项目重构已基本完成，经过四十轮Bug修复，可进行测试
 
 ---
 

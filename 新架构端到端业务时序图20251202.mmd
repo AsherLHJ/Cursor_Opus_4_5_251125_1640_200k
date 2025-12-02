@@ -177,7 +177,7 @@ sequenceDiagram
         end
     end
 
-    Note over User, Server: === 7. 结果下载 (修复36-37: 异步队列+Token验证) ===
+    Note over User, Server: === 7. 结果下载 (修复36-37+40: 异步队列+Token验证+MySQL回源) ===
     User->>Server: 点击"下载CSV" / "下载Bib" (Authorization: Bearer {token})
     Server->>Redis: GET user:session:{token} (验证Token获取uid)
     alt Token无效
@@ -204,8 +204,20 @@ sequenceDiagram
         loop DownloadWorker Pool
             Server->>Redis: LPOP download_queue (抢占任务)
             Server->>Redis: HSET download:{task_id}:status state=PROCESSING
+            
+            Note right of Server: 修复40: search_dao.get_all_results()
             Server->>Redis: HGETALL result:{uid}:{qid} (获取AI结果)
-            Note right of Server: Pipeline批量获取优化
+            alt Redis缓存命中
+                Redis-->>Server: 返回缓存结果
+            else Redis MISS (7天TTL过期或数据清空)
+                Server->>MySQL: SELECT doi, ai_result FROM search_result WHERE query_id=...
+                MySQL-->>Server: 返回归档的结果数据
+                Server->>Redis: HMGET idx:doi_to_block {DOI1} {DOI2}... (批量获取block_key)
+                Redis-->>Server: 返回DOI对应的block_key
+                Server->>Server: 组装完整结果 {doi: {ai_result, block_key}}
+            end
+            
+            Note right of Server: Pipeline批量获取Bib优化
             Server->>Redis: Pipeline HGETALL {BlockKey1}, HGETALL {BlockKey2}... (批量获取Bib)
             Redis-->>Server: 返回所有Bib数据 (O(1)网络往返)
             Server->>Server: 按相关性排序 (Y在前, N在后)
