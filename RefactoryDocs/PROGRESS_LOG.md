@@ -6,7 +6,7 @@
 - **最后修复时间**: 2025-12-02
 - **指导文件**: 新架构项目重构完整指导文件20251130.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 三十七轮Bug修复
+- **状态**: ✅ 重构完成 + 三十九轮Bug修复
 
 ---
 
@@ -600,6 +600,8 @@
 || 2025-12-02 | 修复36 | AI回复语言适配（中/英）+CSV排序（相关在前）+清理前端遗留旧API调用 | index.html, query_api.py, paper_processor.py, search_paper.py, download_worker.py, server.py, export.py |
 || 2025-12-02 | 修复37 | 用户Token认证安全加固（修复严重安全漏洞） | user_session.py(新), user_auth.py(新), connection.py, auth.py, user_api.py, query_api.py, server.py, index.html, billing.html |
 || 2025-12-02 | 文档同步 | 架构文档同步更新（修复24-37内容） | 数据库关联图, 端到端时序图, 管理员时序图, 项目重构指导文件 |
+|| 2025-12-02 | 修复38 | 蒸馏功能语言参数变量名遮蔽问题修复 | paper_processor.py, query_api.py |
+|| 2025-12-02 | 修复39 | 查询/蒸馏任务结果文件BUG修复与query_id显示功能 | download_worker.py, paper_blocks.py, index.html, i18n.js |
 
 ---
 
@@ -1802,6 +1804,109 @@ def _relevance_sort_key(item):
 - `lib/webserver/server.py` - 下载API添加Token验证
 - `lib/html/index.html` - 所有fetch改用authFetch
 - `lib/html/billing.html` - 所有fetch改用authFetch
+
+---
+
+## 修复轮次三十八：蒸馏功能语言参数变量名遮蔽问题 (2025-12-02)
+
+### 问题清单
+1. 蒸馏功能点击"开始蒸馏"后报错：`'str' object has no attribute 'get_text'`
+
+### 问题分析
+
+#### 38a: 变量名遮蔽（Variable Shadowing）
+- **位置**: `lib/process/paper_processor.py`
+- **根因**: 
+  - 第25行导入了 `from language import language`（模块对象）
+  - 第166行函数参数 `language: str = "zh"`（字符串）遮蔽了模块名
+  - 第194行调用 `language.get_text(config.LANGUAGE)` 时，`language` 已变成字符串
+- **对比**: `process_papers` 函数没有 `language` 参数，第65行的相同调用能正常工作
+
+### 修复内容
+
+#### 38a: 参数重命名
+将 `process_papers_for_distillation` 函数的参数名从 `language` 改为 `user_language`，避免与导入的模块名冲突。
+
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/process/paper_processor.py` | 参数名 `language` → `user_language`（第166、188行） |
+| `lib/process/paper_processor.py` | 注释更新（第177-178行） |
+| `lib/process/paper_processor.py` | 字典赋值 `"language": user_language`（第216行） |
+| `lib/webserver/query_api.py` | 调用参数 `user_language=language`（第394行） |
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 2 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `lib/process/paper_processor.py` - 参数名 language → user_language
+- `lib/webserver/query_api.py` - 调用参数名更新
+
+---
+
+## 修复轮次三十九：查询/蒸馏任务结果文件BUG修复与query_id显示功能 (2025-12-02)
+
+### 问题清单
+1. 查询任务CSV的"Title"列显示booktitle而非实际文章标题
+2. 蒸馏任务CSV的"Title"列同样显示booktitle
+3. 蒸馏任务BIB文件格式错误，每条被JSON包裹：`{"bib": "...", "price": N}`
+4. 蒸馏任务CSV的"Source"列为空
+5. 蒸馏任务CSV的"Year"列格式错误（如"2024}\n}"）
+6. 新功能需求：index.html显示query_id
+
+### 问题分析
+
+#### 39a: Title列显示booktitle
+- **根因**: `download_worker.py` 的 `_extract_bib_field()` 正则 `rf'{field}\s*=\s*...'` 无法区分 title 和 booktitle
+- **修复**: 添加字段名前边界匹配 `(?:^|[\n\r,])\s*{field}`
+
+#### 39b: 蒸馏任务BIB/Source/Year错误
+- **根因**: 蒸馏Block存储JSON格式 `{"bib": "...", "price": N}`，但 `get_block_by_key()` 对 `distill:` 前缀直接返回原数据未解析JSON
+- **修复**: 新增 `_parse_distill_block_value()` 方法解析JSON提取bib字符串
+
+#### 39c: Source列空白
+- **根因**: 蒸馏结果的 `block_key` 是 `distill:uid:qid:index` 格式，`parse_block_key()` 只能解析 `meta:` 格式返回None
+- **修复**: 检测到 `distill:` 前缀时，使用 `PaperBlocks.get_block_key_by_doi(doi)` 获取原始 `meta:` block_key
+
+### 修复内容
+
+#### 39a: 修复 `_extract_bib_field()` 正则表达式
+- **文件**: `lib/process/download_worker.py`
+- **修改**: 正则从 `rf'{field}\s*=\s*...'` 改为 `rf'(?:^|[\n\r,])\s*{field}\s*=\s*...'`
+
+#### 39b: 修复蒸馏Block JSON解析
+- **文件**: `lib/redis/paper_blocks.py`
+- **新增方法**: `_parse_distill_block_value()` - 解析JSON提取bib字段
+- **修改方法**: `get_block_by_key()` 对 `distill:` 前缀调用JSON解析
+- **修改方法**: `batch_get_papers()` 区分 `distill:`/`meta:` 前缀使用不同解析
+- **修改方法**: `batch_get_blocks()` 区分 `distill:`/`meta:` 前缀使用不同解析
+
+#### 39c: 修复蒸馏任务Source列提取
+- **文件**: `lib/process/download_worker.py`
+- **修改**: 检测 `distill:` 前缀，使用DOI反向索引获取原始 `meta:` block_key
+
+#### 39d: 新增query_id显示功能
+- **文件**: `lib/html/index.html`
+  - 搜索概览卡片新增 `#summaryQueryId` 显示行
+  - 历史详情卡片新增query_id显示行
+  - 新增CSS样式（`.query-id-row`, `.query-id-value`）
+  - `showSearchSummary()` 函数填充 `summaryQueryId` 字段
+- **文件**: `lib/html/static/js/i18n.js`
+  - 新增 `query_id_label` 翻译（中：任务ID / 英：Task ID）
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 4 |
+| 新增 | 0 |
+
+### 修改文件清单
+- `lib/process/download_worker.py` - 正则表达式修复 + Source提取逻辑
+- `lib/redis/paper_blocks.py` - 蒸馏Block JSON解析
+- `lib/html/index.html` - 添加query_id显示 + CSS样式
+- `lib/html/static/js/i18n.js` - 添加翻译词条
 
 ---
 

@@ -6,7 +6,7 @@
 
 **最后更新**: 2025-12-02  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 三十七轮Bug修复 + 架构文档同步更新
+**完成阶段**: 阶段一至阶段十（全部完成）+ 三十九轮Bug修复 + 架构文档同步更新
 
 ---
 
@@ -1046,6 +1046,86 @@ AI API
 
 ---
 
+## 修复38: 蒸馏功能语言参数变量名遮蔽问题 (2025-12-02)
+
+### 问题分析
+- **现象**: 蒸馏功能点击"开始蒸馏"后报错 `'str' object has no attribute 'get_text'`
+- **根因**: 变量名遮蔽（Variable Shadowing）
+  - 第25行 `from language import language` 导入模块
+  - 第166行函数参数 `language: str = "zh"` 遮蔽了模块名
+  - 第194行 `language.get_text()` 时，`language` 已变成字符串而非模块
+
+### 修复内容
+将 `process_papers_for_distillation` 函数的参数名从 `language` 改为 `user_language`，避免与导入的模块名冲突。
+
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/process/paper_processor.py` | 参数名 `language` → `user_language`（第166、188行）|
+| `lib/process/paper_processor.py` | 注释更新（第177-178行）|
+| `lib/process/paper_processor.py` | 字典赋值 `"language": user_language`（第216行）|
+| `lib/webserver/query_api.py` | 调用参数 `user_language=language`（第394行）|
+
+### 修改文件清单
+- `lib/process/paper_processor.py` - 参数名 language → user_language
+- `lib/webserver/query_api.py` - 调用参数名更新
+
+---
+
+## 修复39: 查询/蒸馏任务结果文件BUG修复与query_id显示功能 (2025-12-02)
+
+### 问题清单
+1. **BUG 1-2**: 查询/蒸馏任务CSV的"Title"列显示booktitle而非实际文章标题
+2. **BUG 3**: 蒸馏任务BIB文件格式错误，每条被包裹在JSON `{"bib": "...", "price": N}` 中
+3. **BUG 4**: 蒸馏任务CSV的"Source"列为空
+4. **BUG 5**: 蒸馏任务CSV的"Year"列格式错误（如"2024}\n}"）
+5. **新功能**: index.html显示query_id
+
+### 根因分析
+1. **Title列错误**: `_extract_bib_field()` 正则 `rf'{field}\s*=\s*...'` 会匹配到booktitle中的title子串
+2. **BIB/Source/Year错误**: 蒸馏Block存储JSON格式 `{"bib": "...", "price": N}`，但读取时未解析JSON
+3. **Source列空白**: 蒸馏结果的block_key是`distill:`格式，`parse_block_key`只能解析`meta:`格式
+
+### 修复内容
+
+#### 39a: 修复 `_extract_bib_field()` 正则表达式
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/process/download_worker.py` | 正则添加字段名前边界匹配 `(?:^|[\n\r,])\s*{field}...` |
+
+#### 39b: 修复蒸馏Block JSON解析
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/redis/paper_blocks.py` | 新增 `_parse_distill_block_value()` 方法解析JSON提取bib |
+| `lib/redis/paper_blocks.py` | `get_block_by_key()` 对distill:前缀调用JSON解析 |
+| `lib/redis/paper_blocks.py` | `batch_get_papers()` 区分distill:/meta:前缀使用不同解析 |
+| `lib/redis/paper_blocks.py` | `batch_get_blocks()` 区分distill:/meta:前缀使用不同解析 |
+
+#### 39c: 修复蒸馏任务Source列提取
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/process/download_worker.py` | distill:前缀block_key使用DOI反向索引获取原始meta:block_key |
+
+#### 39d: 新增query_id显示功能
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/html/index.html` | 搜索概览卡片新增query_id显示行 |
+| `lib/html/index.html` | 历史详情卡片新增query_id显示行 |
+| `lib/html/index.html` | 新增CSS样式（.query-id-row, .query-id-value）|
+| `lib/html/index.html` | `showSearchSummary()` 填充summaryQueryId字段 |
+| `lib/html/static/js/i18n.js` | 新增 `query_id_label` 翻译（中：任务ID / 英：Task ID）|
+
+### 修改文件清单
+| 文件 | 说明 |
+|------|------|
+| `lib/process/download_worker.py` | 正则表达式修复 + Source提取逻辑 |
+| `lib/redis/paper_blocks.py` | 蒸馏Block JSON解析 |
+| `lib/html/index.html` | 添加query_id显示 + CSS样式 |
+| `lib/html/static/js/i18n.js` | 添加翻译词条 |
+| `RefactoryDocs/INTERFACE_SUMMARY.md` | 文档更新 |
+| `RefactoryDocs/PROGRESS_LOG.md` | 进度日志更新 |
+
+---
+
 ## 架构文档同步更新 (2025-12-02)
 
 根据修复24-37的内容，同步更新了以下架构文档：
@@ -1088,7 +1168,7 @@ AI API
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `RefactoryDocs/前端重构设计文档20251129.md` 了解前端重构规划
 4. 查看 `需要手动操作的事项.txt` 了解待完成操作
-5. 项目重构已基本完成，经过三十七轮Bug修复，可进行测试
+5. 项目重构已基本完成，经过三十九轮Bug修复，可进行测试
 
 ---
 

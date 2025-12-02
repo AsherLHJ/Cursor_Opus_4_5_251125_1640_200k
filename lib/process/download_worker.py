@@ -199,13 +199,22 @@ class DownloadWorker:
             year = self._extract_bib_field(bib_str, 'year')
             
             # 从 block_key 提取 source
+            # 修复39: 对于蒸馏任务(distill:前缀)，使用DOI反向索引获取原始meta:block_key
             source = ''
-            if block_key:
-                parts = PaperBlocks.parse_block_key(block_key)
+            actual_block_key = block_key
+            if block_key and block_key.startswith('distill:'):
+                # 蒸馏任务的block_key是distill:格式，无法解析source
+                # 使用DOI反向索引获取原始的meta:格式block_key
+                original_block_key = PaperBlocks.get_block_key_by_doi(doi)
+                if original_block_key:
+                    actual_block_key = original_block_key
+            
+            if actual_block_key:
+                parts = PaperBlocks.parse_block_key(actual_block_key)
                 if parts:
                     source = parts[0]
                     if not year:
-                        year = parts[1]
+                        year = str(parts[1])
             
             # 如果没有URL，从DOI生成
             if not url and doi:
@@ -280,13 +289,19 @@ class DownloadWorker:
         return content.encode('utf-8')
     
     def _extract_bib_field(self, bib_str: str, field: str) -> str:
-        """从BibTeX字符串提取指定字段"""
+        """
+        从BibTeX字符串提取指定字段
+        
+        修复39: 添加字段名边界匹配，避免 'title' 匹配到 'booktitle' 中的子串
+        """
         if not bib_str:
             return ''
         
         try:
+            # 修复39: 在字段名前添加边界匹配
+            # 匹配模式: 字段名前必须是换行符、空白或逗号（排除booktitle匹配title的情况）
             # 支持 field = {value} 和 field = "value" 格式
-            pattern = rf'{field}\s*=\s*[{{"](.*?)[}}"]\s*[,}}]'
+            pattern = rf'(?:^|[\n\r,])\s*{field}\s*=\s*[{{"](.*?)[}}"]\s*[,\n\r}}]'
             match = re.search(pattern, bib_str, re.IGNORECASE | re.DOTALL)
             if match:
                 return match.group(1).strip()

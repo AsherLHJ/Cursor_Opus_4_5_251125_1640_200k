@@ -113,6 +113,33 @@ class PaperBlocks:
             return {}
     
     @classmethod
+    def _parse_distill_block_value(cls, value: str) -> str:
+        """
+        解析蒸馏Block的Value值，提取真正的bib字符串
+        
+        修复39: 蒸馏Block存储格式为 JSON {"bib": "...", "price": N}
+        需要解析JSON提取bib字段
+        
+        Args:
+            value: Redis中存储的原始值
+            
+        Returns:
+            纯bib字符串
+        """
+        if not value:
+            return ''
+        
+        try:
+            data = json.loads(value)
+            if isinstance(data, dict) and 'bib' in data:
+                return data['bib']
+        except (json.JSONDecodeError, TypeError):
+            pass
+        
+        # 如果不是JSON格式或解析失败，返回原值
+        return value
+    
+    @classmethod
     def get_block_by_key(cls, block_key: str) -> Dict[str, str]:
         """
         根据Block Key获取所有文献
@@ -121,16 +148,18 @@ class PaperBlocks:
             block_key: 如 "meta:NATURE:2024" 或 "distill:uid:qid:index"
             
         修复29：支持 distill: 前缀的蒸馏专用Block
+        修复39：解析蒸馏Block的JSON格式，提取真正的bib字符串
         """
-        # 修复29：蒸馏专用Block直接从Redis获取
+        # 修复29/39：蒸馏专用Block直接从Redis获取，并解析JSON
         if block_key and block_key.startswith("distill:"):
             client = get_redis_client()
             if not client:
                 return {}
             try:
                 data = client.hgetall(block_key) or {}
-                # distill block 存储的是原始 bib，不需要解压
-                return {doi: bib for doi, bib in data.items()}
+                # 修复39: distill block 存储的是 JSON {"bib": "...", "price": N}
+                # 需要解析JSON提取真正的bib
+                return {doi: cls._parse_distill_block_value(value) for doi, value in data.items()}
             except Exception:
                 return {}
         
@@ -427,6 +456,8 @@ class PaperBlocks:
         
         使用Redis Pipeline一次性获取所有数据，将O(n)次网络往返优化为O(1)次
         
+        修复39: 支持蒸馏Block的JSON格式解析
+        
         Args:
             block_dois: {block_key: [doi1, doi2, ...]} 字典
             
@@ -457,7 +488,13 @@ class PaperBlocks:
             for i, data in enumerate(results):
                 if data:
                     block_key, doi = command_mapping[i]
-                    output[doi] = cls._decompress_bib(data)
+                    # 修复39: 区分 distill: 和 meta: 前缀的数据格式
+                    if block_key.startswith("distill:"):
+                        # 蒸馏Block存储JSON格式 {"bib": "...", "price": N}
+                        output[doi] = cls._parse_distill_block_value(data)
+                    else:
+                        # 普通Block存储压缩后的bib
+                        output[doi] = cls._decompress_bib(data)
             
             return output
         except Exception as e:
@@ -470,6 +507,8 @@ class PaperBlocks:
         批量获取多个Block的所有数据
         
         使用Redis Pipeline一次性获取所有Block
+        
+        修复39: 支持蒸馏Block的JSON格式解析
         
         Args:
             block_keys: Block Key列表，如 ["meta:NATURE:2024", "meta:SCIENCE:2023"]
@@ -495,10 +534,19 @@ class PaperBlocks:
             for i, data in enumerate(results):
                 if data:
                     block_key = block_keys[i]
-                    output[block_key] = {
-                        doi: cls._decompress_bib(bib) 
-                        for doi, bib in data.items()
-                    }
+                    # 修复39: 区分 distill: 和 meta: 前缀的数据格式
+                    if block_key.startswith("distill:"):
+                        # 蒸馏Block存储JSON格式 {"bib": "...", "price": N}
+                        output[block_key] = {
+                            doi: cls._parse_distill_block_value(value) 
+                            for doi, value in data.items()
+                        }
+                    else:
+                        # 普通Block存储压缩后的bib
+                        output[block_key] = {
+                            doi: cls._decompress_bib(bib) 
+                            for doi, bib in data.items()
+                        }
             
             return output
         except Exception as e:

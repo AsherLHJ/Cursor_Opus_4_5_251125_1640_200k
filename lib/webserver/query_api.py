@@ -391,7 +391,7 @@ def _handle_start_distillation(headers: Dict, payload: Dict) -> Tuple[int, Dict]
             requirements=requirements,
             doi_prices=doi_prices,
             estimated_cost=estimated_cost,  # 传递正确的预估费用（考虑实际期刊价格）
-            language=language  # 修复36: 传递语言参数
+            user_language=language  # 修复36/38: 传递语言参数（修复38：避免与language模块名冲突）
         )
         
         if success:

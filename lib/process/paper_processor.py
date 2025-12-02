@@ -163,7 +163,7 @@ def process_papers_for_distillation(uid: int, original_query_id: str,
                                    requirements: str = "",
                                    doi_prices: Dict[str, int] = None,
                                    estimated_cost: float = None,
-                                   language: str = "zh") -> Tuple[bool, str]:
+                                   user_language: str = "zh") -> Tuple[bool, str]:
     """
     蒸馏处理函数 (新架构)
     
@@ -174,8 +174,8 @@ def process_papers_for_distillation(uid: int, original_query_id: str,
     - doi_prices: 传递给Worker以避免重复查询价格
     - estimated_cost: 使用预估阶段计算的正确费用（考虑实际期刊价格）
     
-    修复36：添加 language 参数
-    - language: 用户界面语言，用于AI回复语言控制
+    修复36/38：添加 user_language 参数
+    - user_language: 用户界面语言，用于AI回复语言控制（修复38：避免与language模块名冲突）
     
     Args:
         uid: 用户ID
@@ -185,7 +185,7 @@ def process_papers_for_distillation(uid: int, original_query_id: str,
         requirements: 蒸馏筛选要求（用户输入）
         doi_prices: {doi: price} 映射（修复31：预估阶段收集的价格信息）
         estimated_cost: 预估费用（修复31b：使用预估阶段计算的正确值）
-        language: 用户界面语言 ('zh' 或 'en')
+        user_language: 用户界面语言 ('zh' 或 'en')
         
     Returns:
         (success, query_id 或 error_message)
@@ -213,7 +213,7 @@ def process_papers_for_distillation(uid: int, original_query_id: str,
             "is_distillation": True,
             "original_query_id": original_query_id,
             "doi_count": paper_count,
-            "language": language,  # 修复36: 存储语言参数供AI调用时使用
+            "language": user_language,  # 修复36/38: 存储语言参数供AI调用时使用
         }
 
         # 修复31b：使用传入的正确estimated_cost，否则回退到简单计算

@@ -957,6 +957,21 @@
       border: 1px solid #333;
     }
 
+    /* 修复39: 任务ID显示样式 */
+    .query-id-row {
+      border-bottom: 1px dashed #444;
+      padding-bottom: 12px;
+      margin-bottom: 8px;
+    }
+    
+    .query-id-value {
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 13px;
+      color: #60a5fa;
+      background: #1a1a2e;
+      border: 1px solid #3b4a6b;
+    }
+
     .summary-stats {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -2002,6 +2017,12 @@
         </div>
         
         <div class="summary-content">
+          <!-- 修复39: 显示任务ID -->
+          <div class="summary-item query-id-row">
+            <div class="summary-label" data-i18n="index.query_id_label">任务ID：</div>
+            <div id="summaryQueryId" class="summary-value query-id-value"></div>
+          </div>
+          
           <div class="summary-item">
             <div class="summary-label" data-i18n="index.research_question">研究问题：</div>
             <div id="summaryQuestion" class="summary-value"></div>
@@ -3268,6 +3289,8 @@
   summaryCard.style.display = 'block';
       
       // 填充数据
+      // 修复39: 填充任务ID
+      document.getElementById('summaryQueryId').textContent = searchData.queryIndex || '';
       document.getElementById('summaryQuestion').textContent = searchData.question;
       document.getElementById('summaryRequirements').textContent = searchData.requirements || '';
       
@@ -4664,6 +4687,11 @@
       
       content.innerHTML = `
         <div class="history-summary">
+          <!-- 修复39: 显示任务ID -->
+          <div class="summary-item query-id-row">
+            <div class="summary-label">${i18n.t('index.query_id_label') || '任务ID'}：</div>
+            <div class="summary-value query-id-value">${queryIndex}</div>
+          </div>
           ${isDistillation && originalQueryId ? `
           <div class="summary-item distill-parent-info">
             <div class="summary-label">${i18n.t('index.distill_based_on') || '基于任务'}：</div>
