@@ -242,6 +242,38 @@
                 </div>
             </div>
             
+            <!-- 修复35新增：公告栏开关 -->
+            <div class="switch-row">
+                <div class="switch-info">
+                    <h3 data-i18n="admin.control_announcement">公告栏</h3>
+                    <p data-i18n="admin.control_announcement_desc">控制是否在用户登录页和主页顶部显示公告栏。</p>
+                </div>
+                <div class="switch-control">
+                    <span id="announcementStatusBadge" class="status-badge status-off" data-i18n="admin.control_registration_off">已关闭</span>
+                    <span id="announcementLoading" class="loading-spinner hidden"></span>
+                    <label class="toggle">
+                        <input type="checkbox" id="announcementToggle" onchange="toggleAnnouncement()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <!-- 修复35新增：维护模式开关 -->
+            <div class="switch-row">
+                <div class="switch-info">
+                    <h3 data-i18n="admin.control_maintenance">维护模式</h3>
+                    <p data-i18n="admin.control_maintenance_desc">开启后，用户将无法访问系统，显示维护公告页面。</p>
+                </div>
+                <div class="switch-control">
+                    <span id="maintenanceStatusBadge" class="status-badge status-off" data-i18n="admin.control_registration_off">已关闭</span>
+                    <span id="maintenanceLoading" class="loading-spinner hidden"></span>
+                    <label class="toggle">
+                        <input type="checkbox" id="maintenanceToggle" onchange="toggleMaintenance()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+            
         </div>
         
         <!-- 系统配置面板 -->
@@ -274,6 +306,20 @@
                     </div>
                     <span class="config-preview" id="distillPreview">= 查询价格的 10%</span>
                 </div>
+            </div>
+            
+            <!-- 修复35新增：公告内容 -->
+            <div class="config-section">
+                <h3 data-i18n="admin.control_announcement_content">公告内容</h3>
+                <p class="config-desc" data-i18n="admin.control_announcement_content_desc">在公告栏开关开启时显示的公告文本。</p>
+                <textarea id="announcementContent" rows="3" style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:6px; font-size:0.95rem; resize:vertical;" placeholder="请输入公告内容..."></textarea>
+            </div>
+            
+            <!-- 修复35新增：服务器维护公告 -->
+            <div class="config-section">
+                <h3 data-i18n="admin.control_maintenance_message">服务器维护公告</h3>
+                <p class="config-desc" data-i18n="admin.control_maintenance_message_desc">维护模式开启时显示的公告内容。</p>
+                <textarea id="maintenanceMessage" rows="4" style="width:100%; padding:0.75rem; border:1px solid #ddd; border-radius:6px; font-size:0.95rem; resize:vertical;" placeholder="请输入维护公告内容..."></textarea>
             </div>
             
             <div class="config-actions">
@@ -387,6 +433,9 @@
                     document.getElementById('permissionMin').value = data.current_values.permission_min || 1;
                     document.getElementById('permissionMax').value = data.current_values.permission_max || 10;
                     document.getElementById('distillRate').value = data.current_values.distill_rate || 0.1;
+                    // 修复35新增：加载公告内容和维护公告
+                    document.getElementById('announcementContent').value = data.current_values.announcement_content || '';
+                    document.getElementById('maintenanceMessage').value = data.current_values.maintenance_message || '';
                     updateDistillPreview();
                 }
             } catch (error) {
@@ -411,6 +460,9 @@
             const permMin = parseInt(document.getElementById('permissionMin').value);
             const permMax = parseInt(document.getElementById('permissionMax').value);
             const distillRate = parseFloat(document.getElementById('distillRate').value);
+            // 修复35新增：获取公告内容和维护公告
+            const announcementContent = document.getElementById('announcementContent').value;
+            const maintenanceMessage = document.getElementById('maintenanceMessage').value;
             
             // 前端验证
             if (permMin < 0 || permMax < 1 || permMax < permMin) {
@@ -435,7 +487,10 @@
                         settings: {
                             permission_min: permMin,
                             permission_max: permMax,
-                            distill_rate: distillRate
+                            distill_rate: distillRate,
+                            // 修复35新增
+                            announcement_content: announcementContent,
+                            maintenance_message: maintenanceMessage
                         }
                     })
                 });
@@ -520,10 +575,134 @@
             }
         }
         
+        // ============================================================
+        // 修复35新增：公告栏开关
+        // ============================================================
+        
+        async function loadAnnouncementStatus() {
+            try {
+                const response = await fetchWithAuth('/api/admin/settings');
+                const data = await response.json();
+                
+                if (data.success && data.current_values) {
+                    const enabled = data.current_values.announcement_enabled === 'true';
+                    updateAnnouncementUI(enabled);
+                }
+            } catch (error) {
+                console.error('获取公告栏状态失败:', error);
+            }
+        }
+        
+        function updateAnnouncementUI(enabled) {
+            const toggle = document.getElementById('announcementToggle');
+            const badge = document.getElementById('announcementStatusBadge');
+            
+            toggle.checked = enabled;
+            badge.textContent = enabled ? i18n.t('admin.control_registration_on') : i18n.t('admin.control_registration_off');
+            badge.className = 'status-badge ' + (enabled ? 'status-on' : 'status-off');
+        }
+        
+        async function toggleAnnouncement() {
+            const toggle = document.getElementById('announcementToggle');
+            const loading = document.getElementById('announcementLoading');
+            const newValue = toggle.checked;
+            
+            toggle.disabled = true;
+            loading.classList.remove('hidden');
+            
+            try {
+                const response = await fetchWithAuth('/api/admin/settings', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        settings: {
+                            announcement_enabled: newValue ? 'true' : 'false'
+                        }
+                    })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateAnnouncementUI(newValue);
+                } else {
+                    toggle.checked = !newValue;
+                    alert('操作失败: ' + (data.message || '未知错误'));
+                }
+            } catch (error) {
+                toggle.checked = !newValue;
+                alert('操作失败: ' + error.message);
+            } finally {
+                toggle.disabled = false;
+                loading.classList.add('hidden');
+            }
+        }
+        
+        // ============================================================
+        // 修复35新增：维护模式开关
+        // ============================================================
+        
+        async function loadMaintenanceStatus() {
+            try {
+                const response = await fetchWithAuth('/api/admin/settings');
+                const data = await response.json();
+                
+                if (data.success && data.current_values) {
+                    const enabled = data.current_values.maintenance_mode === 'true';
+                    updateMaintenanceUI(enabled);
+                }
+            } catch (error) {
+                console.error('获取维护模式状态失败:', error);
+            }
+        }
+        
+        function updateMaintenanceUI(enabled) {
+            const toggle = document.getElementById('maintenanceToggle');
+            const badge = document.getElementById('maintenanceStatusBadge');
+            
+            toggle.checked = enabled;
+            badge.textContent = enabled ? i18n.t('admin.control_registration_on') : i18n.t('admin.control_registration_off');
+            badge.className = 'status-badge ' + (enabled ? 'status-on' : 'status-off');
+        }
+        
+        async function toggleMaintenance() {
+            const toggle = document.getElementById('maintenanceToggle');
+            const loading = document.getElementById('maintenanceLoading');
+            const newValue = toggle.checked;
+            
+            toggle.disabled = true;
+            loading.classList.remove('hidden');
+            
+            try {
+                const response = await fetchWithAuth('/api/admin/settings', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        settings: {
+                            maintenance_mode: newValue ? 'true' : 'false'
+                        }
+                    })
+                });
+                const data = await response.json();
+                
+                if (data.success) {
+                    updateMaintenanceUI(newValue);
+                } else {
+                    toggle.checked = !newValue;
+                    alert('操作失败: ' + (data.message || '未知错误'));
+                }
+            } catch (error) {
+                toggle.checked = !newValue;
+                alert('操作失败: ' + error.message);
+            } finally {
+                toggle.disabled = false;
+                loading.classList.add('hidden');
+            }
+        }
+        
         // 初始加载
         loadRegistrationStatus();
         loadSettings();
         loadDebugConsoleStatus();
+        loadAnnouncementStatus();
+        loadMaintenanceStatus();
     </script>
 </body>
 </html>

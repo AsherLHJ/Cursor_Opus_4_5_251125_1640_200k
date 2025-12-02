@@ -210,6 +210,11 @@ def ensure_defaults() -> bool:
         'permission_max': ('10', '用户权限最大值'),
         'distill_rate': ('0.1', '蒸馏任务价格系数（相对于查询任务）'),
         'debug_console_enabled': ('false', '是否启用调试日志控制台'),
+        # 修复35新增: 公告栏和维护模式配置
+        'announcement_enabled': ('false', '是否启用公告栏'),
+        'announcement_content': ('', '公告栏内容'),
+        'maintenance_mode': ('false', '是否启用维护模式'),
+        'maintenance_message': ('【系统公告】为提升服务质量，系统正在进行计划内升级维护，暂时无法提供服务。感谢您的理解与支持。\n\n[System Notice] To improve service quality, the system is undergoing scheduled maintenance and is temporarily unavailable. Thank you for your understanding and support.', '维护模式公告内容'),
     }
     
     conn = _get_connection()
@@ -308,5 +313,50 @@ def is_debug_console_enabled() -> bool:
 def set_debug_console_enabled(enabled: bool) -> bool:
     """设置调试日志控制台是否启用"""
     return set_setting('debug_console_enabled', 'true' if enabled else 'false', '是否启用调试日志控制台')
+
+
+# ============================================================
+# 修复35新增: 公告栏和维护模式便捷方法
+# ============================================================
+
+def is_announcement_enabled() -> bool:
+    """获取公告栏是否启用"""
+    return get_bool_setting('announcement_enabled', False)
+
+
+def get_announcement_content() -> str:
+    """获取公告栏内容"""
+    return get_setting('announcement_content', '') or ''
+
+
+def set_announcement_enabled(enabled: bool) -> bool:
+    """设置公告栏是否启用"""
+    return set_setting('announcement_enabled', 'true' if enabled else 'false', '是否启用公告栏')
+
+
+def set_announcement_content(content: str) -> bool:
+    """设置公告栏内容"""
+    return set_setting('announcement_content', content or '', '公告栏内容')
+
+
+def is_maintenance_mode() -> bool:
+    """获取维护模式是否启用"""
+    return get_bool_setting('maintenance_mode', False)
+
+
+def get_maintenance_message() -> str:
+    """获取维护模式公告内容"""
+    default_msg = '【系统公告】为提升服务质量，系统正在进行计划内升级维护，暂时无法提供服务。感谢您的理解与支持。\n\n[System Notice] To improve service quality, the system is undergoing scheduled maintenance and is temporarily unavailable. Thank you for your understanding and support.'
+    return get_setting('maintenance_message', default_msg) or default_msg
+
+
+def set_maintenance_mode(enabled: bool) -> bool:
+    """设置维护模式是否启用"""
+    return set_setting('maintenance_mode', 'true' if enabled else 'false', '是否启用维护模式')
+
+
+def set_maintenance_message(message: str) -> bool:
+    """设置维护模式公告内容"""
+    return set_setting('maintenance_message', message or '', '维护模式公告内容')
 
 

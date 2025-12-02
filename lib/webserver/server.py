@@ -53,7 +53,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         if path == '/api/ping':
             return self._send_json(200, {'pong': True})
         
-        if path in ('/api/system_status', '/api/debug-log', '/api/registration_status'):
+        if path in ('/api/system_status', '/api/debug-log', '/api/registration_status',
+                    '/api/system_announcement', '/api/maintenance_status'):  # 修复35新增
             status, response = handle_system_api(path, 'GET', headers_dict, payload)
             return self._send_json(status, response)
         
@@ -94,6 +95,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             '/login.html': 'login.html',
             '/register.html': 'register.html',
             '/billing.html': 'billing.html',
+            '/maintenance.html': 'maintenance.html',  # 修复35新增: 维护页面
         }
         
         if path in html_pages:

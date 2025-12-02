@@ -157,6 +157,11 @@ SYSTEM_SETTINGS_DEFAULTS = {
     'permission_max': ('10', '用户权限最大值'),
     'distill_rate': ('0.1', '蒸馏任务价格系数（相对于查询任务）'),
     'debug_console_enabled': ('false', '是否启用调试日志控制台'),
+    # 修复35新增: 公告栏和维护模式配置
+    'announcement_enabled': ('false', '是否启用公告栏'),
+    'announcement_content': ('', '公告栏内容'),
+    'maintenance_mode': ('false', '是否启用维护模式'),
+    'maintenance_message': ('【系统公告】为提升服务质量，系统正在进行计划内升级维护，暂时无法提供服务。感谢您的理解与支持。\n\n[System Notice] To improve service quality, the system is undergoing scheduled maintenance and is temporarily unavailable. Thank you for your understanding and support.', '维护模式公告内容'),
 }
 
 

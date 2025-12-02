@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统维护中 - AutoPaperWeb</title>
+    <script src="/static/js/i18n.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .maintenance-container {
+            text-align: center;
+            max-width: 600px;
+            padding: 3rem 2rem;
+            background: #1a1a1a;
+            border-radius: 10px;
+            border: 1px solid #333;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+        }
+        
+        .maintenance-icon {
+            font-size: 5rem;
+            margin-bottom: 1.5rem;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+        
+        .maintenance-title {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            color: #4a90d9;
+        }
+        
+        .maintenance-message {
+            font-size: 1.1rem;
+            line-height: 1.8;
+            color: #b0b0b0;
+            margin-bottom: 2rem;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .auto-refresh-notice {
+            font-size: 0.9rem;
+            color: #888;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #444;
+            border-top-color: #4a90d9;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* 修复36：语言切换按钮容器（与login.html统一） */
+        .lang-toggle-container {
+            text-align: center;
+            margin-top: 2rem;
+        }
+        .lang-toggle-container button {
+            background: none;
+            border: 1px solid #444;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            cursor: pointer;
+            color: #b0b0b0;
+            font-size: 0.9rem;
+            transition: all 0.3s;
+        }
+        .lang-toggle-container button:hover {
+            border-color: #4a90d9;
+            color: #e5e5e5;
+        }
+    </style>
+</head>
+<body>
+    <div class="maintenance-container">
+        <div class="maintenance-icon">🔧</div>
+        <h1 class="maintenance-title" data-i18n="maintenance.title">系统维护中</h1>
+        <div class="maintenance-message" id="maintenanceMessage">
+            正在加载维护信息...
+        </div>
+        <div class="auto-refresh-notice">
+            <span class="loading-spinner"></span>
+            <span data-i18n="maintenance.auto_refresh">系统恢复后将自动跳转...</span>
+        </div>
+        <div class="lang-toggle-container">
+            <button id="langToggle">🌐 中/EN</button>
+        </div>
+    </div>
+    
+    <script>
+        // 语言切换
+        document.getElementById('langToggle').onclick = function() {
+            const newLang = i18n.getLang() === 'zh' ? 'en' : 'zh';
+            i18n.setLang(newLang);
+            i18n.applyI18n();
+        };
+        
+        // 加载维护公告内容
+        async function loadMaintenanceMessage() {
+            try {
+                const response = await fetch('/api/maintenance_status');
+                const data = await response.json();
+                
+                if (data.success) {
+                    if (!data.enabled) {
+                        // 维护模式已关闭，跳转到登录页
+                        window.location.href = '/login.html';
+                        return;
+                    }
+                    
+                    // 显示维护公告内容
+                    const message = data.message || '系统正在维护中，请稍后再试。';
+                    document.getElementById('maintenanceMessage').textContent = message;
+                }
+            } catch (error) {
+                console.error('获取维护状态失败:', error);
+                document.getElementById('maintenanceMessage').textContent = 
+                    '系统正在维护中，请稍后再试。\n\nThe system is under maintenance, please try again later.';
+            }
+        }
+        
+        // 定期检查维护状态（每30秒）
+        async function checkMaintenanceStatus() {
+            try {
+                const response = await fetch('/api/maintenance_status');
+                const data = await response.json();
+                
+                if (data.success && !data.enabled) {
+                    // 维护模式已关闭，跳转到登录页
+                    window.location.href = '/login.html';
+                }
+            } catch (error) {
+                console.error('检查维护状态失败:', error);
+            }
+        }
+        
+        // 初始化
+        loadMaintenanceMessage();
+        
+        // 每30秒检查一次维护状态
+        setInterval(checkMaintenanceStatus, 30000);
+    </script>
+</body>
+</html>

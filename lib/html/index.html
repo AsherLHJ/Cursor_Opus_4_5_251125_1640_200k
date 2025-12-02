@@ -1748,9 +1748,34 @@
     .history-item.active .history-item-meta {
       color: #4a9eff;
     }
+
+    /* 修复35新增：公告栏样式 */
+    .announcement-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(135deg, #1a3d5c 0%, #0f2940 100%);
+      color: #e5e5e5;
+      padding: 12px 20px;
+      text-align: center;
+      font-size: 14px;
+      z-index: 1000;
+      border-bottom: 1px solid #2a5a8a;
+      display: none;
+    }
+    body.has-announcement .app-container {
+      height: calc(100vh - 50px);
+      margin-top: 50px;
+    }
   </style>
 </head>
 <body>
+  <!-- 修复35新增：公告栏 -->
+  <div id="announcementBar" class="announcement-bar">
+    <span id="announcementText"></span>
+  </div>
+  
   <div class="app-container">
     <!-- 左侧历史面板 -->
     <div class="sidebar" id="sidebar">
@@ -2231,6 +2256,36 @@
       updateWelcome(); 
       updateUITexts();
     };
+
+    // 修复35新增：检查维护模式
+    async function checkMaintenanceMode() {
+      try {
+        const resp = await fetch('/api/maintenance_status');
+        const data = await resp.json();
+        if (data.success && data.enabled) {
+          window.location.href = '/maintenance.html';
+          return true;
+        }
+      } catch (error) {
+        console.log('检查维护模式失败:', error);
+      }
+      return false;
+    }
+
+    // 修复35新增：检查公告栏
+    async function checkAnnouncement() {
+      try {
+        const resp = await fetch('/api/system_announcement');
+        const data = await resp.json();
+        if (data.success && data.enabled && data.content) {
+          document.getElementById('announcementText').textContent = data.content;
+          document.getElementById('announcementBar').style.display = 'block';
+          document.body.classList.add('has-announcement');
+        }
+      } catch (error) {
+        console.log('检查公告栏失败:', error);
+      }
+    }
 
     function checkLogin() {
       const token = localStorage.getItem('userToken');
@@ -5404,7 +5459,14 @@
     };
 
     // 页面初始化（放到 DOMContentLoaded，确保先执行 i18n.applyI18n 再设置欢迎语，避免被覆盖）
-    document.addEventListener('DOMContentLoaded', () => {
+    document.addEventListener('DOMContentLoaded', async () => {
+      // 修复35新增：先检查维护模式，如果在维护中会跳转到维护页面
+      const inMaintenance = await checkMaintenanceMode();
+      if (inMaintenance) return;
+      
+      // 修复35新增：检查公告栏
+      await checkAnnouncement();
+      
       // 添加侧边栏折叠功能
       document.getElementById('sidebarToggle').addEventListener('click', function() {
         const sidebar = document.getElementById('sidebar');

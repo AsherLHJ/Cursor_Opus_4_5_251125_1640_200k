@@ -374,7 +374,10 @@ def _handle_get_settings() -> Tuple[int, Dict]:
     """获取所有系统配置"""
     from ..load_data.system_settings_dao import (
         get_all_settings, get_permission_range, get_distill_rate,
-        is_debug_console_enabled
+        is_debug_console_enabled,
+        # 修复35新增
+        is_announcement_enabled, get_announcement_content,
+        is_maintenance_mode, get_maintenance_message
     )
     
     try:
@@ -385,6 +388,11 @@ def _handle_get_settings() -> Tuple[int, Dict]:
         min_perm, max_perm = get_permission_range()
         distill_rate = get_distill_rate()
         debug_console = is_debug_console_enabled()
+        # 修复35新增
+        announcement_enabled = is_announcement_enabled()
+        announcement_content = get_announcement_content()
+        maintenance_mode = is_maintenance_mode()
+        maintenance_message = get_maintenance_message()
         
         return 200, {
             'success': True,
@@ -393,7 +401,12 @@ def _handle_get_settings() -> Tuple[int, Dict]:
                 'permission_min': min_perm,
                 'permission_max': max_perm,
                 'distill_rate': distill_rate,
-                'debug_console_enabled': 'true' if debug_console else 'false'
+                'debug_console_enabled': 'true' if debug_console else 'false',
+                # 修复35新增
+                'announcement_enabled': 'true' if announcement_enabled else 'false',
+                'announcement_content': announcement_content,
+                'maintenance_mode': 'true' if maintenance_mode else 'false',
+                'maintenance_message': maintenance_message
             }
         }
     except Exception as e:

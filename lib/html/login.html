@@ -114,9 +114,55 @@
       text-align: center;
       display: none; /* 默认隐藏 */
     }
+    /* 修复35新增：公告栏样式 */
+    .announcement-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: linear-gradient(135deg, #1a3d5c 0%, #0f2940 100%);
+      color: #e5e5e5;
+      padding: 12px 20px;
+      text-align: center;
+      font-size: 14px;
+      z-index: 1000;
+      border-bottom: 1px solid #2a5a8a;
+      display: none;
+    }
+    body.has-announcement {
+      padding-top: 50px;
+    }
+    /* 修复36新增：语言切换按钮容器 */
+    .lang-toggle-container {
+      text-align: center;
+      margin-top: 1.5rem;
+    }
+    .lang-toggle-container button {
+      background: none;
+      border: 1px solid #444;
+      padding: 0.5rem 1rem;
+      border-radius: 20px;
+      cursor: pointer;
+      color: #b0b0b0;
+      font-size: 0.9rem;
+      transition: all 0.3s;
+    }
+    .lang-toggle-container button:hover {
+      border-color: #4a90d9;
+      color: #e5e5e5;
+    }
+    /* 隐藏i18n.js自动创建的右上角按钮 */
+    #apw-lang-toggle {
+      display: none !important;
+    }
   </style>
 </head>
 <body>
+  <!-- 修复35新增：公告栏 -->
+  <div id="announcementBar" class="announcement-bar">
+    <span id="announcementText"></span>
+  </div>
+  
   <div class="login-container">
     <h1 data-i18n="login.title">用户登录</h1>
     <form id="loginForm">
@@ -135,10 +181,44 @@
     </form>
     <div id="message"></div>
     <div id="registrationNotice" class="registration-notice" data-i18n="register.disabled"></div>
+    <div class="lang-toggle-container">
+      <button id="langToggle">🌐 中/EN</button>
+    </div>
   </div>
 
   <script src="/static/js/i18n.js"></script>
   <script>
+    // 修复35新增：检查维护模式
+    async function checkMaintenanceMode() {
+      try {
+        const resp = await fetch('/api/maintenance_status');
+        const data = await resp.json();
+        if (data.success && data.enabled) {
+          window.location.href = '/maintenance.html';
+        }
+      } catch (error) {
+        console.log('检查维护模式失败:', error);
+      }
+    }
+    
+    // 修复35新增：检查公告栏
+    async function checkAnnouncement() {
+      try {
+        const resp = await fetch('/api/system_announcement');
+        const data = await resp.json();
+        if (data.success && data.enabled && data.content) {
+          document.getElementById('announcementText').textContent = data.content;
+          document.getElementById('announcementBar').style.display = 'block';
+          document.body.classList.add('has-announcement');
+        }
+      } catch (error) {
+        console.log('检查公告栏失败:', error);
+      }
+    }
+    
+    // 页面加载时先检查维护模式，再检查公告
+    checkMaintenanceMode().then(() => checkAnnouncement());
+    
     // 检查注册功能状态
     async function checkRegistrationStatus() {
       try {
@@ -214,6 +294,13 @@
       messageDiv.textContent = text;
       messageDiv.className = 'message ' + type;
     }
+    
+    // 修复36新增：语言切换按钮事件
+    document.getElementById('langToggle').onclick = function() {
+      const newLang = i18n.getLang() === 'zh' ? 'en' : 'zh';
+      i18n.setLang(newLang);
+      i18n.applyI18n();
+    };
   </script>
 </body>
 </html>

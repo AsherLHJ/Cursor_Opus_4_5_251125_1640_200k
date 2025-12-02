@@ -44,6 +44,13 @@ def handle_system_api(path: str, method: str, headers: Dict, payload: Dict) -> T
         if path == '/api/registration_status':
             return _handle_get_registration_status()
         
+        # 修复35新增: 公告栏和维护模式公开API（不需要登录）
+        if path == '/api/system_announcement':
+            return _handle_get_system_announcement()
+        
+        if path == '/api/maintenance_status':
+            return _handle_get_maintenance_status()
+        
         if path == '/api/admin/tokens_per_req':
             return _handle_get_tokens_per_req()
         
@@ -427,4 +434,44 @@ def _handle_toggle_api_account(payload: Dict) -> Tuple[int, Dict]:
         return 200, {'success': True}
     except Exception as e:
         return 500, {'success': False, 'error': 'account_toggle_failed', 'message': str(e)}
+
+
+# ============================================================
+# 修复35新增: 公告栏和维护模式公开API
+# ============================================================
+
+def _handle_get_system_announcement() -> Tuple[int, Dict]:
+    """
+    获取系统公告栏状态和内容
+    公开API，不需要登录
+    """
+    try:
+        enabled = system_settings_dao.is_announcement_enabled()
+        content = system_settings_dao.get_announcement_content()
+        
+        return 200, {
+            'success': True,
+            'enabled': enabled,
+            'content': content
+        }
+    except Exception as e:
+        return 500, {'success': False, 'error': 'get_announcement_failed', 'message': str(e)}
+
+
+def _handle_get_maintenance_status() -> Tuple[int, Dict]:
+    """
+    获取维护模式状态
+    公开API，不需要登录
+    """
+    try:
+        enabled = system_settings_dao.is_maintenance_mode()
+        message = system_settings_dao.get_maintenance_message()
+        
+        return 200, {
+            'success': True,
+            'enabled': enabled,
+            'message': message
+        }
+    except Exception as e:
+        return 500, {'success': False, 'error': 'get_maintenance_status_failed', 'message': str(e)}
 

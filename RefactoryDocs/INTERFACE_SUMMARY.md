@@ -6,7 +6,7 @@
 
 **最后更新**: 2025-12-02  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 三十四轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 三十五轮Bug修复
 
 ---
 
@@ -892,6 +892,44 @@ sudo /opt/deploy_autopaperweb.sh
 
 ---
 
+## 修复35: 公告栏、维护模式与页面样式统一 (2025-12-02)
+
+### 功能概述
+1. **公告栏功能**: 管理员可在 `control.html` 开启公告栏，设置公告内容
+2. **维护模式功能**: 管理员可开启维护模式，用户页面跳转到维护页面
+3. **页面样式统一**: `login.html` 语言按钮移至卡片内部，`maintenance.html` 深色纯色风格
+
+### 新增系统配置项
+| 配置键 | 默认值 | 说明 |
+|--------|--------|------|
+| `announcement_enabled` | `false` | 公告栏开关 |
+| `announcement_content` | `""` | 公告栏内容 |
+| `maintenance_mode` | `false` | 维护模式开关 |
+| `maintenance_message` | 中英文双语默认文本 | 维护公告内容 |
+
+### 新增API接口
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/system_announcement` | GET | 获取公告栏状态和内容 |
+| `/api/maintenance_status` | GET | 获取维护模式状态 |
+
+### 修改文件清单
+| 文件 | 说明 |
+|------|------|
+| `DB_tools/lib/db_schema.py` | 添加4个默认配置项 |
+| `lib/load_data/system_settings_dao.py` | 添加8个便捷方法 |
+| `lib/webserver/system_api.py` | 新增2个公开API |
+| `lib/webserver/admin_api.py` | 配置接口返回新字段 |
+| `lib/webserver/server.py` | 添加API路由和维护页面路由 |
+| `lib/html/admin/control.html` | 添加开关和文本框 |
+| `lib/html/login.html` | 公告栏+维护检查+语言按钮移至卡片内部 |
+| `lib/html/index.html` | 添加公告栏和维护检查 |
+| `lib/html/billing.html` | 添加维护检查 |
+| `lib/html/maintenance.html` | 新建（深色纯色风格+语言按钮在卡片内部）|
+| `lib/html/static/js/i18n.js` | 添加翻译词条 |
+
+---
+
 ## 恢复指南
 
 如果你是新的Agent会话，请：
@@ -899,7 +937,7 @@ sudo /opt/deploy_autopaperweb.sh
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `RefactoryDocs/前端重构设计文档20251129.md` 了解前端重构规划
 4. 查看 `需要手动操作的事项.txt` 了解待完成操作
-5. 项目重构已基本完成，经过三十四轮Bug修复，可进行测试
+5. 项目重构已基本完成，经过三十五轮Bug修复，可进行测试
 
 ---
 

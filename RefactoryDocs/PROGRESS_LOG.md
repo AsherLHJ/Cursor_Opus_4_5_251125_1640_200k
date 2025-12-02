@@ -6,7 +6,7 @@
 - **最后修复时间**: 2025-12-02
 - **指导文件**: 新架构项目重构完整指导文件20251130.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 三十四轮Bug修复
+- **状态**: ✅ 重构完成 + 三十五轮Bug修复
 
 ---
 
@@ -596,6 +596,7 @@
 || 2025-12-02 | 修复32 | 管理员页面DataTable增强与批量操作 | data-table.js, data-table.css, i18n.js, admin_api.py, dashboard.html, users.html, tasks.html |
 || 2025-12-02 | 修复33 | 管理员页面刷新控制功能迁移（列名+自动刷新） | i18n.js, dashboard.html, users.html, tasks.html |
 || 2025-12-02 | 修复34 | 压力测试脚本蒸馏功能扩展（查询->蒸馏->下载完整流程） | scripts/autopaper_scraper.py |
+|| 2025-12-02 | 修复35 | 公告栏、维护模式与页面样式统一 | db_schema.py, system_settings_dao.py, system_api.py, admin_api.py, server.py, control.html, login.html, index.html, billing.html, maintenance.html(新), i18n.js |
 
 ---
 
@@ -1443,6 +1444,55 @@ python scripts/autopaper_scraper.py
 
 ### 修改文件清单
 - `scripts/autopaper_scraper.py` - 完整重构支持蒸馏流程（约1050行）
+
+---
+
+## 修复轮次三十五：公告栏、维护模式与页面样式统一 (2025-12-02)
+
+### 需求清单
+1. 管理员页面 `/admin/control.html` 新增"公告栏"开关和文本框
+2. 管理员页面新增"维护模式"开关和"服务器维护公告"文本框
+3. 维护模式开启时用户页面跳转到维护页面
+4. `login.html` 语言按钮移至卡片内部（与 `admin/login.html` 一致）
+5. `maintenance.html` 改为与 `login.html` 统一的深色纯色风格
+
+### 修复内容
+
+#### 35a-35c: 后端与管理面板
+- **db_schema.py**: 新增4个配置项（announcement_enabled/content, maintenance_mode/message）
+- **system_settings_dao.py**: 新增8个便捷方法
+- **system_api.py**: 新增 `/api/system_announcement`, `/api/maintenance_status`
+- **control.html**: 添加开关和文本框
+
+#### 35d: 用户页面公告与维护检查
+- **login.html**: 公告栏 + 维护检查 + 语言按钮移至卡片内部（隐藏i18n.js自动创建的按钮）
+- **index.html**: 公告栏 + 维护检查
+- **billing.html**: 维护检查
+
+#### 35e: 维护页面
+- **maintenance.html** (新建): 深色纯色风格（背景`#0a0a0a`，卡片`#1a1a1a`），语言按钮在卡片底部
+
+#### 35f: 国际化翻译
+- **i18n.js**: 新增公告栏、维护模式相关翻译词条
+
+### 新增API接口
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/system_announcement` | GET | 获取公告栏状态和内容 |
+| `/api/maintenance_status` | GET | 获取维护模式状态 |
+
+### 修改文件清单
+- `DB_tools/lib/db_schema.py` - 添加4个默认配置项
+- `lib/load_data/system_settings_dao.py` - 添加8个便捷方法
+- `lib/webserver/system_api.py` - 新增2个公开API
+- `lib/webserver/admin_api.py` - 配置接口返回新字段
+- `lib/webserver/server.py` - 添加API路由和维护页面路由
+- `lib/html/admin/control.html` - 添加开关和文本框
+- `lib/html/login.html` - 公告栏+维护检查+语言按钮移至卡片内部
+- `lib/html/index.html` - 添加公告栏和维护检查
+- `lib/html/billing.html` - 添加维护检查
+- `lib/html/maintenance.html` - 新建（深色纯色风格+语言按钮在卡片内部）
+- `lib/html/static/js/i18n.js` - 添加翻译词条
 
 ---
 

@@ -359,6 +359,21 @@
     <script src="/static/js/i18n.js"></script>
     <script src="/static/js/data-table.js"></script>
     <script>
+        // 修复35新增：检查维护模式
+        async function checkMaintenanceMode() {
+            try {
+                const resp = await fetch('/api/maintenance_status');
+                const data = await resp.json();
+                if (data.success && data.enabled) {
+                    window.location.href = '/maintenance.html';
+                    return true;
+                }
+            } catch (error) {
+                console.log('检查维护模式失败:', error);
+            }
+            return false;
+        }
+
                 // 欢迎语与登录校验
                 function updateWelcome(){
                     const username = localStorage.getItem('username');
@@ -537,7 +552,11 @@
         window.apw_afterLangChange = function(){ updateWelcome(); };
 
         // 页面初始化
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
+            // 修复35新增：先检查维护模式
+            const inMaintenance = await checkMaintenanceMode();
+            if (inMaintenance) return;
+            
             if (checkLogin()) {
                 fetchUserBalance();
                 loadBilling();
