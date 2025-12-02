@@ -25,6 +25,13 @@ from ..redis.download import (
 from ..redis.result_cache import ResultCache
 from ..redis.paper_blocks import PaperBlocks
 from ..redis.connection import redis_ping
+from ..load_data.query_dao import get_query_log  # 修复36补充: 获取查询语言设置
+
+# 修复36补充: CSV相关性文本的语言映射
+RELEVANT_TEXT = {
+    'zh': {'Y': '符合', 'N': '不符'},
+    'en': {'Y': 'Relevant', 'N': 'Irrelevant'}
+}
 
 
 class DownloadWorker:
@@ -121,11 +128,28 @@ class DownloadWorker:
         生成CSV文件内容
         
         使用 Pipeline 批量获取 Bib 数据
+        修复36补充：根据语言模式输出相关性文本（中文：符合/不符，英文：Relevant/Irrelevant）
         """
         # 获取所有结果
         results = ResultCache.get_all_results(uid, qid)
         if not results:
             return None
+        
+        # 修复36补充: 获取查询的语言设置
+        query_language = 'zh'  # 默认中文
+        try:
+            query_info = get_query_log(qid)
+            if query_info:
+                search_params = query_info.get('search_params', {})
+                if isinstance(search_params, str):
+                    import json
+                    search_params = json.loads(search_params)
+                query_language = search_params.get('language', 'zh')
+        except Exception:
+            pass  # 获取失败时使用默认中文
+        
+        # 获取对应语言的相关性文本
+        relevant_texts = RELEVANT_TEXT.get(query_language, RELEVANT_TEXT['zh'])
         
         # 收集所有 block_key -> [dois]
         block_dois: Dict[str, List[str]] = {}
@@ -139,6 +163,18 @@ class DownloadWorker:
         # 批量获取所有 Bib 数据
         all_bibs = PaperBlocks.batch_get_papers(block_dois) if block_dois else {}
         
+        # 修复36: 按相关性排序 - 相关(Y)在前, 不相关(N)在后
+        def _relevance_sort_key(item):
+            """排序键函数: 相关返回0, 不相关返回1"""
+            doi, data = item
+            ai_result = data.get('ai_result', {})
+            relevant = 'N'
+            if isinstance(ai_result, dict):
+                relevant = ai_result.get('relevant', 'N')
+            return 0 if str(relevant).upper() in ('Y', 'YES', '1', 'TRUE') else 1
+        
+        sorted_results = sorted(results.items(), key=_relevance_sort_key)
+        
         # 生成CSV
         output = io.StringIO()
         writer = csv.writer(output)
@@ -149,8 +185,8 @@ class DownloadWorker:
             'Is_Relevant', 'Reason'
         ])
         
-        # 写入数据行
-        for doi, data in results.items():
+        # 写入数据行（使用排序后的结果）
+        for doi, data in sorted_results:
             ai_result = data.get('ai_result', {})
             block_key = data.get('block_key', '')
             
@@ -182,9 +218,13 @@ class DownloadWorker:
                 relevant = ai_result.get('relevant', 'N')
                 reason = ai_result.get('reason', '')
             
+            # 修复36补充: 根据语言输出相关性文本
+            is_relevant = str(relevant).upper() in ('Y', 'YES', '1', 'TRUE')
+            relevant_display = relevant_texts['Y'] if is_relevant else relevant_texts['N']
+            
             writer.writerow([
                 doi, title, source, year, url,
-                'Y' if str(relevant).upper() in ('Y', 'YES', '1', 'TRUE') else 'N',
+                relevant_display,
                 reason
             ])
         

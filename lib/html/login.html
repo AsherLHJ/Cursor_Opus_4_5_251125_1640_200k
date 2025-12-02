@@ -268,7 +268,8 @@
         const result = await response.json();
         
         if (result.success) {
-          showMessage(result.message, 'success');
+          // 修复36补充: 使用i18n获取本地化成功消息
+          showMessage(i18n.t('login.success'), 'success');
           // 保存用户信息到localStorage（简单实现）
           localStorage.setItem('userToken', result.token);
           localStorage.setItem('userId', result.uid);
@@ -279,7 +280,10 @@
             window.location.href = '/index.html';
           }, 1000);
         } else {
-          showMessage(result.message, 'error');
+          // 修复36补充: 使用i18n获取本地化错误消息
+          const errorKey = 'login.' + (result.error || 'failed');
+          const errorMsg = i18n.t(errorKey) !== errorKey ? i18n.t(errorKey) : result.message;
+          showMessage(errorMsg, 'error');
         }
       } catch (error) {
         showMessage(i18n.t('login.net_fail'), 'error');

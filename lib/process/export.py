@@ -51,28 +51,19 @@ def export_results_from_db(query_id: str,
 
 
 def export_bib(filepath: str, header: dict, rows: list):
-    """导出BIB格式文件"""
+    """导出BIB格式文件（修复36补充：移除所有头信息，只输出BIB条目）"""
     with open(filepath, 'w', encoding='utf-8') as f:
-        # 写入文件头
-        if header:
-            f.write(f"% Query Time: {header.get('query_time', '')}\n")
-            f.write(f"% Selected Folders: {header.get('selected_folders', '')}\n")
-            f.write(f"% Year Range: {header.get('year_range', '')}\n")
-            f.write(f"% Research Question: {header.get('research_question', '')}\n")
-            
-            requirements = header.get('requirements', '')
-            if requirements:
-                f.write(f"% Requirements: {requirements}\n")
-            
-            f.write(f"\n% Search Topic {{{header.get('research_question', '')}}}\n\n")
-        
-        # 只输出相关条目
+        # 只输出相关条目（不输出任何头信息）
+        entries = []
         for r in rows:
             if r.get('search_result') in (1, True, '1', 'Y', 'y'):
                 bib_text = r.get('bib', '')
                 if bib_text.strip():
-                    f.write(bib_text)
-                    f.write('\n\n')
+                    entries.append(bib_text.strip())
+        
+        if entries:
+            f.write('\n\n'.join(entries))
+            f.write('\n')
 
 
 def export_csv(filepath: str, rows: list):

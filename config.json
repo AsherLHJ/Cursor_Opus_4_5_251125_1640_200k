@@ -17,7 +17,7 @@
     "api_base_url": "https://ark.cn-beijing.volces.com/api/v3",
     "api_timeout": 60,
 
-    "unit_test_mode": true,
+    "unit_test_mode": false,
     "local_develop_mode": true,
 
     "TOKENS_PER_REQ": 400,

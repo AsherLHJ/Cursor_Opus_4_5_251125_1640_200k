@@ -1171,7 +1171,8 @@
       font-weight: 600;
       transition: all 0.2s ease;
       display: flex;
-      align-items: center;
+      justify-content: center;  /* 修复36补充: 文字水平居中 */
+      align-items: center;      /* 修复36补充: 文字垂直居中 */
       gap: 8px;
     }
 
@@ -3166,7 +3167,8 @@
           start_year: startYear,
           end_year: endYear,
           selected_journals: selectedNames,
-          uid
+          uid,
+          language: i18n.getLang()  // 修复36: 传递当前语言 ('zh' 或 'en')
         };
     
         const res = await fetch('/api/start_search', {
@@ -4682,10 +4684,10 @@
               <h4 data-i18n="index.completion_title">检索完成</h4>
             </div>
             <div class="completion-actions">
-              <button class="btn-secondary" onclick="downloadHistoryResults('${queryIndex}', 'csv')">
+              <button class="btn-secondary" onclick="downloadHistoryCsv('${queryIndex}', '')">
                 <span data-i18n="index.download_all_results">下载全部分析结果</span>
               </button>
-              <button class="btn-secondary" onclick="downloadHistoryResults('${queryIndex}', 'bib')">
+              <button class="btn-secondary" onclick="downloadHistoryBib('${queryIndex}', '')">
                 <span data-i18n="index.download_bib_results">下载相符结果的bib引用</span>
               </button>
               <button class="btn-orange" onclick="createDistillFromHistory('${queryIndex}')">
@@ -4830,35 +4832,7 @@
       showInfo(i18n.t('index.feature_coming_soon'));
     };
 
-    window.downloadHistoryResults = async function(queryIndex, type) {
-      const uid = localStorage.getItem('userId');
-      if (!uid) {
-        showError(i18n.t('index.login_required'));
-        return;
-      }
-
-      try {
-        const timestamp = formatTimestampForFilename(new Date());
-        const endpoint = type === 'bib' ? '/api/download_bib' : '/api/download_csv';
-        const extension = type === 'bib' ? 'bib' : 'csv';
-        
-        const response = await fetch(`${endpoint}?query_id=${encodeURIComponent(queryIndex)}`);
-        if (!response.ok) throw new Error('Download failed');
-        
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `History_${queryIndex}_${timestamp}.${extension}`;
-        a.click();
-        URL.revokeObjectURL(url);
-        
-        showSuccess(i18n.t('index.download_success'));
-      } catch (error) {
-        console.error('History download error:', error);
-        showError(i18n.t('index.download_failed') + ': ' + error.message);
-      }
-    };
+    // 修复36: downloadHistoryResults 函数已删除，改用 downloadHistoryCsv 和 downloadHistoryBib
 
     window.viewHistoryProgress = function(queryIndex) {
       // TODO: 实现查看历史进度功能
@@ -5092,7 +5066,8 @@
             original_query_id: queryIndex,
             question: question,
             requirements: requirements || '',
-            uid
+            uid,
+            language: i18n.getLang()  // 修复36: 传递当前语言 ('zh' 或 'en')
           })
         });
         

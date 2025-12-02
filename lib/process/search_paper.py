@@ -8,6 +8,12 @@ import time
 from typing import Dict, Optional, Any, Callable
 from ..config import config_loader as config
 
+# 修复36: 语言代码到语言名称的映射
+LANGUAGE_MAP = {
+    'zh': '中文',
+    'en': 'English'
+}
+
 
 def create_ai_processor(uid: int, qid: str) -> Callable:
     """
@@ -24,6 +30,7 @@ def create_ai_processor(uid: int, qid: str) -> Callable:
     
     research_question = search_params.get('research_question', '')
     requirements = search_params.get('requirements', '')
+    language = search_params.get('language', 'zh')  # 修复36: 获取语言参数
     
     def processor(doi: str, title: str, abstract: str) -> Dict:
         """AI处理函数"""
@@ -34,7 +41,8 @@ def create_ai_processor(uid: int, qid: str) -> Callable:
             research_question=research_question,
             requirements=requirements,
             uid=uid,
-            qid=qid
+            qid=qid,
+            language=language  # 修复36: 传递语言参数
         )
     
     return processor
@@ -42,7 +50,8 @@ def create_ai_processor(uid: int, qid: str) -> Callable:
 
 def search_relevant_papers(doi: str, title: str, abstract: str,
                           research_question: str, requirements: str,
-                          uid: int = None, qid: str = None) -> Dict:
+                          uid: int = None, qid: str = None,
+                          language: str = 'zh') -> Dict:
     """
     判断论文与研究问题的相关性
     
@@ -54,6 +63,7 @@ def search_relevant_papers(doi: str, title: str, abstract: str,
         requirements: 筛选要求
         uid: 用户ID（用于会话隔离）
         qid: 查询ID（用于会话隔离）
+        language: 用户界面语言 ('zh' 或 'en')，用于控制AI回复语言
         
     Returns:
         {
@@ -83,8 +93,8 @@ def search_relevant_papers(doi: str, title: str, abstract: str,
             '_tokens': 0
         }
     
-    # 构造Prompt
-    prompt = _build_prompt(title, abstract, research_question, requirements, uid, qid)
+    # 构造Prompt（修复36: 传递语言参数）
+    prompt = _build_prompt(title, abstract, research_question, requirements, uid, qid, language)
     
     # 调用AI
     try:
@@ -101,8 +111,15 @@ def search_relevant_papers(doi: str, title: str, abstract: str,
 
 def _build_prompt(title: str, abstract: str, 
                   research_question: str, requirements: str,
-                  uid: int = None, qid: str = None) -> str:
-    """构造AI Prompt"""
+                  uid: int = None, qid: str = None,
+                  language: str = 'zh') -> str:
+    """
+    构造AI Prompt
+    
+    修复36: 添加 language 参数，用于替换 system_prompt 中的 {language} 占位符
+    """
+    # 将语言代码映射为语言名称
+    lang_text = LANGUAGE_MAP.get(language, '中文')
     
     system_prompt = getattr(config, 'system_prompt', '') or """
 You are an academic paper relevance evaluator. Analyze the given paper and determine if it is relevant to the research question.
@@ -115,6 +132,9 @@ Output format (JSON):
     "query_index": <echo back the query_index>
 }
 """
+    
+    # 修复36: 替换 {language} 占位符为实际语言名称
+    system_prompt = system_prompt.replace('{language}', lang_text)
     
     user_prompt = f"""
 Research Question: {research_question}

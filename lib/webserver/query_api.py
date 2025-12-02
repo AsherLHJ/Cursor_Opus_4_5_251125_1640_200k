@@ -222,6 +222,7 @@ def _handle_start_search(payload: Dict) -> Tuple[int, Dict]:
         question = str(payload.get('question') or '').strip()
         requirements = str(payload.get('requirements') or '').strip()
         include_all_years = bool(payload.get('include_all_years'))
+        language = str(payload.get('language') or 'zh').strip()  # 修复36: 接收语言参数
         
         # 校验研究问题
         if not question:
@@ -289,7 +290,8 @@ def _handle_start_search(payload: Dict) -> Tuple[int, Dict]:
             'requirements': requirements,
             'start_year': start_year,
             'end_year': end_year,
-            'include_all_years': include_all_years
+            'include_all_years': include_all_years,
+            'language': language  # 修复36: 存储语言参数
         }
         
         # 后端独立计算费用（安全原则：不信任前端传来的任何费用数据）
@@ -340,6 +342,7 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
     try:
         question = str(payload.get('question') or '').strip()
         requirements = str(payload.get('requirements') or '').strip()
+        language = str(payload.get('language') or 'zh').strip()  # 修复36: 接收语言参数
         
         # 同时支持 original_query_id 和 original_query_index 参数名
         original_query_id = payload.get('original_query_id') or payload.get('original_query_index')
@@ -386,7 +389,8 @@ def _handle_start_distillation(payload: Dict) -> Tuple[int, Dict]:
             research_question=question,
             requirements=requirements,
             doi_prices=doi_prices,
-            estimated_cost=estimated_cost  # 传递正确的预估费用（考虑实际期刊价格）
+            estimated_cost=estimated_cost,  # 传递正确的预估费用（考虑实际期刊价格）
+            language=language  # 修复36: 传递语言参数
         )
         
         if success:

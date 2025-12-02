@@ -6,7 +6,7 @@
 
 **最后更新**: 2025-12-02  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 三十五轮Bug修复
+**完成阶段**: 阶段一至阶段十（全部完成）+ 三十六轮Bug修复
 
 ---
 
@@ -930,6 +930,66 @@ sudo /opt/deploy_autopaperweb.sh
 
 ---
 
+## 修复36: AI回复语言适配与CSV排序优化 (2025-12-02)
+
+### 功能概述
+1. **AI回复语言自动适配**: 根据用户界面语言模式（中文/英文）自动控制AI回复的语言
+2. **CSV下载结果排序**: 下载的CSV文件按相关性排序，相关(Y)在前，不相关(N)在后
+3. **CSV相关性文本语言适配**: Is_Relevant列根据语言显示"符合/不符"或"Relevant/Irrelevant"
+4. **删除旧架构同步下载API**: 移除 `/api/download_csv` 和 `/api/download_bib` 旧接口
+5. **BIB文件无头信息**: 所有BIB文件不再包含任何头信息注释
+
+### 数据流（AI语言适配）
+```
+前端 index.html (i18n.getLang() → 'zh'/'en')
+  ↓ payload.language
+query_api.py (存入 search_params.language)
+  ↓ search_params
+paper_processor.py (存入 full_search_params)
+  ↓ query_log
+search_paper.py (替换 {language} → '中文'/'English')
+  ↓ system_prompt
+AI API
+```
+
+### 语言映射
+| 代码 | 语言名称 |
+|------|----------|
+| `zh` | 中文 |
+| `en` | English |
+
+### 修改文件清单
+| 文件 | 说明 |
+|------|------|
+| `lib/html/index.html` | startSearch/startDistillation 添加 language 参数 + 蒸馏按钮文字居中 + 清理前端遗留旧API调用 |
+| `lib/webserver/query_api.py` | 接收 language 参数，存入 search_params |
+| `lib/process/paper_processor.py` | 传递 language 参数，存入 full_search_params |
+| `lib/process/search_paper.py` | LANGUAGE_MAP 映射，替换 {language} 占位符 |
+| `lib/process/download_worker.py` | CSV 排序 + Is_Relevant列语言适配（符合/不符 或 Relevant/Irrelevant）|
+| `lib/webserver/server.py` | 删除旧架构同步下载API（/api/download_csv, /api/download_bib）|
+| `lib/process/export.py` | 移除BIB文件头信息 |
+| `lib/html/login.html` | 登录成功消息使用 i18n.t() 本地化 |
+| `lib/html/static/js/i18n.js` | 添加 login.success/failed/invalid_credentials 翻译 |
+
+### 前端下载代码清理
+删除旧架构同步下载API后，同步清理前端遗留代码：
+- **删除函数**: `downloadHistoryResults` - 该函数仍调用已删除的旧API
+- **替换调用**: `updateHistoryDescriptionCard` 模板中的下载按钮改用 `downloadHistoryCsv` / `downloadHistoryBib`
+
+### CSV相关性文本映射
+| 语言 | 相关 | 不相关 |
+|------|------|--------|
+| `zh` | 符合 | 不符 |
+| `en` | Relevant | Irrelevant |
+
+### API变更
+- `POST /api/start_search` - 新增 `language` 参数（可选，默认 'zh'）
+- `POST /api/start_distillation` - 新增 `language` 参数（可选，默认 'zh'）
+- **已删除** `/api/download_csv` - 旧架构同步下载CSV（使用 `/api/download/create` 替代）
+- **已删除** `/api/download_bib` - 旧架构同步下载BIB（使用 `/api/download/create` 替代）
+
+---
+
 ## 恢复指南
 
 如果你是新的Agent会话，请：
@@ -937,7 +997,7 @@ sudo /opt/deploy_autopaperweb.sh
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `RefactoryDocs/前端重构设计文档20251129.md` 了解前端重构规划
 4. 查看 `需要手动操作的事项.txt` 了解待完成操作
-5. 项目重构已基本完成，经过三十五轮Bug修复，可进行测试
+5. 项目重构已基本完成，经过三十六轮Bug修复，可进行测试
 
 ---
 

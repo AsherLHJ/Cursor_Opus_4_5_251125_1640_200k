@@ -6,7 +6,7 @@
 - **最后修复时间**: 2025-12-02
 - **指导文件**: 新架构项目重构完整指导文件20251130.txt
 - **目标**: 按照新架构指导，彻底重构整个项目
-- **状态**: ✅ 重构完成 + 三十五轮Bug修复
+- **状态**: ✅ 重构完成 + 三十六轮Bug修复
 
 ---
 
@@ -597,6 +597,7 @@
 || 2025-12-02 | 修复33 | 管理员页面刷新控制功能迁移（列名+自动刷新） | i18n.js, dashboard.html, users.html, tasks.html |
 || 2025-12-02 | 修复34 | 压力测试脚本蒸馏功能扩展（查询->蒸馏->下载完整流程） | scripts/autopaper_scraper.py |
 || 2025-12-02 | 修复35 | 公告栏、维护模式与页面样式统一 | db_schema.py, system_settings_dao.py, system_api.py, admin_api.py, server.py, control.html, login.html, index.html, billing.html, maintenance.html(新), i18n.js |
+|| 2025-12-02 | 修复36 | AI回复语言适配（中/英）+CSV排序（相关在前）+清理前端遗留旧API调用 | index.html, query_api.py, paper_processor.py, search_paper.py, download_worker.py, server.py, export.py |
 
 ---
 
@@ -1493,6 +1494,133 @@ python scripts/autopaper_scraper.py
 - `lib/html/billing.html` - 添加维护检查
 - `lib/html/maintenance.html` - 新建（深色纯色风格+语言按钮在卡片内部）
 - `lib/html/static/js/i18n.js` - 添加翻译词条
+
+---
+
+## 修复轮次三十六：AI回复语言适配与CSV排序优化 (2025-12-02)
+
+### 需求清单
+1. AI回复语言根据页面语言模式自动切换（中文/英文）
+2. 下载的CSV文件按相关性排序（相关在前，不相关在后）
+3. CSV的Is_Relevant列根据语言显示"符合/不符"或"Relevant/Irrelevant"
+4. 删除旧架构同步下载API，统一使用异步下载
+5. BIB文件不再包含任何头信息
+
+### 问题分析
+
+#### 36a: AI回复语言自动适配
+- **现状**: `config.json` 的 `system_prompt` 包含 `{language}` 占位符，但未被替换
+- **根因**: `search_paper.py` 的 `_build_prompt()` 函数未处理语言参数
+- **需求**: 前端传递当前语言，后端替换占位符为对应语言名称
+
+#### 36b: CSV下载结果排序
+- **现状**: `download_worker.py` 的 `_generate_csv_file()` 按无序字典遍历
+- **需求**: 相关文献(Y)排在前面，不相关文献(N)排在后面
+
+#### 36c: 旧架构同步下载残留
+- **现状**: `server.py` 存在 `/api/download_csv` 和 `/api/download_bib` 旧接口，硬编码中文"符合/不符"
+- **问题**: 前端可能调用旧接口，导致英文模式下仍显示中文
+- **解决**: 删除旧架构代码，强制使用新架构异步下载API
+
+#### 36d: BIB文件头信息
+- **现状**: `export.py` 的 `export_bib` 函数生成头信息
+- **需求**: 无论中英文，BIB文件都不要任何头信息
+
+### 修复内容
+
+#### 36a: AI语言适配
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/html/index.html` | `startSearch` 和 `startDistillation` 添加 `language: i18n.getLang()` |
+| `lib/webserver/query_api.py` | 接收 `language` 参数，存入 `search_params` |
+| `lib/process/paper_processor.py` | 传递 `language` 参数，存入 `full_search_params` |
+| `lib/process/search_paper.py` | 新增 `LANGUAGE_MAP`，替换 `{language}` 占位符 |
+
+#### 36b: CSV排序 + 相关性文本语言适配
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/process/download_worker.py` | 排序（Y在前N在后）+ Is_Relevant列语言适配 |
+
+#### 36c: 删除旧架构同步下载
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/webserver/server.py` | 删除 `/api/download_csv`, `/api/download_bib` 路由 |
+| `lib/webserver/server.py` | 删除 `_handle_download`, `_download_csv`, `_download_bib` 方法 |
+
+#### 36d: 移除BIB文件头信息
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/process/export.py` | `export_bib` 函数移除所有头信息，只输出BIB条目 |
+
+**CSV相关性文本映射**:
+```python
+RELEVANT_TEXT = {
+    'zh': {'Y': '符合', 'N': '不符'},
+    'en': {'Y': 'Relevant', 'N': 'Irrelevant'}
+}
+```
+
+### 数据流
+
+```
+前端 index.html
+  │ i18n.getLang() → 'zh' 或 'en'
+  ↓
+query_api.py
+  │ payload.language → search_params.language
+  ↓
+paper_processor.py
+  │ search_params.language → full_search_params.language
+  ↓
+query_log (MySQL)
+  │ search_params JSON
+  ↓
+search_paper.py (Worker读取)
+  │ LANGUAGE_MAP['zh'] → '中文'
+  │ LANGUAGE_MAP['en'] → 'English'
+  │ system_prompt.replace('{language}', lang_text)
+  ↓
+AI API
+```
+
+### 语言映射
+```python
+LANGUAGE_MAP = {
+    'zh': '中文',
+    'en': 'English'
+}
+```
+
+### 排序逻辑
+```python
+def _relevance_sort_key(item):
+    doi, data = item
+    ai_result = data.get('ai_result', {})
+    relevant = ai_result.get('relevant', 'N')
+    return 0 if relevant == 'Y' else 1  # Y排前面
+```
+
+### 修改文件清单
+- `lib/html/index.html` - startSearch/startDistillation 添加 language 参数 + 蒸馏按钮文字居中 + 清理前端遗留旧API调用
+- `lib/webserver/query_api.py` - 接收 language 参数
+- `lib/process/paper_processor.py` - 传递 language 参数
+- `lib/process/search_paper.py` - LANGUAGE_MAP + 占位符替换
+- `lib/process/download_worker.py` - CSV 排序 + Is_Relevant列语言适配
+- `lib/webserver/server.py` - 删除旧架构同步下载API（3个方法 + 2个路由）
+- `lib/process/export.py` - 移除BIB文件头信息
+- `lib/html/login.html` - 登录成功消息使用 i18n.t() 本地化
+- `lib/html/static/js/i18n.js` - 添加 login.success/failed/invalid_credentials 翻译
+
+### 前端下载代码清理
+删除旧架构同步下载API后，同步清理前端遗留代码：
+- **删除函数**: `downloadHistoryResults` - 该函数仍调用已删除的旧API (`/api/download_csv`, `/api/download_bib`)
+- **替换调用**: `updateHistoryDescriptionCard` 模板中的下载按钮改用 `downloadHistoryCsv` / `downloadHistoryBib`
+  - 第4687行: `downloadHistoryResults('${queryIndex}', 'csv')` → `downloadHistoryCsv('${queryIndex}', '')`
+  - 第4690行: `downloadHistoryResults('${queryIndex}', 'bib')` → `downloadHistoryBib('${queryIndex}', '')`
+
+### API变更
+- **已删除** `/api/download_csv` - 旧架构同步下载CSV（使用 `/api/download/create` 替代）
+- **已删除** `/api/download_bib` - 旧架构同步下载BIB（使用 `/api/download/create` 替代）
 
 ---
 

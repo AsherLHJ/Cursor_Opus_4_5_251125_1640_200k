@@ -70,11 +70,7 @@ class RequestHandler(BaseHTTPRequestHandler):
         
         # 查询 API
         if path in ('/api/query_history', '/api/query_progress', '/api/query_status',
-                    '/api/tags', '/api/journals', '/api/get_query_info',
-                    '/api/download_csv', '/api/download_bib'):
-            # 旧版下载接口需要特殊处理（同步等待模式，兼容保留）
-            if path in ('/api/download_csv', '/api/download_bib'):
-                return self._handle_download(path, payload)
+                    '/api/tags', '/api/journals', '/api/get_query_info'):
             status, response = handle_query_api(path, 'GET', headers_dict, payload)
             return self._send_json(status, response)
         
@@ -278,122 +274,8 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
-    def _handle_download(self, path: str, payload: dict):
-        """处理文件下载请求"""
-        from ..load_data import query_dao, search_dao
-        import io
-        import csv
-        import re
-        
-        query_id = payload.get('query_id') or payload.get('query_index')
-        if not query_id:
-            return self._send_json(400, {'success': False, 'error': 'missing_query_id'})
-        
-        # 获取查询信息
-        query_log = query_dao.get_query_log(str(query_id))
-        if not query_log:
-            return self._send_json(404, {'success': False, 'error': 'query_not_found'})
-        
-        # 获取结果数据
-        uid = query_log.get('uid')
-        results = search_dao.fetch_results_with_paperinfo(uid, str(query_id)) or []
-        
-        if path == '/api/download_csv':
-            return self._download_csv(query_id, query_log, results)
-        else:  # /api/download_bib
-            return self._download_bib(query_id, query_log, results)
-
-    def _download_csv(self, query_id: str, query_log: dict, results: list):
-        """生成并下载 CSV 文件（新架构：扁平化数据结构）"""
-        import io
-        import csv
-        
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow(['source', 'year', 'title', 'url', 'search_result', 'reason'])
-        
-        # 判断相关性（新架构使用 'Y'/'N' 字符串）
-        def is_relevant(r):
-            val = r.get('search_result', '')
-            return str(val).upper() in ('Y', 'YES', '1', 'TRUE')
-        
-        # 先输出相关，再输出其他
-        relevant = [r for r in results if is_relevant(r)]
-        others = [r for r in results if not is_relevant(r)]
-        
-        for r in relevant + others:
-            result_val = r.get('search_result', '')
-            if str(result_val).upper() in ('Y', 'YES', '1', 'TRUE'):
-                result_display = '符合'
-            elif str(result_val).upper() in ('N', 'NO', '0', 'FALSE'):
-                result_display = '不符'
-            else:
-                result_display = '未判定'
-            
-            doi = r.get('doi') or ''
-            url = r.get('paper_url') or ''
-            if not url and doi:
-                url = f"https://doi.org/{doi}"
-            
-            writer.writerow([
-                r.get('source') or '',
-                r.get('year') or '',
-                r.get('title') or '',
-                url,
-                result_display,
-                r.get('reason') or ''
-            ])
-        
-        csv_content = buf.getvalue()
-        data = '\ufeff'.encode('utf-8') + csv_content.encode('utf-8')
-        filename = f'Overall_{query_id}.csv'
-        return self._send_bytes(200, 'text/csv; charset=utf-8', data, {
-            'Content-Disposition': f'attachment; filename="{filename}"'
-        })
-
-    def _download_bib(self, query_id: str, query_log: dict, results: list):
-        """生成并下载 BIB 文件（新架构：扁平化数据结构）"""
-        header_lines = []
-        
-        query_time = query_log.get('start_time') or ''
-        search_params = query_log.get('search_params', {})
-        journals = search_params.get('journals', [])
-        year_range = search_params.get('year_range', '')
-        research_question = search_params.get('research_question', '')
-        requirements = search_params.get('requirements', '')
-        
-        if query_time or journals or research_question:
-            header_lines.append(f"% Query Time: {query_time}")
-            header_lines.append(f"% Selected Journals: {', '.join(journals)}")
-            header_lines.append(f"% Year Range: {year_range}")
-            header_lines.append(f"% Research Question: {research_question}")
-            if requirements:
-                header_lines.append(f"% Requirements: {requirements}")
-            header_lines.append(f"\n% Search Topic {{{research_question}}}\n")
-        
-        # 只输出相关条目（新架构使用 'Y'/'N' 字符串）
-        entries = []
-        for r in results:
-            result_val = r.get('search_result', '')
-            if str(result_val).upper() in ('Y', 'YES', '1', 'TRUE'):
-                bib = (r.get('bib') or '').strip()
-                if bib:
-                    entries.append(bib)
-        
-        content_parts = []
-        if header_lines:
-            content_parts.extend(header_lines)
-        if entries:
-            content_parts.append("\n\n".join(entries))
-        
-        data = "\n".join(content_parts).encode('utf-8')
-        filename = f'Result_{query_id}.bib'
-        return self._send_bytes(200, 'application/x-bibtex; charset=utf-8', data, {
-            'Content-Disposition': f'attachment; filename="{filename}"'
-        })
-
     # ============================================================
-    # 新版下载 API 处理方法（异步队列模式）
+    # 下载 API 处理方法（异步队列模式）
     # ============================================================
     
     def _handle_download_create(self, payload: dict):
