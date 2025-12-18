@@ -1784,6 +1784,71 @@
       height: calc(100vh - 50px);
       margin-top: 50px;
     }
+    
+    /* 修复41: 终止确认弹窗样式 */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 10000;
+    }
+    .modal-content {
+      background-color: #fff;
+      border-radius: 8px;
+      padding: 24px;
+      max-width: 400px;
+      width: 90%;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+    .modal-title {
+      margin: 0 0 16px 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #d32f2f;
+    }
+    .modal-message {
+      margin: 0 0 24px 0;
+      font-size: 14px;
+      color: #333;
+      line-height: 1.5;
+    }
+    .modal-buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+    .modal-buttons .btn-primary {
+      background-color: var(--primary-color, #1976d2);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .modal-buttons .btn-primary:hover {
+      background-color: var(--primary-hover-color, #1565c0);
+    }
+    .modal-buttons .btn-gray {
+      background-color: #9e9e9e;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .modal-buttons .btn-gray:hover {
+      background-color: #757575;
+    }
   </style>
 </head>
 <body>
@@ -2071,9 +2136,6 @@
         <div class="progress-header">
           <h4 data-i18n="index.progress_title">检索进度</h4>
           <div class="progress-actions">
-            <button id="pauseResumeBtn" class="btn-secondary" style="display: none;">
-              <span data-i18n="index.pause">暂停</span>
-            </button>
             <button id="terminateBtn" class="btn-danger" style="display: none;">
               <span data-i18n="index.terminate">终止</span>
             </button>
@@ -2106,6 +2168,24 @@
             <span data-i18n="index.distill">蒸馏</span>
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 修复41: 终止确认弹窗 -->
+  <div id="terminateConfirmModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <h3 class="modal-title" data-i18n="index.terminate_confirm_title">警告</h3>
+      <p class="modal-message" data-i18n="index.terminate_confirm_message">
+        任务终止后无法恢复，且消耗的点数不会退回，是否确认终止该任务？
+      </p>
+      <div class="modal-buttons">
+        <button class="btn-primary" onclick="closeTerminateModal()">
+          <span data-i18n="common.no">否</span>
+        </button>
+        <button class="btn-gray" onclick="confirmTerminate()">
+          <span data-i18n="common.yes">是</span>
+        </button>
       </div>
     </div>
   </div>
@@ -2885,17 +2965,14 @@
       if (historyItems.length > 0) {
         // 直接更新历史记录项的状态文本和空标题
         historyItems.forEach(item => {
-          // 更新状态文本（修复10: 支持三态状态显示）
+          // 更新状态文本（修复41: 只支持完成和进行中状态）
           const meta = item.querySelector('.history-item-meta');
           if (meta && meta.hasAttribute('data-datetime') && meta.hasAttribute('data-completed')) {
             const dateTime = meta.getAttribute('data-datetime');
             const completed = meta.getAttribute('data-completed') === 'true';
-            const paused = meta.getAttribute('data-paused') === 'true';
             let status;
             if (completed) {
               status = i18n.t('history.status_done');
-            } else if (paused) {
-              status = i18n.t('index.status_paused');
             } else {
               status = i18n.t('history.status_running');
             }
@@ -2923,25 +3000,6 @@
         if (progressStatus.textContent.includes('运行') || progressStatus.textContent.includes('Running')) {
           progressStatus.textContent = i18n.t('index.status_running');
           progressStatus.setAttribute('data-i18n', 'index.status_running');
-        } else if (progressStatus.textContent.includes('暂停') || progressStatus.textContent.includes('Paused')) {
-          progressStatus.textContent = i18n.t('index.status_paused');
-          progressStatus.setAttribute('data-i18n', 'index.status_paused');
-        }
-      }
-      
-      // 更新暂停/恢复按钮文本
-      const pauseResumeBtn = document.getElementById('pauseResumeBtn');
-      if (pauseResumeBtn && pauseResumeBtn.style.display !== 'none') {
-        const btnText = pauseResumeBtn.querySelector('span');
-        if (btnText) {
-          const currentText = btnText.textContent;
-          if (currentText.includes('恢复') || currentText.includes('Resume')) {
-            btnText.textContent = i18n.t('index.resume');
-            btnText.setAttribute('data-i18n', 'index.resume');
-          } else if (currentText.includes('暂停') || currentText.includes('Pause')) {
-            btnText.textContent = i18n.t('index.pause');
-            btnText.setAttribute('data-i18n', 'index.pause');
-          }
         }
       }
       
@@ -3343,12 +3401,6 @@
     let currentProgressInterval = null;
     let currentQueryIndex = null;
     let currentStartTime = null;
-    // 暂存用户点击后期望的暂停状态（true=已暂停，false=运行中，null=无期望/已同步）
-    let intendedShouldPause = null;
-    // 从服务器获取到的当前暂停状态
-    let currentShouldPause = false;
-    // 暂存最后一次进度值，用于暂停时冻结进度条
-    let lastProgress = 0;
 
     // 开始进度轮询
     function startProgressPolling(queryIndex) {
@@ -3358,8 +3410,6 @@
       }
       
       currentQueryIndex = queryIndex;
-      // 开始新的检索时，清空期望状态
-      intendedShouldPause = null;
       
       // 显示进度区域
       const progressSection = document.getElementById('progressSection');
@@ -3367,8 +3417,8 @@
       progressSection.style.display = 'block';
       completionSection.style.display = 'none';
       
-      // 设置暂停/恢复按钮
-      setupPauseResumeButton();
+      // 设置终止按钮（修复41：删除暂停/恢复功能）
+      setupTerminateButton();
       
       // 添加随机文字显示
       updateProgressRandomText('progressSection');
@@ -3376,28 +3426,13 @@
       // 开始轮询
       currentProgressInterval = setInterval(async () => {
         try {
-          // 修复37: 并发获取进度与暂停状态（使用带认证的 fetch）
-          const progressReq = authFetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}`);
-          const historyReq = authFetch('/api/query_history');
-
-          const [progressRes, historyRes] = await Promise.all([
-            progressReq,
-            historyReq
-          ]);
+          // 修复37: 获取进度（使用带认证的 fetch）
+          const progressRes = await authFetch(`/api/query_progress?query_id=${encodeURIComponent(queryIndex)}`);
 
           if (!progressRes || !progressRes.ok) return;
           const progressData = await progressRes.json();
 
-          // 刷新当前暂停状态
-          if (historyRes && historyRes.ok) {
-            const historyData = await historyRes.json();
-            if (historyData.success && Array.isArray(historyData.logs)) {
-              const log = historyData.logs.find(l => l.query_id === queryIndex);
-              if (log) currentShouldPause = !!log.should_pause;
-            }
-          }
-
-          // 更新UI（根据暂停状态适配）
+          // 更新UI
           updateProgressDisplay(progressData);
 
           // 实时更新用户余额显示
@@ -3421,47 +3456,32 @@
       }, 2000);
     }
 
-    // 更新进度显示
+    // 更新进度显示（修复41：简化，删除暂停状态逻辑）
     function updateProgressDisplay(data) {
       const progressFill = document.getElementById('progressFill');
       const progressText = document.getElementById('progressText');
 
       const progress = Math.max(0, Math.min(100, Number(data.progress || 0)));
 
-      // 计算有效暂停状态：优先使用用户期望，其次使用服务器状态
-      const effectiveShouldPause = (intendedShouldPause !== null)
-        ? intendedShouldPause
-        : currentShouldPause;
-
-      // 暂停时冻结进度显示；运行时更新并记住最后值
-      if (effectiveShouldPause) {
-        progressFill.style.width = lastProgress + '%';
-        progressText.textContent = lastProgress + '%';
-      } else {
-        lastProgress = progress;
-        progressFill.style.width = progress + '%';
-        progressText.textContent = progress + '%';
-      }
-
-      // 更新状态文本与按钮
-      updateProgressStatus(!effectiveShouldPause);
-      updatePauseResumeButton(effectiveShouldPause);
+      progressFill.style.width = progress + '%';
+      progressText.textContent = progress + '%';
     }
 
-    // 设置暂停/恢复按钮和终止按钮
-    function setupPauseResumeButton() {
-      const pauseResumeBtn = document.getElementById('pauseResumeBtn');
+    // 设置终止按钮（修复41：删除暂停/恢复按钮）
+    function setupTerminateButton() {
       const terminateBtn = document.getElementById('terminateBtn');
       
-      pauseResumeBtn.style.display = 'block';
       terminateBtn.style.display = 'block';
       
       // 使用 onclick，避免重复绑定导致多次触发
-      pauseResumeBtn.onclick = handlePauseResume;
       terminateBtn.onclick = handleTerminate;
     }
     
-    // 处理终止任务（修复12：为普通用户添加终止功能）
+    // 处理终止任务（修复12：为普通用户添加终止功能，修复41：添加确认弹窗）
+    // 全局变量存储当前要终止的任务类型和ID
+    let pendingTerminateQueryId = null;
+    let pendingTerminateType = null; // 'main' 或 'history' 或 'distill'
+    
     async function handleTerminate() {
       if (!currentQueryIndex) return;
       
@@ -3471,18 +3491,21 @@
         return;
       }
       
-      // 确认提示
-      if (!confirm(i18n.t('index.terminate_confirm'))) {
-        return;
-      }
-      
+      // 修复41：显示确认弹窗
+      pendingTerminateQueryId = currentQueryIndex;
+      pendingTerminateType = 'main';
+      showTerminateConfirmModal();
+    }
+    
+    // 修复41：执行实际终止操作
+    async function executeTerminate(queryId) {
       try {
         // 修复37: 使用带认证的 fetch（uid从token获取）
         const response = await authFetch('/api/cancel_query', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            query_id: currentQueryIndex
+            query_id: queryId
           })
         });
         
@@ -3497,7 +3520,7 @@
           }
           
           // 显示终止完成界面（修复12b：显示可下载部分结果的界面）
-          showTerminatedSection(currentQueryIndex);
+          showTerminatedSection(queryId);
           
           // 刷新历史记录
           loadHistory();
@@ -3527,92 +3550,6 @@
       
       // 设置完成后的按钮事件（与正常完成相同）
       setupCompletionButtons(queryIndex, {});
-    }
-
-    // 更新暂停/恢复按钮状态
-    function updatePauseResumeButton(isPaused) {
-      const pauseResumeBtn = document.getElementById('pauseResumeBtn');
-      const btnText = pauseResumeBtn.querySelector('span');
-      
-      if (isPaused) {
-        btnText.textContent = i18n.t('index.resume');
-        btnText.setAttribute('data-i18n', 'index.resume');
-      } else {
-        btnText.textContent = i18n.t('index.pause');
-        btnText.setAttribute('data-i18n', 'index.pause');
-      }
-    }
-
-    // 处理暂停/恢复
-    async function handlePauseResume() {
-      if (!currentQueryIndex) return;
-      
-      const uid = localStorage.getItem('userId');
-      if (!uid) {
-        alert(i18n.t('common.login_required'));
-        return;
-      }
-
-      try {
-        // 计算当前状态：优先使用用户期望，其次使用已知的服务器状态
-        const isPaused = (intendedShouldPause !== null)
-          ? intendedShouldPause
-          : (typeof currentShouldPause === 'boolean' ? currentShouldPause : false);
-
-        const newShouldPause = !isPaused;
-
-        // 修复37: 使用带认证的 fetch（uid从token获取）
-        const updateResponse = await authFetch('/api/update_pause_status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            query_id: currentQueryIndex,
-            should_pause: newShouldPause
-          })
-        });
-
-        const updateData = await updateResponse.json();
-        if (updateResponse.ok && updateData.success) {
-          const successMessage = isPaused ? i18n.t('index.resume_success') : i18n.t('index.pause_success');
-          showSuccess(successMessage);
-
-          // 更新本地状态并刷新UI
-          intendedShouldPause = newShouldPause;
-          currentShouldPause = newShouldPause;
-
-          updatePauseResumeButton(newShouldPause);
-          updateProgressStatus(!newShouldPause);
-
-          // 暂停时立即冻结到最后进度值
-          if (newShouldPause) {
-            const progressFill = document.getElementById('progressFill');
-            const progressText = document.getElementById('progressText');
-            progressFill.style.width = lastProgress + '%';
-            progressText.textContent = lastProgress + '%';
-          }
-          
-          // 修复11: 刷新侧边栏历史记录以更新状态显示
-          loadHistory();
-        } else {
-          const failMessage = isPaused ? i18n.t('index.resume_fail') : i18n.t('index.pause_fail');
-          showError(failMessage + ': ' + (updateData.error || 'Unknown error'));
-        }
-      } catch (error) {
-        console.error('Pause/Resume error:', error);
-        showError(i18n.t('index.operation_failed') + ': ' + error.message);
-      }
-    }
-
-    // 更新进度状态文本
-    function updateProgressStatus(isRunning) {
-      const progressStatus = document.getElementById('progressStatus');
-      if (isRunning) {
-        progressStatus.textContent = i18n.t('index.status_running');
-        progressStatus.setAttribute('data-i18n', 'index.status_running');
-      } else {
-        progressStatus.textContent = i18n.t('index.status_paused');
-        progressStatus.setAttribute('data-i18n', 'index.status_paused');
-      }
     }
 
     // 显示完成后的按钮区域
@@ -3733,45 +3670,7 @@
       }
     }
 
-    // 历史记录的暂停/恢复功能
-    window.toggleHistoryProgress = async function(queryIndex) {
-      const uid = localStorage.getItem('userId');
-      if (!uid) {
-        showError(i18n.t('index.login_required'));
-        return;
-      }
-
-      const pauseBtn = document.getElementById(`historyPauseResumeBtn_${queryIndex}`);
-      if (!pauseBtn) return;
-
-      try {
-        const isPaused = pauseBtn.textContent.includes(i18n.t('index.resume'));
-        const action = isPaused ? 'resume' : 'pause';
-        
-        // 修复37: 使用带认证的 fetch（uid从token获取）
-        const response = await authFetch('/api/update_pause_status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            query_id: queryIndex,
-            should_pause: action === 'pause'
-          })
-        });
-
-        const data = await response.json();
-        if (data.success) {
-          pauseBtn.innerHTML = `<span data-i18n="index.${isPaused ? 'pause' : 'resume'}">${isPaused ? i18n.t('index.pause') : i18n.t('index.resume')}</span>`;
-          showSuccess(isPaused ? i18n.t('index.resume_success') : i18n.t('index.pause_success'));
-        } else {
-          showError((isPaused ? i18n.t('index.resume_fail') : i18n.t('index.pause_fail')) + ': ' + (data.error || 'Unknown error'));
-        }
-      } catch (error) {
-        console.error('Toggle progress error:', error);
-        showError(i18n.t('index.operation_failed') + ': ' + error.message);
-      }
-    };
-
-    // 历史记录的终止功能（修复12）
+    // 历史记录的终止功能（修复12，修复41：添加确认弹窗）
     window.terminateHistoryTask = async function(queryIndex) {
       const uid = localStorage.getItem('userId');
       if (!uid) {
@@ -3779,11 +3678,14 @@
         return;
       }
       
-      // 确认提示
-      if (!confirm(i18n.t('index.terminate_confirm'))) {
-        return;
-      }
-      
+      // 修复41：显示确认弹窗
+      pendingTerminateQueryId = queryIndex;
+      pendingTerminateType = 'history';
+      showTerminateConfirmModal();
+    };
+    
+    // 修复41：历史记录终止的实际执行函数
+    async function executeHistoryTerminate(queryIndex) {
       try {
         // 修复37: 使用带认证的 fetch（uid从token获取）
         const response = await authFetch('/api/cancel_query', {
@@ -3816,7 +3718,7 @@
         console.error('Terminate history task error:', error);
         showError(i18n.t('index.terminate_fail') + ': ' + error.message);
       }
-    };
+    }
     
     // 更新历史卡片为终止完成状态（修复12b）
     function updateHistoryCardAsTerminated(queryIndex) {
@@ -3994,20 +3896,8 @@
             progressFill.style.width = `${progress}%`;
             progressText.textContent = `${progress}%`;
             
-            // 更新状态显示
-            if (data.is_paused) {
-              progressStatus.textContent = i18n.t('index.status_paused');
-              const pauseBtn = document.getElementById(`historyPauseResumeBtn_${queryIndex}`);
-              if (pauseBtn) {
-                pauseBtn.innerHTML = `<span data-i18n="index.resume">${i18n.t('index.resume')}</span>`;
-              }
-            } else {
-              progressStatus.textContent = i18n.t('index.status_running');
-              const pauseBtn = document.getElementById(`historyPauseResumeBtn_${queryIndex}`);
-              if (pauseBtn) {
-                pauseBtn.innerHTML = `<span data-i18n="index.pause">${i18n.t('index.pause')}</span>`;
-              }
-            }
+            // 修复41: 简化状态显示，删除暂停状态
+            progressStatus.textContent = i18n.t('index.status_running');
             
             // 如果完成，停止轮询并刷新历史记录
             if (data.completed) {
@@ -4358,12 +4248,10 @@
       };
       
       const dateTime = formatDateTime(item.query_time || item.start_time);
-      // 修复10: 状态显示三态（完成 > 已暂停 > 进行中）
+      // 修复41: 状态显示二态（完成/进行中）
       let status;
       if (item.completed) {
         status = i18n.t('history.status_done');
-      } else if (item.should_pause) {
-        status = i18n.t('index.status_paused');
       } else {
         status = i18n.t('history.status_running');
       }
@@ -4373,7 +4261,6 @@
       // 添加数据属性以便语言切换时更新
       meta.setAttribute('data-datetime', dateTime);
       meta.setAttribute('data-completed', item.completed ? 'true' : 'false');
-      meta.setAttribute('data-paused', item.should_pause ? 'true' : 'false');
       
       content.appendChild(title);
       content.appendChild(meta);
@@ -4649,12 +4536,10 @@
       
       // 使用details中的信息（从get_query_info API获取）
       const startTime = formatDateTime(details.query_time || details.start_time);
-      // 修复10: 状态显示三态（完成 > 已暂停 > 进行中）
+      // 修复41: 状态显示二态（完成/进行中）
       let status;
       if (details.completed) {
         status = i18n.t('history.status_done');
-      } else if (details.should_pause) {
-        status = i18n.t('index.status_paused');
       } else {
         status = i18n.t('history.status_running');
       }
@@ -4758,14 +4643,11 @@
             </div>
           </div>
         ` : `
-          <!-- 进度区域 -->
+          <!-- 进度区域（修复41：删除暂停/恢复按钮） -->
           <div class="progress-section" id="historyProgressSection_${queryIndex}">
             <div class="progress-header">
               <h4 data-i18n="index.progress_title">检索进度</h4>
               <div class="progress-actions">
-                <button id="historyPauseResumeBtn_${queryIndex}" class="btn-secondary" onclick="toggleHistoryProgress('${queryIndex}')">
-                  <span data-i18n="index.pause">暂停</span>
-                </button>
                 <button id="historyTerminateBtn_${queryIndex}" class="btn-danger" onclick="terminateHistoryTask('${queryIndex}')">
                   <span data-i18n="index.terminate">终止</span>
                 </button>
@@ -5241,7 +5123,7 @@
         cardContent.insertBefore(summaryDiv, cardContent.firstChild);
       }
       
-      // 创建进度显示区域
+      // 创建进度显示区域（修复41：删除暂停按钮，保留终止按钮）
       const progressDiv = document.createElement('div');
       progressDiv.className = 'distill-progress';
       progressDiv.id = `${cardId}-progress-section`; // 添加ID以便后续操作
@@ -5255,8 +5137,8 @@
           </div>
         </div>
         <div class="progress-actions">
-          <button class="btn-secondary pause-btn" id="${cardId}-pause-btn">
-            ${i18n.t('index.pause')}
+          <button class="btn-danger" id="${cardId}-terminate-btn">
+            ${i18n.t('index.terminate')}
           </button>
         </div>
       `;
@@ -5267,38 +5149,65 @@
         // 添加随机文字显示
         updateProgressRandomText(`${cardId}-progress-section`);
         
-        // 设置暂停/恢复按钮
-        setupDistillPauseResumeButton(cardId, distillData.queryIndex);
+        // 修复41: 删除暂停/恢复按钮设置，只保留终止按钮
+        setupDistillTerminateButton(cardId, distillData.queryIndex);
       }
     }
 
-    // 设置蒸馏暂停/恢复按钮
-    function setupDistillPauseResumeButton(cardId, queryIndex) {
-      const pauseBtn = document.getElementById(`${cardId}-pause-btn`);
-      if (!pauseBtn) return;
+    // 修复41: 设置蒸馏终止按钮
+    function setupDistillTerminateButton(cardId, queryIndex) {
+      const terminateBtn = document.getElementById(`${cardId}-terminate-btn`);
+      if (!terminateBtn) return;
       
-      pauseBtn.addEventListener('click', async () => {
-        try {
-          const isPaused = pauseBtn.textContent.includes(i18n.t('index.resume'));
-          const action = isPaused ? 'resume' : 'pause';
-          
-          // 修复37: 使用带认证的 fetch（uid从token获取）
-          const response = await authFetch('/api/update_pause_status', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              query_id: queryIndex,
-              should_pause: action === 'pause'
-            })
-          });
-          
-          if (response.ok) {
-            pauseBtn.textContent = isPaused ? i18n.t('index.pause') : i18n.t('index.resume');
-          }
-        } catch (error) {
-          console.error('Pause/resume error:', error);
-        }
+      terminateBtn.addEventListener('click', () => {
+        // 显示确认弹窗
+        pendingTerminateQueryId = queryIndex;
+        pendingTerminateType = 'distill';
+        window.pendingDistillCardId = cardId;
+        showTerminateConfirmModal();
       });
+    }
+    
+    // 修复41: 蒸馏终止的实际执行函数
+    async function executeDistillTerminate(queryIndex, cardId) {
+      try {
+        const response = await authFetch('/api/cancel_query', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query_id: queryIndex })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+          showSuccess(i18n.t('index.terminate_success'));
+          
+          // 停止进度轮询
+          if (distillProgressIntervals.has(cardId)) {
+            clearInterval(distillProgressIntervals.get(cardId));
+            distillProgressIntervals.delete(cardId);
+          }
+          
+          // 更新卡片显示为已终止
+          const card = document.getElementById(cardId);
+          if (card) {
+            const progressDiv = card.querySelector('.distill-progress');
+            if (progressDiv) {
+              progressDiv.innerHTML = `
+                <div class="completion-message">
+                  <h4>${i18n.t('index.terminate_complete')}</h4>
+                </div>
+              `;
+            }
+          }
+          
+          loadHistory();
+        } else {
+          showError(i18n.t('index.terminate_fail') + ': ' + (data.error || 'Unknown error'));
+        }
+      } catch (error) {
+        console.error('Distill terminate error:', error);
+        showError(i18n.t('index.terminate_fail') + ': ' + error.message);
+      }
     }
 
     // 开始蒸馏进度轮询
@@ -5541,6 +5450,70 @@
     // 暴露全局函数
     window.startDistillation = startDistillation;
     window.updateTitleGreeting = updateTitleGreeting;
+
+    // ==================== 修复41: 终止确认弹窗 ====================
+    
+    // 显示终止确认弹窗
+    function showTerminateConfirmModal() {
+      const modal = document.getElementById('terminateConfirmModal');
+      if (modal) {
+        // 更新弹窗内容的国际化文本
+        const titleEl = modal.querySelector('.modal-title');
+        const messageEl = modal.querySelector('.modal-message');
+        const noBtnText = modal.querySelector('.btn-primary span');
+        const yesBtnText = modal.querySelector('.btn-gray span');
+        
+        if (titleEl) titleEl.textContent = i18n.t('index.terminate_confirm_title');
+        if (messageEl) messageEl.textContent = i18n.t('index.terminate_confirm_message');
+        if (noBtnText) noBtnText.textContent = i18n.t('common.no');
+        if (yesBtnText) yesBtnText.textContent = i18n.t('common.yes');
+        
+        modal.style.display = 'flex';
+      }
+    }
+    
+    // 关闭终止确认弹窗
+    function closeTerminateModal() {
+      const modal = document.getElementById('terminateConfirmModal');
+      if (modal) {
+        modal.style.display = 'none';
+      }
+      pendingTerminateQueryId = null;
+      pendingTerminateType = null;
+      window.pendingDistillCardId = null;
+    }
+    
+    // 确认终止
+    async function confirmTerminate() {
+      const modal = document.getElementById('terminateConfirmModal');
+      if (modal) {
+        modal.style.display = 'none';
+      }
+      
+      if (!pendingTerminateQueryId) return;
+      
+      const queryId = pendingTerminateQueryId;
+      const terminateType = pendingTerminateType;
+      const distillCardId = window.pendingDistillCardId;
+      
+      // 清理状态
+      pendingTerminateQueryId = null;
+      pendingTerminateType = null;
+      window.pendingDistillCardId = null;
+      
+      // 根据类型执行相应的终止操作
+      if (terminateType === 'main') {
+        await executeTerminate(queryId);
+      } else if (terminateType === 'history') {
+        await executeHistoryTerminate(queryId);
+      } else if (terminateType === 'distill') {
+        await executeDistillTerminate(queryId, distillCardId);
+      }
+    }
+    
+    // 暴露弹窗函数
+    window.closeTerminateModal = closeTerminateModal;
+    window.confirmTerminate = confirmTerminate;
 
   </script>
 </body>

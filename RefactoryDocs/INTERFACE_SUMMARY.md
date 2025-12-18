@@ -4,9 +4,9 @@
 
 ## 当前进度
 
-**最后更新**: 2025-12-02  
+**最后更新**: 2025-12-18  
 **当前阶段**: Bug修复与测试  
-**完成阶段**: 阶段一至阶段十（全部完成）+ 四十轮Bug修复 + 架构文档同步更新
+**完成阶段**: 阶段一至阶段十（全部完成）+ 四十二轮Bug修复 + 架构文档同步更新
 
 ---
 
@@ -141,8 +141,7 @@ lib/html/
 ### 任务队列
 - `task:{uid}:{qid}:pending_blocks` (List)
 - `query:{uid}:{qid}:status` (Hash)
-- `query:{uid}:{qid}:pause_signal` (String) - 暂停信号
-- `query:{uid}:{qid}:terminate_signal` (String) - 终止信号（新增）
+- `query:{uid}:{qid}:terminate_signal` (String) - 终止信号（修复41：删除pause_signal，只保留terminate_signal）
 - `result:{uid}:{qid}` (Hash, **TTL 7天**) - 查询结果缓存（修复23）
 
 ### 计费
@@ -1180,6 +1179,120 @@ AI API
 
 ---
 
+## 修复41: 删除暂停/恢复功能并增强终止确认 (2025-12-18)
+
+### 问题描述
+- **BUG现象**: 用户点击暂停按钮后，进度条从0跳到100，任务无法正确暂停；点击恢复后任务无法恢复执行
+- **根因**: `resume_query` 函数无法正确重启已暂停的 Worker 线程，且 pause_signal 与 terminate_signal 交互存在冲突
+- **解决方案**: 彻底删除暂停/恢复功能，只保留终止功能
+
+### 修复内容
+
+#### 41a: 后端 Redis 层
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/redis/task_queue.py` | 删除 `_key_pause()`, `set_pause_signal()`, `clear_pause_signal()`, `is_paused()` |
+
+#### 41b: 后端 Query DAO
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/load_data/query_dao.py` | 删除 `pause_query()`, `resume_query()` 函数 |
+| `lib/load_data/query_dao.py` | `get_query_progress()` 删除 `is_paused` 字段 |
+
+#### 41c: 后端 Scheduler
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/process/scheduler.py` | 删除 `pause_query()`, `resume_query()` 函数 |
+| `lib/process/scheduler.py` | `_check_completions()` 删除 PAUSED 状态处理 |
+
+#### 41d: 后端 Worker
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/process/worker.py` | 删除 `_run_loop()` 中 pause_signal 检查 |
+| `lib/process/worker.py` | `stop_workers_for_query()` 改用 `set_terminate_signal` |
+
+#### 41e: 后端 API
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/webserver/query_api.py` | 删除 `/api/update_pause_status`, `/api/pause_query`, `/api/resume_query` 路由和处理函数 |
+| `lib/webserver/admin_api.py` | 删除 `/api/admin/tasks/pause`, `/api/admin/tasks/resume`, `/api/admin/tasks/batch_pause`, `/api/admin/tasks/batch_resume` 路由和处理函数 |
+| `lib/webserver/server.py` | 删除暂停/恢复相关 POST 路由 |
+
+#### 41f: 前端用户页面
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/html/index.html` | 删除暂停/恢复按钮和相关 JS 函数 |
+| `lib/html/index.html` | 新增终止确认弹窗（HTML+CSS+JS）|
+| `lib/html/index.html` | 弹窗支持中英文切换 |
+
+#### 41g: 管理员页面
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/html/admin/tasks.html` | 删除批量暂停/恢复按钮和相关 JS 函数 |
+| `lib/html/admin/tasks.html` | 删除 PAUSED 状态筛选选项 |
+
+#### 41h: 国际化翻译
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/html/static/js/i18n.js` | 删除所有暂停/恢复相关翻译 |
+| `lib/html/static/js/i18n.js` | 新增终止确认弹窗翻译 |
+
+### 终止确认弹窗设计
+- 标题: "警告" / "Warning"
+- 消息: "任务终止后无法恢复，且消耗的点数不会退回，是否确认终止该任务？"
+- 左侧按钮【否】: 蓝色主题高亮
+- 右侧按钮【是】: 灰色背景
+
+### 删除的 Redis Key
+- `query:{uid}:{qid}:pause_signal` - 暂停信号（已删除）
+
+### 保留的 Redis Key
+- `query:{uid}:{qid}:terminate_signal` - 终止信号（保留）
+
+---
+
+## 修复42: 管理员终止任务功能修复 (2025-12-18)
+
+### 问题描述
+- **现象**: 管理员页面（dashboard.html/tasks.html）点击终止按钮后，后端 Worker 确实终止了，但用户页面进度条显示 100% 且永远卡住，不会自动切换到"已完成"界面
+- **根因1**: 管理员 API 终止逻辑不完整，缺少 `clear_pending` 和 `update_query_status` 调用
+- **根因2**: 前端进度判断只检查 `DONE`/`COMPLETED`，不检查 `CANCELLED` 状态
+
+### 修复内容
+
+#### 42a: 管理员 API 调用统一的终止函数
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/webserver/admin_api.py` | 添加 `cancel_query` 导入 |
+| `lib/webserver/admin_api.py` | `_handle_terminate_task()` 改为调用 `cancel_query()` |
+| `lib/webserver/admin_api.py` | `_handle_batch_terminate_tasks()` 改为调用 `cancel_query()` |
+
+#### 42b: 前端进度判断添加 CANCELLED 状态
+| 文件 | 修改内容 |
+|------|----------|
+| `lib/webserver/query_api.py` | `_handle_get_query_progress()` 的 `completed` 判断添加 `CANCELLED` 状态 |
+
+### 修复后的数据流
+```
+管理员点击"终止"
+  ↓
+admin_api._handle_terminate_task
+  ↓
+query_dao.cancel_query(uid, qid)
+  ├── TaskQueue.set_terminate_signal  ✓
+  ├── TaskQueue.set_state('CANCELLED')  ✓
+  ├── TaskQueue.clear_pending  ✓
+  ├── stop_workers_for_query  ✓
+  └── update_query_status  ✓
+  ↓
+前端轮询 /api/query_progress
+  └── completed = state in ('DONE','COMPLETED','CANCELLED')  ✓
+  ↓
+前端停止轮询，显示终止完成界面  ✓
+```
+
+---
+
 ## 架构文档同步更新 (2025-12-02)
 
 根据修复24-40的内容，同步更新了以下架构文档：
@@ -1222,7 +1335,7 @@ AI API
 2. 查看 `RefactoryDocs/PROGRESS_LOG.md` 了解详细进度
 3. 查看 `RefactoryDocs/前端重构设计文档20251129.md` 了解前端重构规划
 4. 查看 `需要手动操作的事项.txt` 了解待完成操作
-5. 项目重构已基本完成，经过四十轮Bug修复，可进行测试
+5. 项目重构已基本完成，经过四十二轮Bug修复，可进行测试
 
 ---
 

@@ -295,10 +295,14 @@ class APIClient:
             raise APIError(f"用户登录失败: {data.get('message', '未知错误')}")
         return data.get('uid', 0), data.get('token', '')
     
-    def get_user_info(self, uid: int) -> Dict:
+    def get_user_info(self, uid: int, token: str = "") -> Dict:
         """获取用户信息"""
+        headers = {}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
         response = self.session.get(
             self._url(f'/api/user_info?uid={uid}'),
+            headers=headers,
             timeout=self.timeout
         )
         data = self._handle_response(response, "获取用户信息")
@@ -309,7 +313,8 @@ class APIClient:
     # -------------------------------------------------------------------------
     
     def start_search(self, uid: int, question: str, requirements: str,
-                     journals: List[str], start_year: str, end_year: str) -> str:
+                     journals: List[str], start_year: str, end_year: str,
+                     token: str = "") -> str:
         """发起搜索查询，返回 query_id"""
         payload = {
             'uid': uid,
@@ -320,9 +325,13 @@ class APIClient:
             'start_year': start_year,
             'end_year': end_year
         }
+        headers = {}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
         response = self.session.post(
             self._url('/api/start_search'),
             json=payload,
+            headers=headers,
             timeout=self.timeout
         )
         data = self._handle_response(response, "开始搜索")
@@ -332,19 +341,27 @@ class APIClient:
             raise APIError(f"开始搜索失败: {error} - {message}")
         return data.get('query_id', '')
     
-    def get_query_progress(self, uid: int, query_id: str) -> Dict:
+    def get_query_progress(self, uid: int, query_id: str, token: str = "") -> Dict:
         """获取查询进度"""
+        headers = {}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
         response = self.session.get(
             self._url(f'/api/query_progress?uid={uid}&query_id={query_id}'),
+            headers=headers,
             timeout=self.timeout
         )
         data = self._handle_response(response, "获取查询进度")
         return data
     
-    def get_query_history(self, uid: int) -> List[Dict]:
+    def get_query_history(self, uid: int, token: str = "") -> List[Dict]:
         """获取查询历史"""
+        headers = {}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
         response = self.session.get(
             self._url(f'/api/query_history?uid={uid}'),
+            headers=headers,
             timeout=self.timeout
         )
         data = self._handle_response(response, "获取查询历史")
@@ -354,21 +371,27 @@ class APIClient:
     # 蒸馏 API
     # -------------------------------------------------------------------------
     
-    def estimate_distillation_cost(self, uid: int, original_query_id: str) -> Dict:
+    def estimate_distillation_cost(self, uid: int, original_query_id: str,
+                                      token: str = "") -> Dict:
         """估算蒸馏费用"""
         payload = {
             'uid': uid,
             'original_query_id': original_query_id
         }
+        headers = {}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
         response = self.session.post(
             self._url('/api/estimate_distillation_cost'),
             json=payload,
+            headers=headers,
             timeout=self.timeout
         )
         return self._handle_response(response, "估算蒸馏费用")
     
     def start_distillation(self, uid: int, original_query_id: str,
-                           question: str, requirements: str = "") -> str:
+                           question: str, requirements: str = "",
+                           token: str = "") -> str:
         """发起蒸馏任务，返回新的query_id"""
         payload = {
             'uid': uid,
@@ -376,9 +399,13 @@ class APIClient:
             'question': question,
             'requirements': requirements
         }
+        headers = {}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
         response = self.session.post(
             self._url('/api/start_distillation'),
             json=payload,
+            headers=headers,
             timeout=self.timeout
         )
         data = self._handle_response(response, "开始蒸馏")
@@ -391,22 +418,27 @@ class APIClient:
     # -------------------------------------------------------------------------
     
     def create_download_task(self, uid: int, query_id: str, 
-                             file_type: str) -> str:
+                             file_type: str, token: str = "") -> str:
         """创建下载任务，返回 task_id
         
         Args:
             uid: 用户ID
             query_id: 查询ID
             file_type: 'csv' 或 'bib'
+            token: 用户认证token
         """
         payload = {
             'uid': uid,
             'query_id': query_id,
             'type': file_type
         }
+        headers = {}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
         response = self.session.post(
             self._url('/api/download/create'),
             json=payload,
+            headers=headers,
             timeout=self.timeout
         )
         data = self._handle_response(response, "创建下载任务")
@@ -414,19 +446,27 @@ class APIClient:
             raise APIError(f"创建下载任务失败: {data.get('message', '未知错误')}")
         return data.get('task_id', '')
     
-    def get_download_status(self, task_id: str) -> Dict:
+    def get_download_status(self, task_id: str, token: str = "") -> Dict:
         """获取下载任务状态"""
+        headers = {}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
         response = self.session.get(
             self._url(f'/api/download/status?task_id={task_id}'),
+            headers=headers,
             timeout=self.timeout
         )
         data = self._handle_response(response, "获取下载状态")
         return data
     
-    def download_file(self, task_id: str) -> bytes:
+    def download_file(self, task_id: str, token: str = "") -> bytes:
         """下载文件内容"""
+        headers = {}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
         response = self.session.get(
             self._url(f'/api/download/file?task_id={task_id}'),
+            headers=headers,
             timeout=self.timeout * 2  # 下载可能需要更长时间
         )
         if not response.ok:
@@ -437,20 +477,28 @@ class APIClient:
     # 兼容旧版下载 API (同步模式，作为备选)
     # -------------------------------------------------------------------------
     
-    def download_csv_sync(self, uid: int, query_id: str) -> bytes:
+    def download_csv_sync(self, uid: int, query_id: str, token: str = "") -> bytes:
         """同步下载CSV (兼容旧API)"""
+        headers = {}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
         response = self.session.get(
             self._url(f'/api/download_csv?uid={uid}&query_id={query_id}'),
+            headers=headers,
             timeout=self.timeout * 3
         )
         if not response.ok:
             raise APIError(f"下载CSV失败: HTTP {response.status_code}")
         return response.content
     
-    def download_bib_sync(self, uid: int, query_id: str) -> bytes:
+    def download_bib_sync(self, uid: int, query_id: str, token: str = "") -> bytes:
         """同步下载BIB (兼容旧API)"""
+        headers = {}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
         response = self.session.get(
             self._url(f'/api/download_bib?uid={uid}&query_id={query_id}'),
+            headers=headers,
             timeout=self.timeout * 3
         )
         if not response.ok:
@@ -589,7 +637,7 @@ class ConcurrencyTest:
         for acc in sample_accounts:
             if acc.uid > 0:
                 try:
-                    info = self.client.get_user_info(acc.uid)
+                    info = self.client.get_user_info(acc.uid, token=acc.token)
                     balance = info.get('balance', 0)
                     print(f"        {acc.username}: uid={acc.uid}, balance={balance}")
                 except Exception as e:
@@ -741,7 +789,8 @@ class ConcurrencyTest:
             requirements=SEARCH_REQUIREMENTS,
             journals=SEARCH_JOURNALS,
             start_year=SEARCH_START_YEAR,
-            end_year=SEARCH_END_YEAR
+            end_year=SEARCH_END_YEAR,
+            token=account.token
         )
         account.query_id = query_id
     
@@ -754,7 +803,8 @@ class ConcurrencyTest:
         start_time = time.time()
         while (time.time() - start_time) < timeout:
             try:
-                progress = self.client.get_query_progress(account.uid, account.query_id)
+                progress = self.client.get_query_progress(
+                    account.uid, account.query_id, token=account.token)
                 if progress.get('completed'):
                     account.query_completed = True
                     account.query_end_time = datetime.now()
@@ -774,7 +824,8 @@ class ConcurrencyTest:
             uid=account.uid,
             original_query_id=account.query_id,
             question=DISTILL_QUESTION,
-            requirements=DISTILL_REQUIREMENTS
+            requirements=DISTILL_REQUIREMENTS,
+            token=account.token
         )
         account.distill_query_id = distill_query_id
     
@@ -787,7 +838,8 @@ class ConcurrencyTest:
         start_time = time.time()
         while (time.time() - start_time) < timeout:
             try:
-                progress = self.client.get_query_progress(account.uid, account.distill_query_id)
+                progress = self.client.get_query_progress(
+                    account.uid, account.distill_query_id, token=account.token)
                 if progress.get('completed'):
                     account.distill_completed = True
                     account.distill_end_time = datetime.now()
@@ -824,12 +876,12 @@ class ConcurrencyTest:
         for file_type in ['csv', 'bib']:
             # 创建下载任务
             task_id = self.client.create_download_task(
-                account.uid, query_id, file_type)
+                account.uid, query_id, file_type, token=account.token)
             
             # 轮询等待就绪
             start_time = time.time()
             while (time.time() - start_time) < DOWNLOAD_TIMEOUT:
-                status = self.client.get_download_status(task_id)
+                status = self.client.get_download_status(task_id, token=account.token)
                 state = status.get('state', '')
                 
                 if state == 'READY':
@@ -844,7 +896,7 @@ class ConcurrencyTest:
                 raise APIError("下载超时")
             
             # 下载文件
-            content = self.client.download_file(task_id)
+            content = self.client.download_file(task_id, token=account.token)
             
             # 保存文件 - 使用蒸馏查询ID作为文件名的一部分
             suffix = 'csv' if file_type == 'csv' else 'bib'
@@ -861,13 +913,13 @@ class ConcurrencyTest:
     def _download_with_sync_api(self, account: TestAccount, query_id: str):
         """使用同步API下载（备选方案，支持指定query_id）"""
         # 下载CSV
-        content = self.client.download_csv_sync(account.uid, query_id)
+        content = self.client.download_csv_sync(account.uid, query_id, token=account.token)
         filepath = self.download_dir / f"{account.username}_Distill_Result.csv"
         filepath.write_bytes(content)
         account.csv_downloaded = True
         
         # 下载BIB
-        content = self.client.download_bib_sync(account.uid, query_id)
+        content = self.client.download_bib_sync(account.uid, query_id, token=account.token)
         filepath = self.download_dir / f"{account.username}_Distill_Result.bib"
         filepath.write_bytes(content)
         account.bib_downloaded = True

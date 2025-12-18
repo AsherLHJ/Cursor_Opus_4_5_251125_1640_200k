@@ -1,6 +1,6 @@
 """
 查询任务相关API处理模块 (修复37: 添加Token认证)
-负责查询任务提交、状态查询、暂停/恢复、结果获取等操作
+负责查询任务提交、状态查询、终止、结果获取等操作
 """
 
 import json
@@ -19,8 +19,6 @@ from ..process.paper_processor import (
 )
 from ..load_data.query_dao import (
     get_query_progress,
-    pause_query,
-    resume_query,
     cancel_query
 )
 from .user_auth import require_auth  # 修复37: 导入用户认证模块
@@ -164,15 +162,6 @@ def handle_query_api(path: str, method: str, headers: Dict, payload: Dict) -> Tu
         
         if path == '/api/estimate_distillation_cost':
             return _handle_estimate_distillation_cost(headers, payload)
-        
-        if path == '/api/update_pause_status':
-            return _handle_update_pause_status(headers, payload)
-        
-        if path == '/api/pause_query':
-            return _handle_pause_query(headers, payload)
-        
-        if path == '/api/resume_query':
-            return _handle_resume_query(headers, payload)
         
         if path == '/api/cancel_query':
             return _handle_cancel_query(headers, payload)
@@ -514,51 +503,6 @@ def _handle_get_query_result(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'get_result_failed', 'message': str(e)}
 
 
-def _handle_update_pause_status(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
-    """
-    更新暂停状态 (修复37: 需要Token认证)
-    
-    新架构修复：同时支持 query_id 和 query_index 参数名，
-    不再强制转int，使用字符串类型的query_id
-    用户只能操作自己的任务
-    """
-    try:
-        # 修复37: 验证认证，从Token获取uid
-        success, uid, error = require_auth(headers)
-        if not success:
-            return 401, {'success': False, 'error': error, 'message': '请先登录'}
-        
-        # 同时支持 query_id 和 query_index 参数名
-        query_id = payload.get('query_id') or payload.get('query_index')
-        should_pause = payload.get('should_pause')
-        
-        if not query_id or should_pause is None:
-            return 400, {'success': False, 'error': 'missing_parameters'}
-        
-        try:
-            should_pause = bool(should_pause)
-        except (ValueError, TypeError):
-            return 400, {'success': False, 'error': 'invalid_parameters'}
-        
-        # query_id 保持字符串类型（新架构格式如 Q20251127102812_74137bb4）
-        qid = str(query_id)
-        
-        if should_pause:
-            op_success = pause_query(uid, qid)
-            msg = 'paused' if op_success else 'pause_failed'
-        else:
-            op_success = resume_query(uid, qid)
-            msg = 'resumed' if op_success else 'resume_failed'
-        
-        if op_success:
-            return 200, {'success': True, 'message': 'pause_status_updated'}
-        else:
-            return 400, {'success': False, 'error': 'update_failed', 'message': msg}
-            
-    except Exception as e:
-        return 500, {'success': False, 'error': 'update_failed', 'message': str(e)}
-
-
 def _handle_update_config(payload: Dict) -> Tuple[int, Dict]:
     """更新搜索配置并返回统计"""
     try:
@@ -708,60 +652,6 @@ def _handle_get_tags(payload: Dict = None) -> Tuple[int, Dict]:
         return 500, {'success': False, 'error': 'get_tags_failed', 'message': str(e)}
 
 
-def _handle_pause_query(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
-    """
-    暂停查询任务 (修复37: 需要Token认证)
-    
-    用户只能暂停自己的任务
-    """
-    try:
-        # 修复37: 验证认证，从Token获取uid
-        success, uid, error = require_auth(headers)
-        if not success:
-            return 401, {'success': False, 'error': error, 'message': '请先登录'}
-        
-        qid = payload.get('query_id') or payload.get('query_index')
-        
-        if not qid:
-            return 400, {'success': False, 'error': 'missing_parameters'}
-        
-        op_success = pause_query(uid, str(qid))
-        msg = 'Query paused' if op_success else 'Failed to pause'
-        if op_success:
-            return 200, {'success': True, 'message': msg}
-        else:
-            return 400, {'success': False, 'error': 'pause_failed', 'message': msg}
-    except Exception as e:
-        return 500, {'success': False, 'error': 'pause_query_failed', 'message': str(e)}
-
-
-def _handle_resume_query(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
-    """
-    恢复查询任务 (修复37: 需要Token认证)
-    
-    用户只能恢复自己的任务
-    """
-    try:
-        # 修复37: 验证认证，从Token获取uid
-        success, uid, error = require_auth(headers)
-        if not success:
-            return 401, {'success': False, 'error': error, 'message': '请先登录'}
-        
-        qid = payload.get('query_id') or payload.get('query_index')
-        
-        if not qid:
-            return 400, {'success': False, 'error': 'missing_parameters'}
-        
-        op_success = resume_query(uid, str(qid))
-        msg = 'Query resumed' if op_success else 'Failed to resume'
-        if op_success:
-            return 200, {'success': True, 'message': msg}
-        else:
-            return 400, {'success': False, 'error': 'resume_failed', 'message': msg}
-    except Exception as e:
-        return 500, {'success': False, 'error': 'resume_query_failed', 'message': str(e)}
-
-
 def _handle_cancel_query(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
     """
     取消查询任务 (修复37: 需要Token认证)
@@ -843,7 +733,6 @@ def _handle_get_query_history(headers: Dict) -> Tuple[int, Dict]:
                 'is_distillation': is_distillation,
                 'original_query_id': original_query_id,
                 'is_visible': r.get('is_visible', True),
-                'should_pause': bool(r.get('should_pause')),
             })
         
         return 200, {'success': True, 'logs': formatted_logs}
@@ -874,11 +763,11 @@ def _handle_get_query_progress(headers: Dict, payload: Dict) -> Tuple[int, Dict]
         return 200, {
             'success': True,
             'progress': status.get('progress', 0),
-            'completed': status.get('state') in ('DONE', 'COMPLETED'),
+            # 修复42：添加 CANCELLED 状态，让被终止的任务也能正确触发前端完成处理
+            'completed': status.get('state') in ('DONE', 'COMPLETED', 'CANCELLED'),
             'total_blocks': status.get('total_blocks', 0),
             'finished_blocks': status.get('finished_blocks', 0),
             'finished_papers': status.get('finished_papers', 0),
-            'is_paused': status.get('is_paused', False),
             'current_balance': UserCache.get_balance(uid)
         }
     except Exception as e:
@@ -947,7 +836,6 @@ def _handle_get_query_info(headers: Dict, payload: Dict) -> Tuple[int, Dict]:
                 'start_time': fmt_time(row.get('start_time')),
                 'end_time': fmt_time(row.get('end_time')),
                 'completed': bool(row.get('end_time') or row.get('status') == 'COMPLETED' or row.get('status') == 'DONE'),
-                'should_pause': bool(row.get('should_pause')),  # 修复10: 添加暂停状态字段
                 'is_distillation': is_distillation,  # 修复30: 添加蒸馏标识
                 'original_query_id': original_query_id,  # 修复30: 添加父任务ID
                 'total_papers_count': sp.get('max_papers') or sp.get('doi_count') or 0,  # 修复31: 添加文章总数

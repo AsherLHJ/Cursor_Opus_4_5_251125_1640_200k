@@ -62,9 +62,7 @@ from .query_dao import (
     update_query_cost,
     mark_query_completed,
     get_active_queries,
-    get_query_progress,
-    pause_query,
-    resume_query
+    get_query_progress
 )
 
 # ============================================================

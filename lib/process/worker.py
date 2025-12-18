@@ -6,7 +6,7 @@
 a) 任务拆解: Query -> Block Keys -> task:{uid}:{qid}:pending_blocks
 b) 线程启动: 根据permission启动对应数量的Worker
 c) 抢占执行: Worker循环领取Block，处理文献
-d) 暂停响应: 检测pause_signal，有信号时退出
+d) 终止响应: 检测terminate_signal，有信号时退出
 """
 
 import time
@@ -46,7 +46,7 @@ class BlockWorker:
     
     按照新架构规则R4/R5实现：
     - 从 task:{uid}:{qid}:pending_blocks 领取Block
-    - 检查暂停信号
+    - 检查终止信号
     - 处理Block中的每篇文献
     - 原子扣费并写入结果
     """
@@ -100,20 +100,11 @@ class BlockWorker:
         """Worker主循环 (规则R4.c)"""
         try:
             while self._running:
-                # 1. 检查终止信号（优先于暂停信号）
+                # 1. 检查终止信号 (R4.c.i)
                 if TaskQueue.is_terminated(self.uid, self.qid):
                     # 终止信号：任务被强制取消，不推回Block
                     self._current_block = None
                     print(f"[Worker-{self.worker_id}] 收到终止信号，退出")
-                    break
-                
-                # 2. 检查暂停信号 (R4.c.i)
-                if TaskQueue.is_paused(self.uid, self.qid):
-                    # 如果有未处理的Block，推回队列（暂停可恢复）
-                    if self._current_block:
-                        TaskQueue.push_back_block(self.uid, self.qid, self._current_block)
-                        self._current_block = None
-                    print(f"[Worker-{self.worker_id}] 收到暂停信号，退出")
                     break
                 
                 # 2. 领取任务 (R4.c.ii)
@@ -136,20 +127,15 @@ class BlockWorker:
                 status = TaskQueue.get_status(self.uid, self.qid)
                 total = status.get('total_blocks', 0) if status else 0
                 
-                # 完成判定前再次检查暂停/终止信号（修复9: 防止暂停后被错误标记为完成）
+                # 完成判定前再次检查终止信号（防止终止后被错误标记为完成）
                 if total > 0 and finished >= total:
                     # 检查是否被终止
                     if TaskQueue.is_terminated(self.uid, self.qid):
                         print(f"[Worker-{self.worker_id}] 检测到终止信号，不触发归档")
                         self._current_block = None
                         break
-                    # 检查是否被暂停
-                    if TaskQueue.is_paused(self.uid, self.qid):
-                        print(f"[Worker-{self.worker_id}] 检测到暂停信号，不触发归档")
-                        self._current_block = None
-                        break
                     
-                    # 只有没被暂停/终止时才设为完成
+                    # 没被终止时才设为完成
                     TaskQueue.set_state(self.uid, self.qid, 'DONE')
                     print(f"[Worker-{self.worker_id}] 所有Block处理完成")
                     # 触发归档
@@ -191,8 +177,8 @@ class BlockWorker:
             if not self._running:
                 break
             
-            # 再次检查暂停信号
-            if TaskQueue.is_paused(self.uid, self.qid):
+            # 再次检查终止信号
+            if TaskQueue.is_terminated(self.uid, self.qid):
                 break
             
             try:
@@ -341,7 +327,7 @@ def stop_workers_for_query(uid: int, qid: str) -> int:
     with _workers_lock:
         for thread, info in list(ACTIVE_WORKERS.items()):
             if info['uid'] == uid and info['qid'] == qid:
-                # 设置暂停信号让Worker自行退出
-                TaskQueue.set_pause_signal(uid, qid)
+                # 设置终止信号让Worker自行退出（修复41：改用terminate_signal）
+                TaskQueue.set_terminate_signal(uid, qid)
                 stopped += 1
     return stopped

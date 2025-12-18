@@ -223,19 +223,19 @@ python tools_refresh_db_paper_with_tag.py
 python tools_refresh_db_sentence.py
 ```
 ### 可选操作1：导出本地数据库中的指定表，但仅向对方数据库《插入新增数据》，不覆盖原有数据===========
-# 下方示例中会导出“contentlist”，“paperinfo”，“info_tag”，“info_paper_with_tag”这四个表（复制该命令前请修改"指定路径"和“sql文件名”）
+# 下方示例中会导出“contentlist”，“contentlist_year_number”，“paperinfo”，“info_tag”，“info_paper_with_tag”这5个表（复制该命令前请修改"指定路径"和“sql文件名”）
 ```bash
 # PowerShell 建议使用 --result-file，避免使用重定向 > 导致编码被更改
-mysqldump -u root -p --default-character-set=utf8mb4 --no-create-info --skip-add-drop-table --set-charset --result-file="C:\Users\Asher\Downloads\paperdb_YYYYMMDD.sql"
+mysqldump -u root -p --default-character-set=utf8mb4 --no-create-info --skip-add-drop-table --insert-ignore --hex-blob --result-file="paperdb_YYYYMMDD.sql" paperdb contentlist contentlist_year_number paperinfo info_tag info_paper_with_tag
 ```
 ### 可选操作1（结束）
 
 ### 可选操作2：《危险操作，谨慎使用》导出本地数据库中的指定表，且《覆盖对方数据库原有数据》===========
-# 下方示例中会导出“contentlist”，“paperinfo”，“info_tag”，“info_paper_with_tag”这四个表（复制该命令前请修改"指定路径"和“sql文件名”）
+# 下方示例中会导出“contentlist”，“contentlist_year_number”，“paperinfo”，“info_tag”，“info_paper_with_tag”这5个表（复制该命令前请修改"指定路径"和“sql文件名”）
 # 注意：谨慎导出用户数据表“user_info”，防止覆盖生产环境的现存用户数据
 ```bash
 # PowerShell 建议使用 --result-file，避免使用重定向 > 导致编码被更改
-mysqldump -u root -p --default-character-set=utf8mb4 paperdb contentlist paperinfo info_tag info_paper_with_tag --add-drop-table --set-charset --result-file="C:\Users\Asher\Downloads\paperdb_YYYYMMDD.sql"
+mysqldump -u root -p --default-character-set=utf8mb4 paperdb contentlist contentlist_year_number paperinfo info_tag info_paper_with_tag --add-drop-table --set-charset --result-file="C:\Users\Asher\Downloads\paperdb_YYYYMMDD.sql"
 ```
 ### 可选操作2（结束）
 

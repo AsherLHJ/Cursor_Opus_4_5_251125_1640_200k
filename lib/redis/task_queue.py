@@ -5,7 +5,7 @@
 Key设计:
 - task:{uid}:{qid}:pending_blocks (List) - 待处理Block队列
 - query:{uid}:{qid}:status        (Hash) - 任务状态
-- query:{uid}:{qid}:pause_signal  (String) - 暂停信号
+- query:{uid}:{qid}:terminate_signal (String) - 终止信号
 - progress:{uid}:{qid}:finished_count (String) - 已完成计数
 """
 
@@ -26,10 +26,6 @@ class TaskQueue:
     @staticmethod
     def _key_status(uid: int, qid: str) -> str:
         return f"query:{uid}:{qid}:status"
-    
-    @staticmethod
-    def _key_pause(uid: int, qid: str) -> str:
-        return f"query:{uid}:{qid}:pause_signal"
     
     @staticmethod
     def _key_terminate(uid: int, qid: str) -> str:
@@ -201,7 +197,7 @@ class TaskQueue:
     
     @classmethod
     def set_state(cls, uid: int, qid: str, state: str) -> bool:
-        """设置任务状态（RUNNING/PAUSED/DONE/FAILED）"""
+        """设置任务状态（RUNNING/DONE/FAILED/CANCELLED）"""
         client = get_redis_client()
         if not client or uid <= 0 or not qid:
             return False
@@ -224,53 +220,6 @@ class TaskQueue:
         total = status.get('total_blocks', 0)
         finished = status.get('finished_blocks', 0)
         return total > 0 and finished >= total
-    
-    # ==================== 暂停信号操作 ====================
-    
-    @classmethod
-    def set_pause_signal(cls, uid: int, qid: str, ttl: int = 604800) -> bool:
-        """
-        设置暂停信号
-        
-        Args:
-            uid: 用户ID
-            qid: 查询ID
-            ttl: 过期时间（默认7天）
-        """
-        client = get_redis_client()
-        if not client or uid <= 0 or not qid:
-            return False
-        
-        try:
-            client.set(cls._key_pause(uid, qid), "1", ex=ttl)
-            return True
-        except Exception:
-            return False
-    
-    @classmethod
-    def clear_pause_signal(cls, uid: int, qid: str) -> bool:
-        """清除暂停信号"""
-        client = get_redis_client()
-        if not client or uid <= 0 or not qid:
-            return False
-        
-        try:
-            client.delete(cls._key_pause(uid, qid))
-            return True
-        except Exception:
-            return False
-    
-    @classmethod
-    def is_paused(cls, uid: int, qid: str) -> bool:
-        """检查是否存在暂停信号"""
-        client = get_redis_client()
-        if not client or uid <= 0 or not qid:
-            return False
-        
-        try:
-            return client.exists(cls._key_pause(uid, qid)) > 0
-        except Exception:
-            return False
     
     # ==================== 终止信号操作 ====================
     

@@ -220,11 +220,10 @@ def _check_completions() -> None:
     """
     检查并处理完成的查询
     
-    新架构修复：区分正常完成、暂停、取消三种状态
-    只有正常完成时才标记为DONE，暂停/取消的任务保持原状态
+    修复41：删除暂停状态处理，只区分取消和正常完成
     """
     done_qids = []  # 正常完成的
-    paused_qids = []  # 暂停/取消的
+    cancelled_qids = []  # 取消的
     
     with _managed_lock:
         for qid, workers in list(_managed_queries.items()):
@@ -243,18 +242,18 @@ def _check_completions() -> None:
                 status = TaskQueue.get_status(uid, qid)
                 state = status.get('state', '') if status else ''
                 
-                if state in ('PAUSED', 'CANCELLED'):
-                    # 暂停或取消的任务，不标记完成
-                    paused_qids.append((qid, state))
+                if state == 'CANCELLED':
+                    # 取消的任务，不标记完成
+                    cancelled_qids.append(qid)
                 else:
                     # 正常完成
                     done_qids.append(qid)
     
-    # 处理暂停/取消的查询（只从管理列表移除，保持原状态）
-    for qid, state in paused_qids:
+    # 处理取消的查询（只从管理列表移除，保持原状态）
+    for qid in cancelled_qids:
         with _managed_lock:
             _managed_queries.pop(qid, None)
-        print(f"[Scheduler] 查询已{state}: {qid}")
+        print(f"[Scheduler] 查询已取消: {qid}")
     
     # 处理正常完成的查询
     for qid in done_qids:
@@ -296,26 +295,6 @@ def submit_query(uid: int, qid: str, block_keys: List[str]) -> bool:
     TaskQueue.reset_finished_count(uid, qid)
     
     print(f"[Scheduler] 提交查询 {qid}: {len(block_keys)} 个Blocks")
-    return True
-
-
-def pause_query(uid: int, qid: str) -> bool:
-    """暂停查询"""
-    TaskQueue.set_pause_signal(uid, qid)
-    return True
-
-
-def resume_query(uid: int, qid: str) -> bool:
-    """恢复查询"""
-    TaskQueue.clear_pause_signal(uid, qid)
-    
-    # 检查是否还有待处理的Block
-    pending = TaskQueue.get_pending_count(uid, qid)
-    if pending > 0:
-        # 重新启动Workers
-        permission = get_permission(uid) or 1
-        _start_query_workers(uid, qid, permission)
-    
     return True
 
 

@@ -603,6 +603,7 @@
 || 2025-12-02 | 修复38 | 蒸馏功能语言参数变量名遮蔽问题修复 | paper_processor.py, query_api.py |
 || 2025-12-02 | 修复39 | 查询/蒸馏任务结果文件BUG修复与query_id显示功能 | download_worker.py, paper_blocks.py, index.html, i18n.js |
 || 2025-12-02 | 修复40 | 下载功能MySQL回源机制（Redis数据过期/清空后仍可下载） | download_worker.py, search_dao.py |
+|| 2025-12-18 | 修复41 | 删除暂停/恢复功能，添加终止确认弹窗 | task_queue.py, query_dao.py, scheduler.py, worker.py, query_api.py, admin_api.py, server.py, index.html, tasks.html, i18n.js |
 
 ---
 
@@ -1975,6 +1976,141 @@ def _relevance_sort_key(item):
 ### 修改文件清单
 - `lib/process/download_worker.py` - 导入search_dao + 替换get_all_results调用
 - `lib/load_data/search_dao.py` - 增强MySQL回源时的block_key获取
+
+---
+
+## 修复轮次四十一：删除暂停/恢复功能并增强终止确认 (2025-12-18)
+
+### 问题清单
+1. 用户点击暂停按钮后，任务进度条直接从0跳到100，未显示检索结果
+2. 点击"恢复"按钮后，任务无法恢复执行，后台无恢复日志
+3. 管理员后台无法"终止"已暂停的任务
+4. 终止后任务短暂显示"已暂停"状态再变为"已完成"
+5. 该BUG在大型任务中可复现（如922篇文献、2个worker）
+
+### 问题分析
+
+#### 41a: 暂停/恢复功能损坏
+- **根因**: `resume_query` 函数无法正确重启已暂停的 Worker 线程
+- **表现**: 暂停后 Worker 停止，恢复时线程池状态未正确重置
+- **深层问题**: `pause_signal` 与 `terminate_signal` 的交互逻辑存在冲突
+
+#### 41b: 解决方案
+用户要求彻底删除暂停/恢复功能，只保留终止功能，并为终止按钮添加确认弹窗。
+
+### 修复内容
+
+#### 41a: 后端 Redis 层 (task_queue.py)
+- **删除方法**: `_key_pause()`, `set_pause_signal()`, `clear_pause_signal()`, `is_paused()`
+- **保留方法**: `_key_terminate()`, `set_terminate_signal()`, `is_terminated()`
+
+#### 41b: 后端 Query DAO (query_dao.py)
+- **删除函数**: `pause_query()`, `resume_query()`
+- **修改函数**: `get_query_progress()` 移除 `is_paused` 返回字段
+
+#### 41c: 后端 Scheduler (scheduler.py)
+- **删除函数**: `pause_query()`, `resume_query()`
+- **修改函数**: `_check_completions()` 移除 PAUSED 状态处理逻辑
+
+#### 41d: 后端 Worker (worker.py)
+- **删除代码**: `_run_loop()` 中检查 `pause_signal` 的代码块
+- **删除代码**: `_process_block()` 中检查 `is_paused` 的代码
+- **修改函数**: `stop_workers_for_query()` 改用 `set_terminate_signal`
+
+#### 41e: 后端 Query API (query_api.py)
+- **删除路由**: `/api/update_pause_status`, `/api/pause_query`, `/api/resume_query`
+- **删除函数**: `_handle_update_pause_status()`, `_handle_pause_query()`, `_handle_resume_query()`
+- **修改函数**: `_handle_get_query_history()` 移除 `should_pause` 字段
+- **修改函数**: `_handle_get_query_progress()` 移除 `is_paused` 字段
+- **修改函数**: `_handle_get_query_info()` 移除 `should_pause` 字段
+
+#### 41f: 后端 Admin API (admin_api.py)
+- **删除路由**: `/api/admin/tasks/pause`, `/api/admin/tasks/resume`, `/api/admin/tasks/batch_pause`, `/api/admin/tasks/batch_resume`
+- **删除函数**: `_handle_pause_task()`, `_handle_resume_task()`, `_handle_batch_pause_tasks()`, `_handle_batch_resume_tasks()`
+
+#### 41g: 后端 Server (server.py)
+- **删除路由**: POST `/api/update_pause_status`, `/api/pause_query`, `/api/resume_query`
+
+#### 41h: 前端用户页面 (index.html)
+- **删除元素**: `#pauseResumeBtn` 暂停/恢复按钮、历史卡片暂停按钮、蒸馏区域暂停按钮
+- **删除函数**: `setupPauseResumeButton()`, `updatePauseResumeButton()`, `handlePauseResume()`, `toggleHistoryProgress()`, `setupDistillPauseResumeButton()`
+- **删除变量**: `intendedShouldPause`, `currentShouldPause`
+- **新增元素**: `#terminateConfirmModal` 终止确认弹窗
+- **新增函数**: `showTerminateModal()`, `closeTerminateModal()`, `confirmTerminate()`
+- **新增样式**: `.modal-overlay`, `.modal-content`, `.modal-title`, `.modal-message`, `.modal-buttons`, `.btn-primary`, `.btn-secondary`
+- **修改函数**: `handleTerminate()`, `terminateHistoryTask()` 集成确认弹窗
+
+#### 41i: 管理员任务页面 (admin/tasks.html)
+- **删除元素**: `batch_pause` 和 `batch_resume` 批量操作按钮
+- **删除函数**: `batchPauseTasks()`, `batchResumeTasks()`
+- **删除选项**: 状态筛选中的 PAUSED 选项
+- **修改函数**: `batchTerminateTasks()` 只筛选 RUNNING 状态任务
+
+#### 41j: 国际化翻译 (i18n.js)
+- **删除词条** (中英文):
+  - `index.status_paused`, `index.pause`, `index.resume`
+  - `index.pause_confirm`, `index.resume_confirm`
+  - `index.pause_success`, `index.resume_success`
+  - `index.pause_fail`, `index.resume_fail`
+  - `index.distill_pause_not_supported`
+  - `history.pause`, `history.resume`
+  - `history.pause_confirm`, `history.resume_confirm`
+  - `history.pause_success`, `history.pause_fail`
+  - `history.resume_success`, `history.resume_fail`
+  - `admin.tasks_filter_paused`
+  - `admin.tasks_pause`, `admin.tasks_resume`
+  - `admin.batch_pause`, `admin.batch_resume`
+  - `admin.batch_confirm_pause`, `admin.batch_confirm_resume`
+- **新增词条** (中英文):
+  - `index.terminate_confirm_title`: "警告" / "Warning"
+  - `index.terminate_confirm_message`: "任务终止后无法恢复，且消耗的点数不会退回，是否确认终止该任务？" / "Once terminated, the task cannot be resumed and consumed points will not be refunded. Are you sure you want to terminate this task?"
+  - `common.no`: "否" / "No"
+  - `common.yes`: "是" / "Yes"
+
+### 终止确认弹窗设计
+
+**HTML结构**:
+```html
+<div id="terminateConfirmModal" class="modal-overlay" style="display:none;">
+  <div class="modal-content">
+    <h3 class="modal-title" data-i18n="index.terminate_confirm_title">警告</h3>
+    <p class="modal-message" data-i18n="index.terminate_confirm_message">
+      任务终止后无法恢复，且消耗的点数不会退回，是否确认终止该任务？
+    </p>
+    <div class="modal-buttons">
+      <button class="btn-primary" onclick="closeTerminateModal()">
+        <span data-i18n="common.no">否</span>
+      </button>
+      <button class="btn-secondary" onclick="confirmTerminate()">
+        <span data-i18n="common.yes">是</span>
+      </button>
+    </div>
+  </div>
+</div>
+```
+
+**按钮样式**:
+- 左侧"否"按钮: 蓝色主题高亮 (`#3b82f6`)
+- 右侧"是"按钮: 灰色背景 (`#4a4a4a`)
+
+### 修改文件统计
+| 类型 | 数量 |
+|------|------|
+| 修改 | 10 |
+| 新增 | 0 |
+| 删除 | 0 |
+
+### 修改文件清单
+- `lib/redis/task_queue.py` - 删除4个暂停相关方法
+- `lib/load_data/query_dao.py` - 删除2个暂停相关函数，修改1个返回值
+- `lib/process/scheduler.py` - 删除2个暂停相关函数
+- `lib/process/worker.py` - 删除暂停检查代码
+- `lib/webserver/query_api.py` - 删除3个API路由和处理函数，修改3个返回值
+- `lib/webserver/admin_api.py` - 删除4个API路由和处理函数
+- `lib/webserver/server.py` - 删除3个POST路由
+- `lib/html/index.html` - 删除暂停/恢复UI，添加终止确认弹窗
+- `lib/html/admin/tasks.html` - 删除批量暂停/恢复功能
+- `lib/html/static/js/i18n.js` - 删除暂停翻译，添加终止确认翻译
 
 ---
 

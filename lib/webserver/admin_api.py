@@ -14,7 +14,7 @@ from ..load_data.user_dao import (
     get_all_users, update_user_balance, update_user_permission
 )
 from ..load_data.query_dao import (
-    get_active_queries, get_query_log, pause_query, resume_query
+    get_active_queries, get_query_log, cancel_query
 )
 from ..redis.task_queue import TaskQueue
 from ..redis.connection import redis_ping
@@ -71,12 +71,6 @@ def handle_admin_api(path: str, method: str, headers: Dict,
     if path == '/api/admin/tasks/terminate' and method == 'POST':
         return _handle_terminate_task(data)
     
-    if path == '/api/admin/tasks/pause' and method == 'POST':
-        return _handle_pause_task(data)
-    
-    if path == '/api/admin/tasks/resume' and method == 'POST':
-        return _handle_resume_task(data)
-    
     # 批量操作 API（修复32新增）
     if path == '/api/admin/users/batch_balance' and method == 'POST':
         return _handle_batch_update_balance(data)
@@ -86,12 +80,6 @@ def handle_admin_api(path: str, method: str, headers: Dict,
     
     if path == '/api/admin/tasks/batch_terminate' and method == 'POST':
         return _handle_batch_terminate_tasks(data)
-    
-    if path == '/api/admin/tasks/batch_pause' and method == 'POST':
-        return _handle_batch_pause_tasks(data)
-    
-    if path == '/api/admin/tasks/batch_resume' and method == 'POST':
-        return _handle_batch_resume_tasks(data)
     
     if path == '/api/admin/admins' and method == 'GET':
         return _handle_get_admins()
@@ -273,7 +261,7 @@ def _handle_terminate_task(data: Dict) -> Tuple[int, Dict]:
     """
     终止任务
     
-    新架构修复：使用独立的终止信号，区别于暂停信号
+    修复42：调用统一的 cancel_query 函数，确保终止逻辑与用户端一致
     """
     uid = data.get('uid')
     qid = data.get('query_id')
@@ -286,48 +274,12 @@ def _handle_terminate_task(data: Dict) -> Tuple[int, Dict]:
     except (TypeError, ValueError):
         return 400, {'success': False, 'message': 'uid格式错误'}
     
-    # 设置终止信号（区别于暂停信号，Worker会输出不同日志）
-    TaskQueue.set_terminate_signal(uid, qid)
-    TaskQueue.set_state(uid, qid, 'CANCELLED')
-    
-    # 停止Workers
-    stopped = stop_workers_for_query(uid, qid)
-    
-    return 200, {'success': True, 'message': f'已发送终止信号，停止了{stopped}个Worker'}
-
-
-def _handle_pause_task(data: Dict) -> Tuple[int, Dict]:
-    """暂停任务"""
-    uid = data.get('uid')
-    qid = data.get('query_id')
-    
-    if not uid or not qid:
-        return 400, {'success': False, 'message': '参数不完整'}
-    
-    try:
-        uid = int(uid)
-    except (TypeError, ValueError):
-        return 400, {'success': False, 'message': 'uid格式错误'}
-    
-    pause_query(uid, qid)
-    return 200, {'success': True, 'message': '已暂停'}
-
-
-def _handle_resume_task(data: Dict) -> Tuple[int, Dict]:
-    """恢复任务"""
-    uid = data.get('uid')
-    qid = data.get('query_id')
-    
-    if not uid or not qid:
-        return 400, {'success': False, 'message': '参数不完整'}
-    
-    try:
-        uid = int(uid)
-    except (TypeError, ValueError):
-        return 400, {'success': False, 'message': 'uid格式错误'}
-    
-    resume_query(uid, qid)
-    return 200, {'success': True, 'message': '已恢复'}
+    # 调用统一的终止函数（包含完整逻辑：设置信号、清理队列、停止Worker、更新数据库）
+    success = cancel_query(uid, qid)
+    if success:
+        return 200, {'success': True, 'message': '任务已终止'}
+    else:
+        return 500, {'success': False, 'message': '终止失败'}
 
 
 def _handle_get_admins() -> Tuple[int, Dict]:
@@ -653,6 +605,8 @@ def _handle_batch_terminate_tasks(data: Dict) -> Tuple[int, Dict]:
     """
     批量终止任务
     
+    修复42：调用统一的 cancel_query 函数，确保终止逻辑与用户端一致
+    
     请求格式:
     {
         "items": [{"uid": 1, "query_id": "xxx"}, ...]
@@ -665,7 +619,6 @@ def _handle_batch_terminate_tasks(data: Dict) -> Tuple[int, Dict]:
     
     success_count = 0
     fail_count = 0
-    total_workers_stopped = 0
     
     for item in items:
         uid = item.get('uid')
@@ -677,11 +630,12 @@ def _handle_batch_terminate_tasks(data: Dict) -> Tuple[int, Dict]:
         
         try:
             uid = int(uid)
-            TaskQueue.set_terminate_signal(uid, qid)
-            TaskQueue.set_state(uid, qid, 'CANCELLED')
-            stopped = stop_workers_for_query(uid, qid)
-            total_workers_stopped += stopped
-            success_count += 1
+            # 调用统一的终止函数（包含完整逻辑）
+            success = cancel_query(uid, qid)
+            if success:
+                success_count += 1
+            else:
+                fail_count += 1
         except Exception:
             fail_count += 1
     
@@ -689,9 +643,8 @@ def _handle_batch_terminate_tasks(data: Dict) -> Tuple[int, Dict]:
     if fail_count == 0:
         return 200, {
             'success': True,
-            'message': f'批量终止成功，共 {success_count} 个任务，停止了 {total_workers_stopped} 个Worker',
-            'success_count': success_count,
-            'workers_stopped': total_workers_stopped
+            'message': f'批量终止成功，共 {success_count} 个任务',
+            'success_count': success_count
         }
     elif success_count > 0:
         return 200, {
@@ -703,103 +656,4 @@ def _handle_batch_terminate_tasks(data: Dict) -> Tuple[int, Dict]:
     else:
         return 400, {'success': False, 'message': '批量终止失败'}
 
-
-def _handle_batch_pause_tasks(data: Dict) -> Tuple[int, Dict]:
-    """
-    批量暂停任务
-    
-    请求格式:
-    {
-        "items": [{"uid": 1, "query_id": "xxx"}, ...]
-    }
-    """
-    items = data.get('items', [])
-    
-    if not items:
-        return 400, {'success': False, 'message': '未选择任何任务'}
-    
-    success_count = 0
-    fail_count = 0
-    
-    for item in items:
-        uid = item.get('uid')
-        qid = item.get('query_id')
-        
-        if not uid or not qid:
-            fail_count += 1
-            continue
-        
-        try:
-            uid = int(uid)
-            pause_query(uid, qid)
-            success_count += 1
-        except Exception:
-            fail_count += 1
-    
-    total = success_count + fail_count
-    if fail_count == 0:
-        return 200, {
-            'success': True,
-            'message': f'批量暂停成功，共 {success_count} 个任务',
-            'success_count': success_count
-        }
-    elif success_count > 0:
-        return 200, {
-            'success': True,
-            'message': f'部分成功：{success_count}/{total} 个任务',
-            'success_count': success_count,
-            'fail_count': fail_count
-        }
-    else:
-        return 400, {'success': False, 'message': '批量暂停失败'}
-
-
-def _handle_batch_resume_tasks(data: Dict) -> Tuple[int, Dict]:
-    """
-    批量恢复任务
-    
-    请求格式:
-    {
-        "items": [{"uid": 1, "query_id": "xxx"}, ...]
-    }
-    """
-    items = data.get('items', [])
-    
-    if not items:
-        return 400, {'success': False, 'message': '未选择任何任务'}
-    
-    success_count = 0
-    fail_count = 0
-    
-    for item in items:
-        uid = item.get('uid')
-        qid = item.get('query_id')
-        
-        if not uid or not qid:
-            fail_count += 1
-            continue
-        
-        try:
-            uid = int(uid)
-            resume_query(uid, qid)
-            success_count += 1
-        except Exception:
-            fail_count += 1
-    
-    total = success_count + fail_count
-    if fail_count == 0:
-        return 200, {
-            'success': True,
-            'message': f'批量恢复成功，共 {success_count} 个任务',
-            'success_count': success_count
-        }
-    elif success_count > 0:
-        return 200, {
-            'success': True,
-            'message': f'部分成功：{success_count}/{total} 个任务',
-            'success_count': success_count,
-            'fail_count': fail_count
-        }
-    else:
-        return 400, {'success': False, 'message': '批量恢复失败'}
 

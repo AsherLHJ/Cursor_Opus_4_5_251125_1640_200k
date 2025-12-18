@@ -350,7 +350,6 @@ def get_query_progress(uid: int, query_id: str) -> Optional[Dict]:
                 'finished_blocks': finished,
                 'finished_papers': finished_count,
                 'progress': round(progress, 2),
-                'is_paused': TaskQueue.is_paused(uid, query_id),
             }
     
     # 回退到数据库查询
@@ -365,30 +364,13 @@ def get_query_progress(uid: int, query_id: str) -> Optional[Dict]:
     return None
 
 
-def pause_query(uid: int, query_id: str) -> bool:
-    """暂停查询"""
-    if redis_ping():
-        TaskQueue.set_pause_signal(uid, query_id)
-        TaskQueue.set_state(uid, query_id, 'PAUSED')
-    return update_query_status(query_id, 'PAUSED')
-
-
-def resume_query(uid: int, query_id: str) -> bool:
-    """恢复查询"""
-    if redis_ping():
-        TaskQueue.clear_pause_signal(uid, query_id)
-        TaskQueue.set_state(uid, query_id, 'RUNNING')
-    return update_query_status(query_id, 'RUNNING')
-
-
 def cancel_query(uid: int, query_id: str) -> bool:
     """
     取消/终止查询任务
     
-    新架构修复12：使用 terminate_signal 而不是 pause_signal，
-    以区分用户主动终止和暂停操作
+    使用 terminate_signal 终止任务，Worker检测到后会立即退出
     
-    新架构修复12c：必须调用 stop_workers_for_query 停止Worker线程，
+    修复12c：必须调用 stop_workers_for_query 停止Worker线程，
     否则Worker会继续运行直到完成
     
     Args:

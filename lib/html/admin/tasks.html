@@ -23,11 +23,10 @@
         .panel { background: white; border-radius: 12px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 1.5rem; }
         .panel h2 { font-size: 1.1rem; color: #1a1a2e; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid #eee; }
         
-        /* 状态徽章 */
+        /* 状态徽章（修复41：删除 paused 状态） */
         .status-badge { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.8rem; font-weight: 500; }
         .status-running { background: #dcfce7; color: #166534; }
         .status-done { background: #e0e7ff; color: #3730a3; }
-        .status-paused { background: #fef3c7; color: #92400e; }
         .status-pending { background: #f3f4f6; color: #6b7280; }
         .status-cancelled { background: #fee2e2; color: #991b1b; }
         
@@ -162,10 +161,9 @@
         let tasksTable = null;
         let tasksData = [];
         
-        // 状态翻译映射
+        // 状态翻译映射（修复41：删除 PAUSED 状态）
         const statusLabels = {
             'RUNNING': () => i18n.t('admin.tasks_filter_running'),
-            'PAUSED': () => i18n.t('admin.tasks_filter_paused'),
             'DONE': () => i18n.t('admin.tasks_filter_done'),
             'CANCELLED': () => '已取消',
             'PENDING': () => '待处理'
@@ -196,7 +194,6 @@
                         filterable: true,
                         filterOptions: [
                             { value: 'RUNNING', label: i18n.t('admin.tasks_filter_running') },
-                            { value: 'PAUSED', label: i18n.t('admin.tasks_filter_paused') },
                             { value: 'DONE', label: i18n.t('admin.tasks_filter_done') },
                             { value: 'CANCELLED', label: '已取消' }
                         ],
@@ -227,16 +224,6 @@
                 filterCentered: true,
                 filterLabelPrefix: i18n.t('admin.status_filter'),
                 batchActions: [
-                    { 
-                        label: i18n.t('admin.batch_pause'), 
-                        className: 'batch-btn-warning', 
-                        onClick: batchPauseTasks 
-                    },
-                    { 
-                        label: i18n.t('admin.batch_resume'), 
-                        className: 'batch-btn-success', 
-                        onClick: batchResumeTasks 
-                    },
                     { 
                         label: i18n.t('admin.batch_terminate'), 
                         className: 'batch-btn-danger', 
@@ -312,81 +299,11 @@
             }
         }
         
-        async function batchPauseTasks(selectedRows, table) {
-            // 只选择 RUNNING 状态的任务
-            const runningTasks = selectedRows.filter(r => r.status === 'RUNNING');
-            if (runningTasks.length === 0) {
-                DataTable.showToast('请选择运行中的任务', 'warning');
-                return;
-            }
-            
-            const confirmMsg = i18n.t('admin.batch_confirm_pause', { count: runningTasks.length });
-            if (!confirm(confirmMsg)) return;
-            
-            const items = runningTasks.map(row => ({
-                uid: row.uid,
-                query_id: row.query_id
-            }));
-            
-            try {
-                const response = await fetchWithAuth('/api/admin/tasks/batch_pause', {
-                    method: 'POST',
-                    body: JSON.stringify({ items })
-                });
-                const data = await response.json();
-                
-                if (data.success) {
-                    DataTable.showToast(data.message || i18n.t('admin.operation_success'), 'success');
-                    table.clearSelection();
-                    loadTasks();
-                } else {
-                    DataTable.showToast(data.message || i18n.t('admin.operation_failed'), 'error');
-                }
-            } catch (error) {
-                DataTable.showToast(i18n.t('admin.operation_failed') + ': ' + error.message, 'error');
-            }
-        }
-        
-        async function batchResumeTasks(selectedRows, table) {
-            // 只选择 PAUSED 状态的任务
-            const pausedTasks = selectedRows.filter(r => r.status === 'PAUSED');
-            if (pausedTasks.length === 0) {
-                DataTable.showToast('请选择已暂停的任务', 'warning');
-                return;
-            }
-            
-            const confirmMsg = i18n.t('admin.batch_confirm_resume', { count: pausedTasks.length });
-            if (!confirm(confirmMsg)) return;
-            
-            const items = pausedTasks.map(row => ({
-                uid: row.uid,
-                query_id: row.query_id
-            }));
-            
-            try {
-                const response = await fetchWithAuth('/api/admin/tasks/batch_resume', {
-                    method: 'POST',
-                    body: JSON.stringify({ items })
-                });
-                const data = await response.json();
-                
-                if (data.success) {
-                    DataTable.showToast(data.message || i18n.t('admin.operation_success'), 'success');
-                    table.clearSelection();
-                    loadTasks();
-                } else {
-                    DataTable.showToast(data.message || i18n.t('admin.operation_failed'), 'error');
-                }
-            } catch (error) {
-                DataTable.showToast(i18n.t('admin.operation_failed') + ': ' + error.message, 'error');
-            }
-        }
-        
         async function batchTerminateTasks(selectedRows, table) {
-            // 只选择 RUNNING 或 PAUSED 状态的任务
-            const activeTasks = selectedRows.filter(r => r.status === 'RUNNING' || r.status === 'PAUSED');
+            // 修复41: 只选择 RUNNING 状态的任务（删除了 PAUSED 状态）
+            const activeTasks = selectedRows.filter(r => r.status === 'RUNNING');
             if (activeTasks.length === 0) {
-                DataTable.showToast('请选择运行中或已暂停的任务', 'warning');
+                DataTable.showToast('请选择运行中的任务', 'warning');
                 return;
             }
             
