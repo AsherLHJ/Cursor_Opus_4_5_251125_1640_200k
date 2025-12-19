@@ -91,9 +91,7 @@ python install_requirements.py
 ### 3. 初始化数据库
 # 如果没有数据库，用此命令创建一个数据库
 ```sql
-CREATE DATABASE paperdb 
-     CHARACTER SET utf8mb4 
-     COLLATE utf8mb4_0900_ai_ci;
+CREATE DATABASE paperdb CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 ```
 
 ```bash

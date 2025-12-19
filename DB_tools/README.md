@@ -222,30 +222,37 @@ python tools_refresh_db_tag.py
 python tools_refresh_db_paper_with_tag.py
 python tools_refresh_db_sentence.py
 ```
-### 可选操作1：导出本地数据库中的指定表，但仅向对方数据库《插入新增数据》，不覆盖原有数据===========
+### 可选操作1：导出本地数据库中的指定表，但仅向对方数据库《插入新增数据》，不覆盖原有数据（相同主键的数据会被跳过）===========
 # 下方示例中会导出“contentlist”，“contentlist_year_number”，“paperinfo”，“info_tag”，“info_paper_with_tag”这5个表（复制该命令前请修改"指定路径"和“sql文件名”）
 ```bash
 # PowerShell 建议使用 --result-file，避免使用重定向 > 导致编码被更改
-mysqldump -u root -p --default-character-set=utf8mb4 --no-create-info --skip-add-drop-table --insert-ignore --hex-blob --result-file="paperdb_YYYYMMDD.sql" paperdb contentlist contentlist_year_number paperinfo info_tag info_paper_with_tag
+mysqldump -u root -p --default-character-set=utf8mb4 paperdb contentlist contentlist_year_number paperinfo info_tag info_paper_with_tag --no-create-info --skip-add-drop-table --insert-ignore --hex-blob --result-file="paperdb_YYYYMMDD.sql"
 ```
 ### 可选操作1（结束）
 
-### 可选操作2：《危险操作，谨慎使用》导出本地数据库中的指定表，且《覆盖对方数据库原有数据》===========
+### 可选操作2：导出本地数据库中的指定表，向对方数据库《插入新增数据》，且覆盖原有数据中相同主键的数据（同表下原本独有的数据会被保留）===========
+
+```bash
+mysqldump -u root -p --default-character-set=utf8mb4 paperdb contentlist contentlist_year_number paperinfo info_tag info_paper_with_tag --set-charset --no-create-info --replace --result-file="C:\Users\Asher\Downloads\paperdb_YYYYMMDD.sql"
+```
+### 可选操作2（结束）
+
+### 可选操作3：《危险操作，谨慎使用》导出本地数据库中的指定表，且《覆盖对方数据库原有数据》（会先删除对方数据库中原本的同名表）===========
 # 下方示例中会导出“contentlist”，“contentlist_year_number”，“paperinfo”，“info_tag”，“info_paper_with_tag”这5个表（复制该命令前请修改"指定路径"和“sql文件名”）
 # 注意：谨慎导出用户数据表“user_info”，防止覆盖生产环境的现存用户数据
 ```bash
 # PowerShell 建议使用 --result-file，避免使用重定向 > 导致编码被更改
 mysqldump -u root -p --default-character-set=utf8mb4 paperdb contentlist contentlist_year_number paperinfo info_tag info_paper_with_tag --add-drop-table --set-charset --result-file="C:\Users\Asher\Downloads\paperdb_YYYYMMDD.sql"
 ```
-### 可选操作2（结束）
+### 可选操作3（结束）
 
-### 可选操作3：《危险操作，谨慎使用》导出本地完整数据库，会清除生产环境已存在的用户数据表===========
+### 可选操作4：《危险操作，谨慎使用》导出本地完整数据库，会清除生产环境已存在的用户数据表===========
 ### 把paperdb数据库导出数据库为 SQL 文件，放在指定目录下（复制该命令前请修改"指定路径"和“sql文件名”）
 ```bash
 # PowerShell 建议使用 --result-file，避免使用重定向 > 导致编码被更改
 mysqldump -u root -p --default-character-set=utf8mb4 paperdb --add-drop-table --set-charset --result-file="C:\Users\Asher\Downloads\paperdb_YYYYMMDD.sql"
 ```
-### 可选操作3（结束）
+### 可选操作4（结束）
 
 # 接下来上传到云数据库（云数据库在新建时也选择 utf8mb4 编码）
 - 登录 RDS 控制台 → 数据导入 → 批量数据导入
